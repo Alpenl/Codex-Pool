@@ -1460,6 +1460,7 @@ export default {
     },
     tenantDashboard: {
         actions: {
+            manageApiKeys: "Manage API keys",
             refresh: "Refresh",
             viewBilling: "View billing",
             viewRequestLogs: "View request logs"
@@ -1473,6 +1474,19 @@ export default {
                 description: "Based on tenant key management settings",
                 title: "Currently available API keys"
             },
+            keyEnableRate: {
+                description: "Enabled ratio: {{rate}}% ({{enabled}} / {{total}} keys)",
+                title: "Enabled key ratio"
+            },
+            peakHour: {
+                description: "Highest request volume window",
+                empty: "No data",
+                title: "Peak hour"
+            },
+            requestVelocity: {
+                description: "Average requests per hour in selected range",
+                title: "Request velocity (per hour)"
+            },
             totalRequests: {
                 scopeAllKeys: " / all keys",
                 scopePrefix: "Scope: current tenant",
@@ -1483,6 +1497,7 @@ export default {
         filters: {
             apiKeyAll: "All API keys",
             apiKeyAriaLabel: "API key filter",
+            apiKeyHint: "Tip: use API key filter to isolate hotspots quickly.",
             range: {
                 last24Hours: "Last 24 hours",
                 last30Days: "Last 30 days",
@@ -1490,11 +1505,25 @@ export default {
             },
             rangeAriaLabel: "Time range"
         },
+        hero: {
+            badge: "Tenant Workspace Overview",
+            summaryAllApiKeys: "(all API keys)",
+            summaryPrefix: "Scope: current tenant ",
+            summarySingleApiKey: "(single API key)"
+        },
         subtitle: {
             allApiKeys: "(all API keys)",
             scopePrefix: "Scope: current tenant ",
             singleApiKey: "(single API key)",
             timeWindow: ", time window: "
+        },
+        topKeys: {
+            description: "Based on request volume in selected period",
+            empty: "No API key usage rankings yet",
+            requests: "{{count}} requests",
+            share: "Share {{percent}}%",
+            title: "Top API keys",
+            unknownKey: "Unnamed key"
         },
         title: "Tenant Dashboard",
         trend: {

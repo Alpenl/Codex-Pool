@@ -1460,6 +1460,7 @@ export default {
     },
     tenantDashboard: {
         actions: {
+            manageApiKeys: "Управлять API-ключами",
             refresh: "Обновить",
             viewBilling: "Посмотреть платежные данные",
             viewRequestLogs: "Просмотр журналов запросов"
@@ -1473,6 +1474,19 @@ export default {
                 description: "На основе настроек управления ключами клиента",
                 title: "Доступные на данный момент ключи API"
             },
+            keyEnableRate: {
+                description: "Доля включенных: {{rate}}% ({{enabled}} / {{total}} ключей)",
+                title: "Доля включенных ключей"
+            },
+            peakHour: {
+                description: "Окно с максимальным числом запросов",
+                empty: "Нет данных",
+                title: "Пиковый час"
+            },
+            requestVelocity: {
+                description: "Среднее количество запросов в час за выбранный период",
+                title: "Скорость запросов (в час)"
+            },
             totalRequests: {
                 scopeAllKeys: "/ все ключи",
                 scopePrefix: "Объем: текущий арендатор",
@@ -1483,6 +1497,7 @@ export default {
         filters: {
             apiKeyAll: "Все ключи API",
             apiKeyAriaLabel: "Фильтр API-ключа",
+            apiKeyHint: "Подсказка: фильтр API-ключа помогает быстро найти точки нагрузки.",
             range: {
                 last24Hours: "Последние 24 часа",
                 last30Days: "Последние 30 дней",
@@ -1490,11 +1505,25 @@ export default {
             },
             rangeAriaLabel: "Диапазон времени"
         },
+        hero: {
+            badge: "Обзор рабочего пространства арендатора",
+            summaryAllApiKeys: "(все ключи API)",
+            summaryPrefix: "Объем: текущий арендатор ",
+            summarySingleApiKey: "(один ключ API)"
+        },
         subtitle: {
             allApiKeys: "(все ключи API)",
             scopePrefix: "Объем: текущий арендатор",
             singleApiKey: "(один ключ API)",
             timeWindow: ", временное окно:"
+        },
+        topKeys: {
+            description: "Основано на объеме запросов за выбранный период",
+            empty: "Пока нет рейтинга использования API-ключей",
+            requests: "{{count}} запросов",
+            share: "Доля {{percent}}%",
+            title: "Топ API-ключей",
+            unknownKey: "Ключ без имени"
         },
         title: "Панель управления арендатора",
         trend: {

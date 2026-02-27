@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { HeroUIProvider } from '@heroui/react'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { ThemeProvider } from '@/components/theme-provider'
 import { lazy, Suspense, useEffect, useState } from 'react'
@@ -185,34 +186,36 @@ function AdminApp() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="system" storageKey="codex-ui-theme">
-        <NotificationCenter />
-        {!authenticated ? (
-          <Suspense fallback={<RouteSkeleton />}>
-            <Login onLogin={handleLogin} />
-          </Suspense>
-        ) : (
-          <BrowserRouter>
-            <RouteSeoSync />
-            <Routes>
-              <Route element={<AppLayout onLogout={handleLogout} role="admin" />}>
-                <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                <Route path="/dashboard" element={<Suspense fallback={<RouteSkeleton />}><Dashboard /></Suspense>} />
-                <Route path="/accounts" element={<Suspense fallback={<RouteSkeleton />}><Accounts /></Suspense>} />
-                <Route path="/imports" element={<Suspense fallback={<RouteSkeleton />}><ImportJobs /></Suspense>} />
-                <Route path="/oauth-import" element={<Suspense fallback={<RouteSkeleton />}><OAuthImport /></Suspense>} />
-                <Route path="/models" element={<Suspense fallback={<RouteSkeleton />}><Models /></Suspense>} />
-                <Route path="/usage" element={<Suspense fallback={<RouteSkeleton />}><Usage /></Suspense>} />
-                <Route path="/billing" element={<Suspense fallback={<RouteSkeleton />}><Billing /></Suspense>} />
-                <Route path="/proxies" element={<Suspense fallback={<RouteSkeleton />}><Proxies /></Suspense>} />
-                <Route path="/tenants" element={<Suspense fallback={<RouteSkeleton />}><Tenants /></Suspense>} />
-                <Route path="/config" element={<Suspense fallback={<RouteSkeleton />}><Config /></Suspense>} />
-                <Route path="/logs" element={<Suspense fallback={<RouteSkeleton />}><Logs /></Suspense>} />
-                <Route path="/system" element={<Suspense fallback={<RouteSkeleton />}><System /></Suspense>} />
-                <Route path="*" element={<Navigate to="/dashboard" replace />} />
-              </Route>
-            </Routes>
-          </BrowserRouter>
-        )}
+        <HeroUIProvider>
+          <NotificationCenter />
+          {!authenticated ? (
+            <Suspense fallback={<RouteSkeleton />}>
+              <Login onLogin={handleLogin} />
+            </Suspense>
+          ) : (
+            <BrowserRouter>
+              <RouteSeoSync />
+              <Routes>
+                <Route element={<AppLayout onLogout={handleLogout} role="admin" />}>
+                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                  <Route path="/dashboard" element={<Suspense fallback={<RouteSkeleton />}><Dashboard /></Suspense>} />
+                  <Route path="/accounts" element={<Suspense fallback={<RouteSkeleton />}><Accounts /></Suspense>} />
+                  <Route path="/imports" element={<Suspense fallback={<RouteSkeleton />}><ImportJobs /></Suspense>} />
+                  <Route path="/oauth-import" element={<Suspense fallback={<RouteSkeleton />}><OAuthImport /></Suspense>} />
+                  <Route path="/models" element={<Suspense fallback={<RouteSkeleton />}><Models /></Suspense>} />
+                  <Route path="/usage" element={<Suspense fallback={<RouteSkeleton />}><Usage /></Suspense>} />
+                  <Route path="/billing" element={<Suspense fallback={<RouteSkeleton />}><Billing /></Suspense>} />
+                  <Route path="/proxies" element={<Suspense fallback={<RouteSkeleton />}><Proxies /></Suspense>} />
+                  <Route path="/tenants" element={<Suspense fallback={<RouteSkeleton />}><Tenants /></Suspense>} />
+                  <Route path="/config" element={<Suspense fallback={<RouteSkeleton />}><Config /></Suspense>} />
+                  <Route path="/logs" element={<Suspense fallback={<RouteSkeleton />}><Logs /></Suspense>} />
+                  <Route path="/system" element={<Suspense fallback={<RouteSkeleton />}><System /></Suspense>} />
+                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                </Route>
+              </Routes>
+            </BrowserRouter>
+          )}
+        </HeroUIProvider>
       </ThemeProvider>
     </QueryClientProvider>
   )
@@ -233,10 +236,12 @@ function App() {
     return (
       <QueryClientProvider client={queryClient}>
         <ThemeProvider defaultTheme="system" storageKey="codex-ui-theme">
-          <NotificationCenter />
-          <Suspense fallback={<RouteSkeleton />}>
-            <TenantApp />
-          </Suspense>
+          <HeroUIProvider>
+            <NotificationCenter />
+            <Suspense fallback={<RouteSkeleton />}>
+              <TenantApp />
+            </Suspense>
+          </HeroUIProvider>
         </ThemeProvider>
       </QueryClientProvider>
     )

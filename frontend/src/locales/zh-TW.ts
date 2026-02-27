@@ -1460,6 +1460,7 @@ export default {
     },
     tenantDashboard: {
         actions: {
+            manageApiKeys: "管理 API 金鑰",
             refresh: "刷新",
             viewBilling: "檢視帳單",
             viewRequestLogs: "查看請求日誌"
@@ -1473,6 +1474,19 @@ export default {
                 description: "基於租戶密鑰管理設置",
                 title: "目前可用的 API 金鑰"
             },
+            keyEnableRate: {
+                description: "啟用比例：{{rate}}%（{{enabled}} / {{total}} 個金鑰）",
+                title: "金鑰啟用比例"
+            },
+            peakHour: {
+                description: "請求量最高的時段",
+                empty: "暫無資料",
+                title: "尖峰時段"
+            },
+            requestVelocity: {
+                description: "所選時間範圍內每小時平均請求數",
+                title: "請求速率（每小時）"
+            },
             totalRequests: {
                 scopeAllKeys: " / 全部金鑰",
                 scopePrefix: "範圍：目前租戶",
@@ -1483,6 +1497,7 @@ export default {
         filters: {
             apiKeyAll: "所有 API 金鑰",
             apiKeyAriaLabel: "API 金鑰篩選",
+            apiKeyHint: "提示：使用 API 金鑰篩選可快速定位熱點。",
             range: {
                 last24Hours: "過去 24 小時",
                 last30Days: "過去 30 天",
@@ -1490,11 +1505,25 @@ export default {
             },
             rangeAriaLabel: "時間範圍"
         },
+        hero: {
+            badge: "租戶工作區總覽",
+            summaryAllApiKeys: "（所有 API 金鑰）",
+            summaryPrefix: "範圍：目前租戶",
+            summarySingleApiKey: "（單一 API 金鑰）"
+        },
         subtitle: {
             allApiKeys: "（所有 API 金鑰）",
             scopePrefix: "範圍：目前租戶",
             singleApiKey: "（單一 API 金鑰）",
             timeWindow: "，時間窗口："
+        },
+        topKeys: {
+            description: "依所選期間的請求量排序",
+            empty: "目前沒有 API 金鑰使用排行",
+            requests: "{{count}} 次請求",
+            share: "占比 {{percent}}%",
+            title: "Top API 金鑰",
+            unknownKey: "未命名金鑰"
         },
         title: "租戶儀表板",
         trend: {

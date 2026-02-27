@@ -1460,6 +1460,7 @@ export default {
     },
     tenantDashboard: {
         actions: {
+            manageApiKeys: "API キーを管理",
             refresh: "リフレッシュ",
             viewBilling: "請求内容を表示する",
             viewRequestLogs: "リクエストログの表示"
@@ -1473,6 +1474,19 @@ export default {
                 description: "テナントのキー管理設定に基づく",
                 title: "現在利用可能な API キー"
             },
+            keyEnableRate: {
+                description: "有効化率: {{rate}}%（{{enabled}} / {{total}} キー）",
+                title: "キー有効化率"
+            },
+            peakHour: {
+                description: "リクエスト量が最も多い時間帯",
+                empty: "データなし",
+                title: "ピーク時間帯"
+            },
+            requestVelocity: {
+                description: "選択範囲での 1 時間あたり平均リクエスト数",
+                title: "リクエスト速度（1時間あたり）"
+            },
             totalRequests: {
                 scopeAllKeys: "/ すべてのキー",
                 scopePrefix: "範囲: 現在のテナント",
@@ -1483,6 +1497,7 @@ export default {
         filters: {
             apiKeyAll: "すべての API キー",
             apiKeyAriaLabel: "API キーフィルター",
+            apiKeyHint: "ヒント: API キーフィルターでホットスポットを素早く特定できます。",
             range: {
                 last24Hours: "過去 24 時間",
                 last30Days: "過去 30 日間",
@@ -1490,11 +1505,25 @@ export default {
             },
             rangeAriaLabel: "期間"
         },
+        hero: {
+            badge: "テナントワークスペース概要",
+            summaryAllApiKeys: "（すべての API キー）",
+            summaryPrefix: "範囲: 現在のテナント ",
+            summarySingleApiKey: "（単一 API キー）"
+        },
         subtitle: {
             allApiKeys: "(すべての API キー)",
             scopePrefix: "範囲: 現在のテナント",
             singleApiKey: "(単一の API キー)",
             timeWindow: "、時間枠:"
+        },
+        topKeys: {
+            description: "選択期間のリクエスト量に基づく",
+            empty: "API キー利用ランキングはまだありません",
+            requests: "{{count}} リクエスト",
+            share: "シェア {{percent}}%",
+            title: "上位 API キー",
+            unknownKey: "名称未設定キー"
         },
         title: "テナントダッシュボード",
         trend: {
