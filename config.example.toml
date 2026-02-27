@@ -1,0 +1,157 @@
+# Codex-Pool 配置示例
+# 优先级：环境变量 > 本文件 > 内置默认值
+# 可通过环境变量 CODEX_POOL_CONFIG_FILE 指向本文件
+
+[control_plane]
+# control-plane 监听地址（默认 0.0.0.0:8090）
+listen = "0.0.0.0:8090"
+# 服务间内部鉴权 token 通过环境变量 CONTROL_PLANE_INTERNAL_AUTH_TOKEN 提供（control-plane/data-plane 必须一致）
+# 对外可访问的 control-plane 基地址（用于 OAuth 回调拼接）
+# control_plane_public_base_url = "https://cp.example.com"
+
+# PostgreSQL DSN；留空则使用内存存储（重启会丢失租户/账号/策略等数据）
+# database_url = "postgres://postgres:postgres@127.0.0.1:5432/codex_pool"
+# API Key HMAC key ring 请通过环境变量 CONTROL_PLANE_API_KEY_HMAC_KEYS 提供
+# 格式：kid:base64_secret[,kid2:base64_secret2]（首个 key 为当前写入 key）
+
+# /internal/v1/auth/validate 返回给 data-plane 的建议缓存 TTL（秒）
+auth_validate_cache_ttl_sec = 30
+
+# 管理台登录账号（可选，不填则使用默认 admin/admin123456）
+# admin_username = "admin"
+# admin_password = "please-change-me"
+# admin_jwt_secret = "please-change-me-too"
+# admin_jwt_ttl_sec = 28800
+
+# ClickHouse（可选，用于 usage 查询 API）
+# clickhouse_url = "http://127.0.0.1:8123"
+clickhouse_database = "default"
+clickhouse_account_table = "usage_account_hourly"
+clickhouse_tenant_apikey_table = "usage_tenant_api_key_hourly"
+clickhouse_tenant_account_table = "usage_tenant_account_hourly"
+
+# SMTP（租户注册/找回密码验证码发送）
+# smtp_host = "smtp.example.com"
+# smtp_port = 587
+# smtp_username = "noreply@example.com"
+# smtp_password = "smtp-password"
+# smtp_from = "noreply@example.com"
+# smtp_from_name = "Codex Pool"
+# smtp_timeout_sec = 10
+# smtp_insecure = false
+
+# OAuth 凭据加密密钥：Base64 编码后的 32 字节密钥
+# 建议生产环境通过环境变量 CREDENTIALS_ENCRYPTION_KEY 注入
+# credentials_encryption_key = "BASE64_32_BYTE_KEY"
+
+# OpenAI OAuth 刷新参数（可选）
+openai_oauth_token_url = "https://auth.openai.com/oauth/token"
+# openai_oauth_authorize_url = "https://auth.openai.com/oauth/authorize"
+# openai_oauth_client_id = "app_xxx"
+openai_oauth_timeout_sec = 15
+
+# OAuth 自动刷新循环（建议开启）
+oauth_refresh_enabled = true
+# 调度循环 tick（秒）；建议 1~5 秒，实际刷新由 next_refresh_at 决定
+oauth_refresh_interval_sec = 5
+
+[data_plane]
+# data-plane 监听地址（默认 0.0.0.0:8091）
+listen = "0.0.0.0:8091"
+# 服务间内部鉴权 token 通过环境变量 CONTROL_PLANE_INTERNAL_AUTH_TOKEN 提供（control-plane/data-plane 必须一致）
+
+# 路由策略：round_robin | fill_first
+routing_strategy = "round_robin"
+# 请求内自动 failover（建议开启）
+enable_request_failover = true
+# 同账号快速重试次数（网络抖动/短暂 5xx）
+same_account_quick_retry_max = 1
+# 单请求内 failover 总预算（毫秒）
+request_failover_wait_ms = 2000
+# failover 轮询间隔（毫秒）
+retry_poll_interval_ms = 100
+# 粘性会话选路时优先避开已被其它会话粘住的账号
+sticky_prefer_non_conflicting = true
+# 启用共享路由缓存（L1 内存 + L2 Redis）
+shared_routing_cache_enabled = true
+# 计费模式下是否允许流式请求（推荐开启）
+enable_metered_stream_billing = true
+# 流式请求是否必须先预授权（推荐开启）
+billing_authorize_required_for_stream = true
+# 单请求预占额度（microcredits）
+stream_billing_reserve_microcredits = 2000000
+# 下游断连后继续读取上游流以提取 usage 的超时（毫秒）
+stream_billing_drain_timeout_ms = 5000
+# capture 调用最大重试次数
+billing_capture_retry_max = 3
+# capture 调用重试退避（毫秒）
+billing_capture_retry_backoff_ms = 200
+
+# 在线鉴权（建议配置）
+auth_validate_url = "http://127.0.0.1:8090/internal/v1/auth/validate"
+auth_validate_cache_ttl_sec = 30
+auth_validate_negative_cache_ttl_sec = 5
+# data-plane 转发请求体大小上限（字节）。默认 10485760（10 MiB）
+max_request_body_bytes = 10485760
+auth_fail_open = false
+
+# 是否开启内部调试路由（生产建议 false）
+enable_internal_debug_routes = false
+
+# 从 control-plane 拉取快照的地址与轮询间隔
+control_plane_base_url = "http://127.0.0.1:8090"
+snapshot_poll_interval_ms = 1000
+
+# 请求日志 Redis Stream（需与 usage-worker 保持一致）
+request_log_stream = "stream.request_log"
+
+# 可选：本地 allowlist API key（等价于环境变量 DATA_PLANE_ALLOWED_API_KEYS）
+# allowed_api_keys = ["cp_test_key_1", "cp_test_key_2"]
+
+# 可选：启动时内置上游账号（一般用于本地联调）
+# [[data_plane.upstream_accounts]]
+# label = "openai-a"
+# mode = "open_ai_api_key" # open_ai_api_key | chat_gpt_session(=chat_gpt_oauth) | codex_oauth
+# base_url = "https://api.openai.com/v1"
+# bearer_token = "sk-xxx"
+# enabled = true
+# priority = 100
+# chatgpt_account_id = "acct_xxx" # mode=chat_gpt_session 或 codex_oauth 时可填
+
+[usage_worker]
+# 必填：消费 Redis Stream 并写入 ClickHouse
+redis_url = "redis://127.0.0.1:6379"
+clickhouse_url = "http://127.0.0.1:8123"
+
+# Stream 名称与消费者组（request_log_stream 要和 data-plane 一致）
+request_log_stream = "stream.request_log"
+request_log_consumer_group = "usage-worker"
+# request_log_consumer_name = "usage-worker-1"
+# request_log_dead_letter_stream = "stream.request_log.dlq"
+
+# 运行模式：daemon 持续运行；oneshot 只跑一轮后退出
+usage_worker_mode = "daemon"
+usage_worker_report_json = false
+# usage_worker_report_path = "/tmp/usage-worker-report.json"
+
+# 批处理与重试参数
+stream_read_count = 100
+stream_block_ms = 1000
+reclaim_count = 100
+reclaim_min_idle_ms = 30000
+flush_min_batch = 100
+flush_interval_ms = 5000
+metrics_log_interval_ms = 10000
+error_backoff_ms = 1000
+error_backoff_factor = 2
+error_backoff_max_ms = 10000
+error_backoff_jitter_pct = 0
+# error_backoff_jitter_seed = 42
+max_consecutive_errors = 0
+
+# ClickHouse 表配置
+clickhouse_database = "default"
+clickhouse_account_table = "usage_account_hourly"
+clickhouse_tenant_apikey_table = "usage_tenant_api_key_hourly"
+clickhouse_tenant_account_table = "usage_tenant_account_hourly"
+# clickhouse_usage_table = "usage_account_hourly" # 兼容旧字段

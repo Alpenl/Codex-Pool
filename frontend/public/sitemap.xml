@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://codex-pool.example.com/</loc>
+  </url>
+  <url>
+    <loc>https://codex-pool.example.com/dashboard</loc>
+  </url>
+  <url>
+    <loc>https://codex-pool.example.com/accounts</loc>
+  </url>
+  <url>
+    <loc>https://codex-pool.example.com/imports</loc>
+  </url>
+  <url>
+    <loc>https://codex-pool.example.com/models</loc>
+  </url>
+  <url>
+    <loc>https://codex-pool.example.com/usage</loc>
+  </url>
+  <url>
+    <loc>https://codex-pool.example.com/proxies</loc>
+  </url>
+</urlset>

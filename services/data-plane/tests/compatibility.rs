@@ -1,0 +1,2181 @@
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use async_trait::async_trait;
+use axum::body::Body;
+use axum::Router;
+use codex_pool_core::api::UsageSummary;
+use codex_pool_core::events::RequestLogEvent;
+use codex_pool_core::model::{RoutingStrategy, UpstreamAccount, UpstreamMode};
+use data_plane::app::{
+    build_app_with_event_sink as dp_build_app_with_event_sink,
+    build_app_with_event_sink_and_allowed_keys as dp_build_app_with_event_sink_and_allowed_keys,
+};
+use data_plane::config::DataPlaneConfig;
+use data_plane::event::{EventSink, NoopEventSink};
+use data_plane::router::RoundRobinRouter;
+use http::Request;
+use http::StatusCode;
+use http_body_util::BodyExt;
+use serde_json::{json, Value};
+use tower::ServiceExt;
+use uuid::Uuid;
+use wiremock::matchers::{body_bytes, header, method, path, query_param};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+use crate::support;
+
+async fn build_app_with_event_sink(
+    config: DataPlaneConfig,
+    event_sink: Arc<dyn EventSink>,
+) -> anyhow::Result<Router> {
+    support::ensure_test_security_env();
+    dp_build_app_with_event_sink(config, event_sink).await
+}
+
+async fn build_app_with_event_sink_and_allowed_keys(
+    config: DataPlaneConfig,
+    event_sink: Arc<dyn EventSink>,
+    allowed_keys: Vec<String>,
+) -> anyhow::Result<Router> {
+    support::ensure_test_security_env();
+    dp_build_app_with_event_sink_and_allowed_keys(config, event_sink, allowed_keys).await
+}
+
+fn test_account(base_url: String, token: &str) -> UpstreamAccount {
+    UpstreamAccount {
+        id: Uuid::new_v4(),
+        label: "acc-1".to_string(),
+        mode: UpstreamMode::ChatGptSession,
+        base_url,
+        bearer_token: token.to_string(),
+        chatgpt_account_id: Some("acct_123".to_string()),
+        enabled: true,
+        priority: 100,
+        created_at: chrono::Utc::now(),
+    }
+}
+
+async fn test_app(accounts: Vec<UpstreamAccount>) -> Router {
+    let cfg = DataPlaneConfig {
+        listen_addr: "127.0.0.1:0".parse().unwrap(),
+        routing_strategy: RoutingStrategy::RoundRobin,
+        upstream_accounts: accounts,
+        account_ejection_ttl_sec: 30,
+        enable_request_failover: true,
+        same_account_quick_retry_max: 1,
+        request_failover_wait_ms: 2_000,
+        retry_poll_interval_ms: 100,
+        sticky_prefer_non_conflicting: true,
+        shared_routing_cache_enabled: true,
+        enable_metered_stream_billing: true,
+        billing_authorize_required_for_stream: true,
+        stream_billing_reserve_microcredits: 2_000_000,
+        billing_dynamic_preauth_enabled: true,
+        billing_preauth_expected_output_tokens: 256,
+        billing_preauth_safety_factor: 1.3,
+        billing_preauth_min_microcredits: 1_000,
+        billing_preauth_max_microcredits: 1_000_000_000_000,
+        billing_preauth_unit_price_microcredits: 10_000,
+        stream_billing_drain_timeout_ms: 5_000,
+        billing_capture_retry_max: 3,
+        billing_capture_retry_backoff_ms: 200,
+        redis_url: None,
+        auth_validate_url: None,
+        auth_validate_cache_ttl_sec: 30,
+        auth_validate_negative_cache_ttl_sec: 5,
+        auth_fail_open: false,
+        enable_internal_debug_routes: false,
+    };
+    build_app_with_event_sink(cfg, Arc::new(NoopEventSink))
+        .await
+        .expect("app should build")
+}
+
+async fn test_app_with_failover_wait_and_control_plane(
+    accounts: Vec<UpstreamAccount>,
+    request_failover_wait_ms: u64,
+    control_plane_base_url: Option<String>,
+) -> Router {
+    test_app_with_failover_wait_and_control_plane_with_preauth(
+        accounts,
+        request_failover_wait_ms,
+        control_plane_base_url,
+        true,
+        10_000,
+    )
+    .await
+}
+
+async fn test_app_with_failover_wait_and_control_plane_with_preauth(
+    accounts: Vec<UpstreamAccount>,
+    request_failover_wait_ms: u64,
+    control_plane_base_url: Option<String>,
+    billing_dynamic_preauth_enabled: bool,
+    billing_preauth_unit_price_microcredits: i64,
+) -> Router {
+    test_app_with_failover_wait_and_control_plane_with_preauth_limits(
+        accounts,
+        request_failover_wait_ms,
+        control_plane_base_url,
+        billing_dynamic_preauth_enabled,
+        256,
+        1.3,
+        1_000,
+        1_000_000_000_000,
+        billing_preauth_unit_price_microcredits,
+    )
+    .await
+}
+
+async fn test_app_with_failover_wait_and_control_plane_with_preauth_limits(
+    accounts: Vec<UpstreamAccount>,
+    request_failover_wait_ms: u64,
+    control_plane_base_url: Option<String>,
+    billing_dynamic_preauth_enabled: bool,
+    billing_preauth_expected_output_tokens: i64,
+    billing_preauth_safety_factor: f64,
+    billing_preauth_min_microcredits: i64,
+    billing_preauth_max_microcredits: i64,
+    billing_preauth_unit_price_microcredits: i64,
+) -> Router {
+    let auth_validate_url = control_plane_base_url
+        .as_deref()
+        .map(|base| format!("{}/internal/v1/auth/validate", base.trim_end_matches('/')));
+    let cfg = DataPlaneConfig {
+        listen_addr: "127.0.0.1:0".parse().unwrap(),
+        routing_strategy: RoutingStrategy::RoundRobin,
+        upstream_accounts: accounts,
+        account_ejection_ttl_sec: 30,
+        enable_request_failover: true,
+        same_account_quick_retry_max: 1,
+        request_failover_wait_ms,
+        retry_poll_interval_ms: 100,
+        sticky_prefer_non_conflicting: true,
+        shared_routing_cache_enabled: true,
+        enable_metered_stream_billing: true,
+        billing_authorize_required_for_stream: true,
+        stream_billing_reserve_microcredits: 2_000_000,
+        billing_dynamic_preauth_enabled,
+        billing_preauth_expected_output_tokens,
+        billing_preauth_safety_factor,
+        billing_preauth_min_microcredits,
+        billing_preauth_max_microcredits,
+        billing_preauth_unit_price_microcredits,
+        stream_billing_drain_timeout_ms: 5_000,
+        billing_capture_retry_max: 3,
+        billing_capture_retry_backoff_ms: 200,
+        redis_url: None,
+        auth_validate_url,
+        auth_validate_cache_ttl_sec: 30,
+        auth_validate_negative_cache_ttl_sec: 5,
+        auth_fail_open: false,
+        enable_internal_debug_routes: false,
+    };
+    build_app_with_event_sink(cfg, Arc::new(NoopEventSink))
+        .await
+        .expect("app should build")
+}
+
+#[derive(Default)]
+struct RecordingSink {
+    events: Mutex<Vec<RequestLogEvent>>,
+}
+
+impl RecordingSink {
+    fn events(&self) -> Vec<RequestLogEvent> {
+        self.events.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl EventSink for RecordingSink {
+    async fn emit_request_log(&self, event: RequestLogEvent) {
+        self.events.lock().unwrap().push(event);
+    }
+}
+
+#[tokio::test]
+async fn round_robin_router_cycles_accounts() {
+    let a = test_account("http://upstream-a".to_string(), "token-a");
+    let b = test_account("http://upstream-b".to_string(), "token-b");
+    let router = RoundRobinRouter::new(vec![a.clone(), b.clone()]);
+
+    assert_eq!(router.pick().unwrap().id, a.id);
+    assert_eq!(router.pick().unwrap().id, b.id);
+    assert_eq!(router.pick().unwrap().id, a.id);
+}
+
+#[tokio::test]
+async fn forwards_headers_and_zstd_body_for_v1_responses() {
+    let upstream = MockServer::start().await;
+    let body = vec![0x28_u8, 0xb5, 0x2f, 0xfd, 0x00, 0x40, 0x78, 0x79, 0x7a];
+
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .and(header("authorization", "Bearer upstream-token"))
+        .and(header("chatgpt-account-id", "acct_123"))
+        .and(header("session_id", "session-abc"))
+        .and(header("x-codex-turn-state", "turn-state-1"))
+        .and(header("x-codex-turn-metadata", "meta-1"))
+        .and(header("x-codex-beta-features", "responses_websockets"))
+        .and(header("openai-beta", "responses_websockets=2026-02-04"))
+        .and(header("x-openai-subagent", "review"))
+        .and(header("content-encoding", "zstd"))
+        .and(body_bytes(body.clone()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
+        .mount(&upstream)
+        .await;
+
+    let app = test_app(vec![test_account(upstream.uri(), "upstream-token")]).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("authorization", "Bearer tenant-token")
+                .header("session_id", "session-abc")
+                .header("x-codex-turn-state", "turn-state-1")
+                .header("x-codex-turn-metadata", "meta-1")
+                .header("x-codex-beta-features", "responses_websockets")
+                .header("openai-beta", "responses_websockets=2026-02-04")
+                .header("x-openai-subagent", "review")
+                .header("content-encoding", "zstd")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let payload: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(payload["ok"], true);
+}
+
+#[tokio::test]
+async fn rejects_oversized_request_body() {
+    let upstream = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
+        .mount(&upstream)
+        .await;
+
+    let app = test_app(vec![test_account(upstream.uri(), "upstream-token")]).await;
+    let oversized = vec![b'a'; 11 * 1024 * 1024];
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from(oversized))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn rejects_backend_api_codex_v1_responses_path() {
+    let upstream = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/backend-api/codex/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"path_ok": true})))
+        .mount(&upstream)
+        .await;
+
+    let app = test_app(vec![test_account(upstream.uri(), "upstream-token")]).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/backend-api/codex/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn rewrites_v1_responses_to_codex_responses_for_codex_base_profile() {
+    let upstream = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/backend-api/codex/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"rewritten": true})))
+        .mount(&upstream)
+        .await;
+
+    let codex_base = format!("{}/backend-api/codex", upstream.uri());
+    let app = test_app(vec![test_account(codex_base, "upstream-token")]).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let payload: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(payload["rewritten"], true);
+}
+
+#[tokio::test]
+async fn rewrites_v1_models_to_codex_models_and_appends_client_version() {
+    let upstream = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/backend-api/codex/models"))
+        .and(query_param("a", "1"))
+        .and(query_param("client_version", "0.1.0"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models": []})))
+        .mount(&upstream)
+        .await;
+
+    let codex_base = format!("{}/backend-api/codex", upstream.uri());
+    let app = test_app(vec![test_account(codex_base, "upstream-token")]).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/models?a=1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let payload: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(payload["models"], json!([]));
+}
+
+#[tokio::test]
+async fn keeps_session_sticky_for_session_and_conversation_id_headers() {
+    let upstream_a = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"account": "a"})))
+        .mount(&upstream_a)
+        .await;
+
+    let upstream_b = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"account": "b"})))
+        .mount(&upstream_b)
+        .await;
+
+    let app = test_app(vec![
+        test_account(upstream_a.uri(), "token-a"),
+        test_account(upstream_b.uri(), "token-b"),
+    ])
+    .await;
+
+    let first = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("session_id", "session-1")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let first_body = first.into_body().collect().await.unwrap().to_bytes();
+    let first_payload: Value = serde_json::from_slice(&first_body).unwrap();
+    assert_eq!(first_payload["account"], "a");
+
+    let second = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("session_id", "session-1")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let second_body = second.into_body().collect().await.unwrap().to_bytes();
+    let second_payload: Value = serde_json::from_slice(&second_body).unwrap();
+    assert_eq!(second_payload["account"], "a");
+
+    let third = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("conversation_id", "conversation-1")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let third_body = third.into_body().collect().await.unwrap().to_bytes();
+    let third_payload: Value = serde_json::from_slice(&third_body).unwrap();
+    assert_eq!(third_payload["account"], "b");
+
+    let fourth = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("conversation_id", "conversation-1")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let fourth_body = fourth.into_body().collect().await.unwrap().to_bytes();
+    let fourth_payload: Value = serde_json::from_slice(&fourth_body).unwrap();
+    assert_eq!(fourth_payload["account"], "b");
+}
+
+#[tokio::test]
+async fn forwards_openai_beta_and_subagent_headers() {
+    let upstream = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/backend-api/codex/responses"))
+        .and(header("openai-beta", "responses_websockets=2026-02-04"))
+        .and(header("x-openai-subagent", "review"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
+        .mount(&upstream)
+        .await;
+
+    let app = test_app(vec![test_account(upstream.uri(), "upstream-token")]).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/backend-api/codex/responses")
+                .header("openai-beta", "responses_websockets=2026-02-04")
+                .header("x-openai-subagent", "review")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let payload: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(payload["ok"], true);
+}
+
+#[tokio::test]
+async fn forwards_sse_stream_response_headers_and_body() {
+    let upstream = MockServer::start().await;
+    let sse_payload = "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n";
+
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse_payload, "text/event-stream"))
+        .mount(&upstream)
+        .await;
+
+    let app = test_app(vec![test_account(upstream.uri(), "upstream-token")]).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    assert!(content_type.contains("text/event-stream"));
+
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(bytes.as_ref(), sse_payload.as_bytes());
+}
+
+#[tokio::test]
+async fn stream_request_without_sse_content_type_still_uses_stream_billing_path() {
+    let upstream = MockServer::start().await;
+    let sse_payload = concat!(
+        "event: response.created\n",
+        "data: {\"type\":\"response.created\",\"response\":{\"usage\":null}}\n\n",
+        "event: response.completed\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":14,\"output_tokens\":5}}}\n\n",
+    );
+
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse_payload, "text/plain"))
+        .mount(&upstream)
+        .await;
+
+    let control_plane = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/auth/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tenant_id": Uuid::new_v4(),
+            "api_key_id": Uuid::new_v4(),
+            "enabled": true,
+            "tenant_status": "active",
+            "balance_microcredits": 1_000_000,
+            "cache_ttl_sec": 30
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/authorize"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "authorization_id": Uuid::new_v4(),
+            "status": "authorized",
+            "reserved_microcredits": 2_000_000
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/capture"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "captured"
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/release"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "released"
+        })))
+        .mount(&control_plane)
+        .await;
+
+    let app = test_app_with_failover_wait_and_control_plane(
+        vec![test_account(upstream.uri(), "upstream-token")],
+        2_000,
+        Some(control_plane.uri()),
+    )
+    .await;
+
+    let request_body = json!({
+        "model": "gpt-5.3-codex",
+        "stream": true,
+        "instructions": "You are helpful",
+        "input": [{
+            "role": "user",
+            "content": [{
+                "type": "input_text",
+                "text": "ping"
+            }]
+        }]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("authorization", "Bearer cp_identity")
+                .header("content-type", "application/json")
+                .body(Body::from(request_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body = std::str::from_utf8(&bytes).unwrap();
+    assert!(body.contains("event: response.completed"));
+    assert!(!body.contains("billing_usage_missing"));
+}
+
+#[tokio::test]
+async fn stream_request_with_plain_json_line_still_captures_billing_usage() {
+    let upstream = MockServer::start().await;
+    let payload = "{\"id\":\"resp_123\",\"usage\":{\"input_tokens\":9,\"output_tokens\":2}}\n";
+
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(payload, "text/plain"))
+        .mount(&upstream)
+        .await;
+
+    let control_plane = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/auth/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tenant_id": Uuid::new_v4(),
+            "api_key_id": Uuid::new_v4(),
+            "enabled": true,
+            "tenant_status": "active",
+            "balance_microcredits": 1_000_000,
+            "cache_ttl_sec": 30
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/authorize"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "authorization_id": Uuid::new_v4(),
+            "status": "authorized",
+            "reserved_microcredits": 2_000_000
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/capture"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "captured"
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/release"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "released"
+        })))
+        .mount(&control_plane)
+        .await;
+
+    let app = test_app_with_failover_wait_and_control_plane(
+        vec![test_account(upstream.uri(), "upstream-token")],
+        2_000,
+        Some(control_plane.uri()),
+    )
+    .await;
+
+    let request_body = json!({
+        "model": "gpt-5.3-codex",
+        "stream": true,
+        "instructions": "You are helpful",
+        "input": [{
+            "role": "user",
+            "content": [{
+                "type": "input_text",
+                "text": "ping"
+            }]
+        }]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("authorization", "Bearer cp_identity")
+                .header("content-type", "application/json")
+                .body(Body::from(request_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(bytes.as_ref(), payload.as_bytes());
+
+    let mut capture_payload: Option<Value> = None;
+    let mut last_paths: Vec<String> = Vec::new();
+    for _ in 0..20 {
+        let requests = control_plane.received_requests().await.unwrap();
+        last_paths = requests
+            .iter()
+            .map(|request| request.url.path().to_string())
+            .collect();
+        if let Some(capture) = requests
+            .iter()
+            .find(|request| request.url.path() == "/internal/v1/billing/capture")
+        {
+            capture_payload = Some(serde_json::from_slice(&capture.body).unwrap());
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let capture_payload = capture_payload
+        .unwrap_or_else(|| panic!("capture request should be sent, paths={last_paths:?}"));
+    assert_eq!(capture_payload["input_tokens"], 9);
+    assert_eq!(capture_payload["output_tokens"], 2);
+}
+
+#[tokio::test]
+async fn stream_request_without_usage_estimates_tokens_for_billing_capture() {
+    let upstream = MockServer::start().await;
+    let sse_payload = concat!(
+        "event: response.output_text.delta\n",
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello world\"}\n\n",
+        "event: response.completed\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"usage\":null}}\n\n",
+    );
+
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse_payload, "text/event-stream"))
+        .mount(&upstream)
+        .await;
+
+    let control_plane = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/auth/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tenant_id": Uuid::new_v4(),
+            "api_key_id": Uuid::new_v4(),
+            "enabled": true,
+            "tenant_status": "active",
+            "balance_microcredits": 1_000_000,
+            "cache_ttl_sec": 30
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/authorize"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "authorization_id": Uuid::new_v4(),
+            "status": "authorized",
+            "reserved_microcredits": 2_000_000
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/capture"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "captured"
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/release"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "released"
+        })))
+        .mount(&control_plane)
+        .await;
+
+    let app = test_app_with_failover_wait_and_control_plane(
+        vec![test_account(upstream.uri(), "upstream-token")],
+        2_000,
+        Some(control_plane.uri()),
+    )
+    .await;
+
+    let request_body = json!({
+        "model": "gpt-5.3-codex",
+        "stream": true,
+        "instructions": "You are helpful",
+        "input": [{
+            "role": "user",
+            "content": [{
+                "type": "input_text",
+                "text": "ping"
+            }]
+        }]
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("authorization", "Bearer cp_identity")
+                .header("content-type", "application/json")
+                .body(Body::from(request_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body = std::str::from_utf8(&bytes).unwrap();
+    assert!(body.contains("response.output_text.delta"));
+
+    let mut capture_payload: Option<Value> = None;
+    let mut last_paths: Vec<String> = Vec::new();
+    for _ in 0..20 {
+        let requests = control_plane.received_requests().await.unwrap();
+        last_paths = requests
+            .iter()
+            .map(|request| request.url.path().to_string())
+            .collect();
+        if let Some(capture) = requests
+            .iter()
+            .find(|request| request.url.path() == "/internal/v1/billing/capture")
+        {
+            capture_payload = Some(serde_json::from_slice(&capture.body).unwrap());
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let capture_payload = capture_payload
+        .unwrap_or_else(|| panic!("capture request should be sent, paths={last_paths:?}"));
+    assert_eq!(capture_payload["input_tokens"], 5);
+    assert_eq!(capture_payload["output_tokens"], 3);
+}
+
+#[tokio::test]
+async fn dynamic_preauth_reserve_is_used_for_authorize_payload() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "resp_dynamic_1",
+            "usage": {"input_tokens": 11, "output_tokens": 7}
+        })))
+        .mount(&upstream)
+        .await;
+
+    let control_plane = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/auth/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tenant_id": Uuid::new_v4(),
+            "api_key_id": Uuid::new_v4(),
+            "enabled": true,
+            "tenant_status": "active",
+            "balance_microcredits": 1_000_000,
+            "cache_ttl_sec": 30
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/authorize"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "authorization_id": Uuid::new_v4(),
+            "status": "authorized",
+            "reserved_microcredits": 1_000
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/capture"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "captured"
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/release"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "released"
+        })))
+        .mount(&control_plane)
+        .await;
+
+    let app = test_app_with_failover_wait_and_control_plane_with_preauth(
+        vec![test_account(upstream.uri(), "upstream-token")],
+        2_000,
+        Some(control_plane.uri()),
+        true,
+        10_000,
+    )
+    .await;
+
+    let request_body = json!({
+        "model": "gpt-5.3-codex",
+        "input": "abcdefgh"
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("authorization", "Bearer cp_identity")
+                .header("content-type", "application/json")
+                .body(Body::from(request_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let expected_dynamic_reserve =
+        ((((2_i64 + 256_i64) as f64) * 10_000_f64) / 1_000_000_f64 * 1.3_f64).ceil() as i64;
+    let expected_dynamic_reserve = expected_dynamic_reserve.clamp(1_000, 1_000_000_000_000);
+    let mut authorize_payload: Option<Value> = None;
+    for _ in 0..20 {
+        let requests = control_plane.received_requests().await.unwrap();
+        if let Some(authorize) = requests
+            .iter()
+            .find(|request| request.url.path() == "/internal/v1/billing/authorize")
+        {
+            authorize_payload = Some(serde_json::from_slice(&authorize.body).unwrap());
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let authorize_payload = authorize_payload.expect("authorize request should be sent");
+    assert_eq!(
+        authorize_payload["reserved_microcredits"],
+        expected_dynamic_reserve
+    );
+}
+
+#[tokio::test]
+async fn preauth_falls_back_to_fixed_reserve_when_dynamic_disabled() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "resp_dynamic_2",
+            "usage": {"input_tokens": 12, "output_tokens": 4}
+        })))
+        .mount(&upstream)
+        .await;
+
+    let control_plane = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/auth/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tenant_id": Uuid::new_v4(),
+            "api_key_id": Uuid::new_v4(),
+            "enabled": true,
+            "tenant_status": "active",
+            "balance_microcredits": 1_000_000,
+            "cache_ttl_sec": 30
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/authorize"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "authorization_id": Uuid::new_v4(),
+            "status": "authorized",
+            "reserved_microcredits": 2_000_000
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/capture"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "captured"
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/release"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "released"
+        })))
+        .mount(&control_plane)
+        .await;
+
+    let app = test_app_with_failover_wait_and_control_plane_with_preauth(
+        vec![test_account(upstream.uri(), "upstream-token")],
+        2_000,
+        Some(control_plane.uri()),
+        false,
+        10_000,
+    )
+    .await;
+
+    let request_body = json!({
+        "model": "gpt-5.3-codex",
+        "input": "abcdefgh"
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("authorization", "Bearer cp_identity")
+                .header("content-type", "application/json")
+                .body(Body::from(request_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let mut authorize_payload: Option<Value> = None;
+    for _ in 0..20 {
+        let requests = control_plane.received_requests().await.unwrap();
+        if let Some(authorize) = requests
+            .iter()
+            .find(|request| request.url.path() == "/internal/v1/billing/authorize")
+        {
+            authorize_payload = Some(serde_json::from_slice(&authorize.body).unwrap());
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let authorize_payload = authorize_payload.expect("authorize request should be sent");
+    assert_eq!(authorize_payload["reserved_microcredits"], 2_000_000);
+}
+
+#[tokio::test]
+async fn free_priced_request_hits_minimum_preauth_reserve() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "resp_dynamic_free",
+            "usage": {"input_tokens": 6, "output_tokens": 2}
+        })))
+        .mount(&upstream)
+        .await;
+
+    let control_plane = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/auth/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tenant_id": Uuid::new_v4(),
+            "api_key_id": Uuid::new_v4(),
+            "enabled": true,
+            "tenant_status": "active",
+            "balance_microcredits": 1_000_000,
+            "cache_ttl_sec": 30
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/authorize"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "authorization_id": Uuid::new_v4(),
+            "status": "authorized",
+            "reserved_microcredits": 1_000
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/capture"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "captured"
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/release"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "released"
+        })))
+        .mount(&control_plane)
+        .await;
+
+    let app = test_app_with_failover_wait_and_control_plane_with_preauth_limits(
+        vec![test_account(upstream.uri(), "upstream-token")],
+        2_000,
+        Some(control_plane.uri()),
+        true,
+        256,
+        1.3,
+        1_000,
+        1_000_000_000_000,
+        0,
+    )
+    .await;
+
+    let request_body = json!({
+        "model": "gpt-5.3-codex",
+        "input": "abcdefgh"
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("authorization", "Bearer cp_identity")
+                .header("content-type", "application/json")
+                .body(Body::from(request_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let mut authorize_payload: Option<Value> = None;
+    for _ in 0..20 {
+        let requests = control_plane.received_requests().await.unwrap();
+        if let Some(authorize) = requests
+            .iter()
+            .find(|request| request.url.path() == "/internal/v1/billing/authorize")
+        {
+            authorize_payload = Some(serde_json::from_slice(&authorize.body).unwrap());
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let authorize_payload = authorize_payload.expect("authorize request should be sent");
+    assert_eq!(authorize_payload["reserved_microcredits"], 1_000);
+}
+
+#[tokio::test]
+async fn high_price_request_reserve_is_clamped_by_maximum_limit() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "resp_dynamic_high_price",
+            "usage": {"input_tokens": 6, "output_tokens": 2}
+        })))
+        .mount(&upstream)
+        .await;
+
+    let control_plane = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/auth/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tenant_id": Uuid::new_v4(),
+            "api_key_id": Uuid::new_v4(),
+            "enabled": true,
+            "tenant_status": "active",
+            "balance_microcredits": 1_000_000,
+            "cache_ttl_sec": 30
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/authorize"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "authorization_id": Uuid::new_v4(),
+            "status": "authorized",
+            "reserved_microcredits": 3_000_000
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/capture"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "captured"
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/release"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "released"
+        })))
+        .mount(&control_plane)
+        .await;
+
+    let app = test_app_with_failover_wait_and_control_plane_with_preauth_limits(
+        vec![test_account(upstream.uri(), "upstream-token")],
+        2_000,
+        Some(control_plane.uri()),
+        true,
+        256,
+        1.3,
+        1_000,
+        3_000_000,
+        10_000_000_000,
+    )
+    .await;
+
+    let request_body = json!({
+        "model": "gpt-5.3-codex",
+        "input": "abcdefgh"
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("authorization", "Bearer cp_identity")
+                .header("content-type", "application/json")
+                .body(Body::from(request_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let mut authorize_payload: Option<Value> = None;
+    for _ in 0..20 {
+        let requests = control_plane.received_requests().await.unwrap();
+        if let Some(authorize) = requests
+            .iter()
+            .find(|request| request.url.path() == "/internal/v1/billing/authorize")
+        {
+            authorize_payload = Some(serde_json::from_slice(&authorize.body).unwrap());
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let authorize_payload = authorize_payload.expect("authorize request should be sent");
+    assert_eq!(authorize_payload["reserved_microcredits"], 3_000_000);
+}
+
+#[tokio::test]
+async fn model_pricing_endpoint_drives_dynamic_preauth_and_cache_reuse() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "resp_pricing_cache",
+            "usage": {"input_tokens": 3, "output_tokens": 1}
+        })))
+        .mount(&upstream)
+        .await;
+
+    let control_plane = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/auth/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tenant_id": Uuid::new_v4(),
+            "api_key_id": Uuid::new_v4(),
+            "enabled": true,
+            "tenant_status": "active",
+            "balance_microcredits": 1_000_000,
+            "cache_ttl_sec": 30
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/pricing"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model": "gpt-5.3-codex",
+            "input_price_microcredits": 20_000_000,
+            "cached_input_price_microcredits": 2_000_000,
+            "output_price_microcredits": 40_000_000,
+            "source": "exact"
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/authorize"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "authorization_id": Uuid::new_v4(),
+            "status": "authorized",
+            "reserved_microcredits": 13_364
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/capture"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "captured"
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/release"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "released"
+        })))
+        .mount(&control_plane)
+        .await;
+
+    let app = test_app_with_failover_wait_and_control_plane_with_preauth(
+        vec![test_account(upstream.uri(), "upstream-token")],
+        2_000,
+        Some(control_plane.uri()),
+        true,
+        10_000,
+    )
+    .await;
+
+    let request_body = json!({
+        "model": "gpt-5.3-codex",
+        "input": "abcdefgh"
+    });
+    for _ in 0..2 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/responses")
+                    .header("authorization", "Bearer cp_identity")
+                    .header("content-type", "application/json")
+                    .body(Body::from(request_body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    let expected_reserve =
+        ((((2_i64 * 20_000_000_i64) + (256_i64 * 40_000_000_i64)) as f64) / 1_000_000_f64 * 1.3)
+            .ceil() as i64;
+    let mut authorize_payload: Option<Value> = None;
+    let mut pricing_count = 0usize;
+    let mut authorize_count = 0usize;
+    for _ in 0..30 {
+        let requests = control_plane.received_requests().await.unwrap();
+        pricing_count = requests
+            .iter()
+            .filter(|request| request.url.path() == "/internal/v1/billing/pricing")
+            .count();
+        authorize_count = requests
+            .iter()
+            .filter(|request| request.url.path() == "/internal/v1/billing/authorize")
+            .count();
+        if let Some(authorize) = requests
+            .iter()
+            .find(|request| request.url.path() == "/internal/v1/billing/authorize")
+        {
+            authorize_payload = Some(serde_json::from_slice(&authorize.body).unwrap());
+        }
+        if authorize_payload.is_some() && authorize_count >= 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let authorize_payload = authorize_payload.expect("authorize request should be sent");
+    assert_eq!(authorize_payload["reserved_microcredits"], expected_reserve);
+    assert_eq!(authorize_count, 2);
+    assert_eq!(pricing_count, 1);
+}
+
+#[tokio::test]
+async fn non_stream_billing_settlement_uses_usage_tokens_and_releases_hold() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "resp_non_stream_settle",
+            "usage": {"input_tokens": 21, "output_tokens": 9}
+        })))
+        .mount(&upstream)
+        .await;
+
+    let control_plane = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/auth/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tenant_id": Uuid::new_v4(),
+            "api_key_id": Uuid::new_v4(),
+            "enabled": true,
+            "tenant_status": "active",
+            "balance_microcredits": 1_000_000,
+            "cache_ttl_sec": 30
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/authorize"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "authorization_id": Uuid::new_v4(),
+            "status": "authorized",
+            "reserved_microcredits": 2_000_000
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/capture"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "captured"
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/release"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "released"
+        })))
+        .mount(&control_plane)
+        .await;
+
+    let app = test_app_with_failover_wait_and_control_plane(
+        vec![test_account(upstream.uri(), "upstream-token")],
+        2_000,
+        Some(control_plane.uri()),
+    )
+    .await;
+
+    let request_body = json!({
+        "model": "gpt-5.3-codex",
+        "input": "let us settle"
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("authorization", "Bearer cp_identity")
+                .header("content-type", "application/json")
+                .body(Body::from(request_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let mut capture_payload: Option<Value> = None;
+    let mut capture_count = 0usize;
+    let mut release_count = 0usize;
+    for _ in 0..20 {
+        let requests = control_plane.received_requests().await.unwrap();
+        capture_count = requests
+            .iter()
+            .filter(|request| request.url.path() == "/internal/v1/billing/capture")
+            .count();
+        release_count = requests
+            .iter()
+            .filter(|request| request.url.path() == "/internal/v1/billing/release")
+            .count();
+        if let Some(capture) = requests
+            .iter()
+            .find(|request| request.url.path() == "/internal/v1/billing/capture")
+        {
+            capture_payload = Some(serde_json::from_slice(&capture.body).unwrap());
+        }
+        if capture_payload.is_some() && release_count >= 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let capture_payload = capture_payload.expect("capture request should be sent");
+    assert_eq!(capture_payload["input_tokens"], 21);
+    assert_eq!(capture_payload["output_tokens"], 9);
+    assert_eq!(capture_count, 1);
+    assert_eq!(release_count, 1);
+}
+
+#[tokio::test]
+async fn fails_over_before_first_sse_chunk_when_upstream_stream_is_empty() {
+    let upstream_a = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw("", "text/event-stream"))
+        .mount(&upstream_a)
+        .await;
+
+    let upstream_b = MockServer::start().await;
+    let sse_payload = "data: {\"type\":\"response.output_text.delta\",\"delta\":\"from-b\"}\n\n";
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse_payload, "text/event-stream"))
+        .mount(&upstream_b)
+        .await;
+
+    let app = test_app(vec![
+        test_account(upstream_a.uri(), "token-a"),
+        test_account(upstream_b.uri(), "token-b"),
+    ])
+    .await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    assert!(content_type.contains("text/event-stream"));
+
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(bytes.as_ref(), sse_payload.as_bytes());
+}
+
+#[tokio::test]
+async fn fails_over_on_stream_prelude_quota_error_event() {
+    let upstream_a = MockServer::start().await;
+    let quota_error_payload = "data: {\"type\":\"error\",\"error\":{\"code\":\"usage_limit\",\"message\":\"You've hit your usage limit. Start a free trial of Plus today.\"}}\n\n";
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(quota_error_payload, "text/event-stream"),
+        )
+        .mount(&upstream_a)
+        .await;
+
+    let upstream_b = MockServer::start().await;
+    let success_payload =
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"from-b\"}\n\n";
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(success_payload, "text/event-stream"))
+        .mount(&upstream_b)
+        .await;
+
+    let app = test_app(vec![
+        test_account(upstream_a.uri(), "token-a"),
+        test_account(upstream_b.uri(), "token-b"),
+    ])
+    .await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(bytes.as_ref(), success_payload.as_bytes());
+}
+
+#[tokio::test]
+async fn stream_prelude_auth_error_event_maps_to_consistent_error_envelope() {
+    let upstream = MockServer::start().await;
+    let auth_error_payload = "data: {\"type\":\"error\",\"error\":{\"message\":\"Your access token could not be refreshed because you have since logged out or signed in to another account. Please sign in again.\"}}\n\n";
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(auth_error_payload, "text/event-stream"),
+        )
+        .mount(&upstream)
+        .await;
+
+    let app = test_app(vec![test_account(upstream.uri(), "upstream-token")]).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let payload: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(payload["error"]["code"], "auth_expired");
+    assert_eq!(
+        payload["error"]["message"],
+        "upstream account authentication expired; retry later with another account"
+    );
+}
+
+#[tokio::test]
+async fn maps_server_overloaded_to_consistent_error_envelope() {
+    let upstream = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(503).set_body_json(
+            json!({"error": {"code": "server_is_overloaded", "message": "slow_down"}}),
+        ))
+        .mount(&upstream)
+        .await;
+
+    let app = test_app(vec![test_account(upstream.uri(), "upstream-token")]).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let payload: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(payload["error"]["code"], "server_overloaded");
+}
+
+#[tokio::test]
+async fn ejects_account_after_overloaded_503_response() {
+    let upstream_a = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(
+            ResponseTemplate::new(503).set_body_json(
+                json!({"error": {"code": "server_is_overloaded", "message": "busy"}}),
+            ),
+        )
+        .mount(&upstream_a)
+        .await;
+
+    let upstream_b = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"account": "b"})))
+        .mount(&upstream_b)
+        .await;
+
+    let app = test_app(vec![
+        test_account(upstream_a.uri(), "token-a"),
+        test_account(upstream_b.uri(), "token-b"),
+    ])
+    .await;
+
+    let first = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+    let first_body = first.into_body().collect().await.unwrap().to_bytes();
+    let first_payload: Value = serde_json::from_slice(&first_body).unwrap();
+    assert_eq!(first_payload["account"], "b");
+
+    let second = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::OK);
+
+    let third = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(third.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn ejects_account_after_generic_500_response() {
+    let upstream_a = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(
+            ResponseTemplate::new(500)
+                .set_body_json(json!({"error": {"code": "internal_error", "message": "boom"}})),
+        )
+        .mount(&upstream_a)
+        .await;
+
+    let upstream_b = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"account": "b"})))
+        .mount(&upstream_b)
+        .await;
+
+    let app = test_app(vec![
+        test_account(upstream_a.uri(), "token-a"),
+        test_account(upstream_b.uri(), "token-b"),
+    ])
+    .await;
+
+    let first = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+    let first_body = first.into_body().collect().await.unwrap().to_bytes();
+    let first_payload: Value = serde_json::from_slice(&first_body).unwrap();
+    assert_eq!(first_payload["account"], "b");
+
+    let second = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::OK);
+
+    let third = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(third.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn single_request_failover_succeeds_when_next_account_is_healthy() {
+    let upstream_a = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(
+            ResponseTemplate::new(500)
+                .set_body_json(json!({"error": {"code": "internal_error", "message": "boom"}})),
+        )
+        .mount(&upstream_a)
+        .await;
+
+    let upstream_b = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"account": "b"})))
+        .mount(&upstream_b)
+        .await;
+
+    let app = test_app(vec![
+        test_account(upstream_a.uri(), "token-a"),
+        test_account(upstream_b.uri(), "token-b"),
+    ])
+    .await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let payload: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(payload["account"], "b");
+}
+
+#[tokio::test]
+async fn ejects_account_after_401_response() {
+    let upstream_a = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(
+            ResponseTemplate::new(401)
+                .set_body_json(json!({"error": {"code": "unauthorized", "message": "invalid"}})),
+        )
+        .mount(&upstream_a)
+        .await;
+
+    let upstream_b = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"account": "b"})))
+        .mount(&upstream_b)
+        .await;
+
+    let app = test_app(vec![
+        test_account(upstream_a.uri(), "token-a"),
+        test_account(upstream_b.uri(), "token-b"),
+    ])
+    .await;
+
+    let first = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+    let first_body = first.into_body().collect().await.unwrap().to_bytes();
+    let first_payload: Value = serde_json::from_slice(&first_body).unwrap();
+    assert_eq!(first_payload["account"], "b");
+
+    let second = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::OK);
+
+    let third = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(third.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn token_invalidated_should_failover_without_waiting_internal_refresh_completion() {
+    let upstream_a = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(
+            ResponseTemplate::new(401).set_body_json(
+                json!({"error": {"code": "token_invalidated", "message": "invalid"}}),
+            ),
+        )
+        .mount(&upstream_a)
+        .await;
+
+    let upstream_b = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"account": "b"})))
+        .mount(&upstream_b)
+        .await;
+
+    let control_plane = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/auth/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tenant_id": Uuid::new_v4(),
+            "api_key_id": Uuid::new_v4(),
+            "enabled": true,
+            "cache_ttl_sec": 30
+        })))
+        .mount(&control_plane)
+        .await;
+    let account_a = test_account(upstream_a.uri(), "token-a");
+    let account_b = test_account(upstream_b.uri(), "token-b");
+    Mock::given(method("POST"))
+        .and(path(format!(
+            "/internal/v1/upstream-accounts/{}/oauth/refresh",
+            account_a.id
+        )))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(Duration::from_millis(700))
+                .set_body_json(json!({"last_refresh_status":"ok"})),
+        )
+        .mount(&control_plane)
+        .await;
+
+    let app = test_app_with_failover_wait_and_control_plane(
+        vec![account_a, account_b],
+        150,
+        Some(control_plane.uri()),
+    )
+    .await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("authorization", "Bearer cp_identity")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let payload: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(payload["account"], "b");
+}
+
+#[tokio::test]
+async fn ejects_account_after_429_response() {
+    let upstream_a = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(
+            ResponseTemplate::new(429)
+                .set_body_json(json!({"error": {"code": "rate_limited", "message": "slow"}})),
+        )
+        .mount(&upstream_a)
+        .await;
+
+    let upstream_b = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"account": "b"})))
+        .mount(&upstream_b)
+        .await;
+
+    let app = test_app(vec![
+        test_account(upstream_a.uri(), "token-a"),
+        test_account(upstream_b.uri(), "token-b"),
+    ])
+    .await;
+
+    let first = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+    let first_body = first.into_body().collect().await.unwrap().to_bytes();
+    let first_payload: Value = serde_json::from_slice(&first_body).unwrap();
+    assert_eq!(first_payload["account"], "b");
+
+    let second = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::OK);
+
+    let third = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(third.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn blocks_high_frequency_non_retryable_client_errors_for_same_api_key() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(
+            ResponseTemplate::new(404)
+                .set_body_json(json!({"error":{"code":"model_not_found","message":"missing"}})),
+        )
+        .mount(&upstream)
+        .await;
+
+    let app = build_app_with_event_sink_and_allowed_keys(
+        DataPlaneConfig {
+            listen_addr: "127.0.0.1:0".parse().unwrap(),
+            routing_strategy: RoutingStrategy::RoundRobin,
+            upstream_accounts: vec![test_account(upstream.uri(), "upstream-token")],
+            account_ejection_ttl_sec: 30,
+            enable_request_failover: true,
+            same_account_quick_retry_max: 1,
+            request_failover_wait_ms: 2_000,
+            retry_poll_interval_ms: 100,
+            sticky_prefer_non_conflicting: true,
+            shared_routing_cache_enabled: true,
+            enable_metered_stream_billing: true,
+            billing_authorize_required_for_stream: true,
+            stream_billing_reserve_microcredits: 2_000_000,
+            billing_dynamic_preauth_enabled: true,
+            billing_preauth_expected_output_tokens: 256,
+            billing_preauth_safety_factor: 1.3,
+            billing_preauth_min_microcredits: 1_000,
+            billing_preauth_max_microcredits: 1_000_000_000_000,
+            billing_preauth_unit_price_microcredits: 10_000,
+            stream_billing_drain_timeout_ms: 5_000,
+            billing_capture_retry_max: 3,
+            billing_capture_retry_backoff_ms: 200,
+            redis_url: None,
+            auth_validate_url: None,
+            auth_validate_cache_ttl_sec: 30,
+            auth_validate_negative_cache_ttl_sec: 5,
+            auth_fail_open: false,
+            enable_internal_debug_routes: false,
+        },
+        Arc::new(NoopEventSink),
+        vec!["tenant-attack-key".to_string()],
+    )
+    .await
+    .unwrap();
+
+    for _ in 0..12 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/responses")
+                    .header("authorization", "Bearer tenant-attack-key")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    let blocked = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("authorization", "Bearer tenant-attack-key")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(blocked.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    let blocked_body = blocked.into_body().collect().await.unwrap().to_bytes();
+    let payload: Value = serde_json::from_slice(&blocked_body).unwrap();
+    assert_eq!(payload["error"]["code"], "invalid_request_rate_limited");
+
+    let received = upstream.received_requests().await.unwrap();
+    assert_eq!(received.len(), 12);
+}
+
+#[tokio::test]
+async fn usage_endpoint_reports_account_counts() {
+    let app = test_app(vec![
+        test_account("http://one".to_string(), "token-1"),
+        test_account("http://two".to_string(), "token-2"),
+    ])
+    .await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/codex/usage")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let usage: UsageSummary = serde_json::from_slice(&bytes).unwrap();
+
+    assert_eq!(usage.account_total, 2);
+    assert_eq!(usage.active_account_total, 2);
+}
+
+#[tokio::test]
+async fn request_log_event_contains_identity_from_online_validation() {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
+        .mount(&upstream)
+        .await;
+
+    let auth_server = MockServer::start().await;
+    let tenant_id = Uuid::new_v4();
+    let api_key_id = Uuid::new_v4();
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/auth/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tenant_id": tenant_id,
+            "api_key_id": api_key_id,
+            "enabled": true,
+            "cache_ttl_sec": 30
+        })))
+        .mount(&auth_server)
+        .await;
+
+    let sink = Arc::new(RecordingSink::default());
+    let app = build_app_with_event_sink_and_allowed_keys(
+        DataPlaneConfig {
+            listen_addr: "127.0.0.1:0".parse().unwrap(),
+            routing_strategy: RoutingStrategy::RoundRobin,
+            upstream_accounts: vec![test_account(upstream.uri(), "upstream-token")],
+            account_ejection_ttl_sec: 30,
+            enable_request_failover: true,
+            same_account_quick_retry_max: 1,
+            request_failover_wait_ms: 2_000,
+            retry_poll_interval_ms: 100,
+            sticky_prefer_non_conflicting: true,
+            shared_routing_cache_enabled: true,
+            enable_metered_stream_billing: true,
+            billing_authorize_required_for_stream: true,
+            stream_billing_reserve_microcredits: 2_000_000,
+            billing_dynamic_preauth_enabled: true,
+            billing_preauth_expected_output_tokens: 256,
+            billing_preauth_safety_factor: 1.3,
+            billing_preauth_min_microcredits: 1_000,
+            billing_preauth_max_microcredits: 1_000_000_000_000,
+            billing_preauth_unit_price_microcredits: 10_000,
+            stream_billing_drain_timeout_ms: 5_000,
+            billing_capture_retry_max: 3,
+            billing_capture_retry_backoff_ms: 200,
+            redis_url: None,
+            auth_validate_url: Some(format!("{}/internal/v1/auth/validate", auth_server.uri())),
+            auth_validate_cache_ttl_sec: 30,
+            auth_validate_negative_cache_ttl_sec: 5,
+            auth_fail_open: false,
+            enable_internal_debug_routes: false,
+        },
+        sink.clone(),
+        Vec::new(),
+    )
+    .await
+    .unwrap();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("authorization", "Bearer cp_identity")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let events = sink.events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].tenant_id, Some(tenant_id));
+    assert_eq!(events[0].api_key_id, Some(api_key_id));
+    assert_eq!(events[0].event_version, 2);
+}

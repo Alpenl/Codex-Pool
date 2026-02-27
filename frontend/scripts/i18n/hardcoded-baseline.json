@@ -1,0 +1,1286 @@
+{
+  "version": 1,
+  "violations": [
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 653,
+      "column": 27,
+      "kind": "jsx-text",
+      "text": "来源:"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 738,
+      "column": 65,
+      "kind": "jsx-text",
+      "text": "账务中心"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 740,
+      "column": 13,
+      "kind": "jsx-text",
+      "text": "主口径：积分账本（实际扣费）/ 支持管理员按租户查看"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 760,
+      "column": 33,
+      "kind": "jsx-text",
+      "text": "按日"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 761,
+      "column": 35,
+      "kind": "jsx-text",
+      "text": "按月"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 765,
+      "column": 13,
+      "kind": "jsx-text",
+      "text": "导出 CSV"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 772,
+      "column": 22,
+      "kind": "jsx-text",
+      "text": "管理员充值"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 773,
+      "column": 28,
+      "kind": "jsx-text",
+      "text": "可对当前选中租户执行充值"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 780,
+      "column": 25,
+      "kind": "jsx-attr:placeholder",
+      "text": "充值积分（微积分）"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 786,
+      "column": 25,
+      "kind": "jsx-attr:placeholder",
+      "text": "充值原因"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 792,
+      "column": 13,
+      "kind": "jsx-text",
+      "text": "执行充值"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 800,
+      "column": 30,
+      "kind": "jsx-text",
+      "text": "当前余额"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 803,
+      "column": 66,
+      "kind": "jsx-text",
+      "text": "单位：积分"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 807,
+      "column": 30,
+      "kind": "jsx-text",
+      "text": "今日消耗"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 810,
+      "column": 66,
+      "kind": "jsx-text",
+      "text": "仅统计账本负向扣减事件"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 814,
+      "column": 30,
+      "kind": "jsx-text",
+      "text": "本月消耗"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 817,
+      "column": 66,
+      "kind": "jsx-text",
+      "text": "仅统计账本负向扣减事件"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 823,
+      "column": 22,
+      "kind": "jsx-text",
+      "text": "消耗趋势"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 824,
+      "column": 28,
+      "kind": "jsx-text",
+      "text": "按"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 824,
+      "column": 55,
+      "kind": "jsx-expression",
+      "text": "日"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 824,
+      "column": 61,
+      "kind": "jsx-expression",
+      "text": "月"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 824,
+      "column": 66,
+      "kind": "jsx-text",
+      "text": "聚合展示账本扣减"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 829,
+      "column": 15,
+      "kind": "jsx-text",
+      "text": "暂无趋势数据"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 834,
+      "column": 52,
+      "kind": "jsx-expression",
+      "text": "消耗积分"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 845,
+      "column": 22,
+      "kind": "jsx-text",
+      "text": "结算快照"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 846,
+      "column": 28,
+      "kind": "jsx-text",
+      "text": "按"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 846,
+      "column": 55,
+      "kind": "jsx-expression",
+      "text": "日"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 846,
+      "column": 61,
+      "kind": "jsx-expression",
+      "text": "月"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 846,
+      "column": 66,
+      "kind": "jsx-text",
+      "text": "聚合扣减事件，便于月结和对账复核"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 855,
+      "column": 23,
+      "kind": "jsx-attr:emptyText",
+      "text": "暂无结算快照"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 863,
+      "column": 24,
+      "kind": "jsx-text",
+      "text": "账本流水"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 864,
+      "column": 30,
+      "kind": "jsx-text",
+      "text": "按当前租户展示"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 873,
+      "column": 13,
+      "kind": "jsx-text",
+      "text": "显示原始流水"
+    },
+    {
+      "filePath": "src/pages/Billing.tsx",
+      "line": 883,
+      "column": 23,
+      "kind": "jsx-attr:emptyText",
+      "text": "暂无账本流水"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 404,
+      "column": 20,
+      "kind": "jsx-text",
+      "text": "请求日志"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 406,
+      "column": 11,
+      "kind": "jsx-text",
+      "text": "口径：Data Plane 原始请求事件（状态码 / 耗时 / 路径 / 租户 / API Key / Request ID）"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 416,
+      "column": 31,
+      "kind": "jsx-text",
+      "text": "最近 24 小时"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 417,
+      "column": 31,
+      "kind": "jsx-text",
+      "text": "最近 7 天"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 418,
+      "column": 32,
+      "kind": "jsx-text",
+      "text": "最近 30 天"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 425,
+      "column": 33,
+      "kind": "jsx-text",
+      "text": "全部租户"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 442,
+      "column": 25,
+      "kind": "jsx-attr:placeholder",
+      "text": "状态码（如 500）"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 454,
+      "column": 25,
+      "kind": "jsx-attr:placeholder",
+      "text": "关键词（路径/错误/模型）"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 463,
+      "column": 21,
+      "kind": "jsx-attr:emptyText",
+      "text": "暂无请求日志数据"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 551,
+      "column": 20,
+      "kind": "jsx-text",
+      "text": "审计日志"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 552,
+      "column": 26,
+      "kind": "jsx-text",
+      "text": "口径：Control Plane 审计事件（角色 / 动作 / 结果 / 目标 / 载荷）"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 561,
+      "column": 31,
+      "kind": "jsx-text",
+      "text": "最近 24 小时"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 562,
+      "column": 31,
+      "kind": "jsx-text",
+      "text": "最近 7 天"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 563,
+      "column": 32,
+      "kind": "jsx-text",
+      "text": "最近 30 天"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 570,
+      "column": 33,
+      "kind": "jsx-text",
+      "text": "全部租户"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 605,
+      "column": 25,
+      "kind": "jsx-attr:placeholder",
+      "text": "关键词（reason/payload）"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 614,
+      "column": 21,
+      "kind": "jsx-attr:emptyText",
+      "text": "暂无审计日志数据"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 642,
+      "column": 13,
+      "kind": "jsx-text",
+      "text": "请求日志"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 649,
+      "column": 13,
+      "kind": "jsx-text",
+      "text": "系统日志"
+    },
+    {
+      "filePath": "src/pages/Logs.tsx",
+      "line": 656,
+      "column": 13,
+      "kind": "jsx-text",
+      "text": "审计日志"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 201,
+      "column": 17,
+      "kind": "message-sink",
+      "text": "模型探测完成，已同步最新模型池。"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 205,
+      "column": 47,
+      "kind": "message-sink",
+      "text": "模型探测失败"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 221,
+      "column": 17,
+      "kind": "message-template",
+      "text": "模型资料已保存："
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 238,
+      "column": 47,
+      "kind": "message-sink",
+      "text": "保存模型资料失败"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 246,
+      "column": 17,
+      "kind": "message-sink",
+      "text": "模型实体已删除"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 253,
+      "column": 47,
+      "kind": "message-sink",
+      "text": "删除模型实体失败"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 268,
+      "column": 17,
+      "kind": "message-template",
+      "text": "模型价格已保存："
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 273,
+      "column": 47,
+      "kind": "message-sink",
+      "text": "保存模型价格失败"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 281,
+      "column": 17,
+      "kind": "message-sink",
+      "text": "模型价格记录已删除"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 286,
+      "column": 47,
+      "kind": "message-sink",
+      "text": "删除模型价格失败"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 540,
+      "column": 68,
+      "kind": "jsx-text",
+      "text": "未配置"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 546,
+      "column": 45,
+      "kind": "jsx-text",
+      "text": "积分 / 1M tokens"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 559,
+      "column": 68,
+      "kind": "jsx-text",
+      "text": "未配置"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 565,
+      "column": 45,
+      "kind": "jsx-text",
+      "text": "积分 / 1M tokens"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 578,
+      "column": 68,
+      "kind": "jsx-text",
+      "text": "未配置"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 584,
+      "column": 45,
+      "kind": "jsx-text",
+      "text": "积分 / 1M tokens"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 597,
+      "column": 47,
+      "kind": "jsx-text",
+      "text": "未配置"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 599,
+      "column": 94,
+      "kind": "jsx-expression",
+      "text": "启用"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 599,
+      "column": 101,
+      "kind": "jsx-expression",
+      "text": "禁用"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 620,
+      "column": 13,
+      "kind": "jsx-text",
+      "text": "编辑模型"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 661,
+      "column": 61,
+      "kind": "jsx-text",
+      "text": "模型池"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 662,
+      "column": 53,
+      "kind": "jsx-text",
+      "text": "在这里查看模型是否可用，并管理模型资料与价格。"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 694,
+      "column": 13,
+      "kind": "jsx-text",
+      "text": "新建模型"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 763,
+      "column": 42,
+      "kind": "jsx-template",
+      "text": "模型资料 ·"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 763,
+      "column": 72,
+      "kind": "jsx-expression",
+      "text": "新建模型"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 765,
+      "column": 15,
+      "kind": "jsx-text",
+      "text": "在模型资料弹窗中编辑资料与价格。价格保存后会直接回写到模型池列表。"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 771,
+      "column": 98,
+      "kind": "jsx-attr:aria-label",
+      "text": "模型资料分页"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 784,
+      "column": 19,
+      "kind": "jsx-text",
+      "text": "资料"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 798,
+      "column": 19,
+      "kind": "jsx-text",
+      "text": "价格"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 805,
+      "column": 55,
+      "kind": "jsx-text",
+      "text": "模型资料"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 809,
+      "column": 23,
+      "kind": "jsx-text",
+      "text": "模型 ID"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 819,
+      "column": 35,
+      "kind": "jsx-attr:placeholder",
+      "text": "例如：gpt-5.3-codex"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 822,
+      "column": 68,
+      "kind": "jsx-text",
+      "text": "已存在模型不可改 ID，若需新模型请使用“新建模型”。"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 827,
+      "column": 82,
+      "kind": "jsx-text",
+      "text": "来源"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 835,
+      "column": 23,
+      "kind": "jsx-text",
+      "text": "提供方"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 844,
+      "column": 35,
+      "kind": "jsx-attr:placeholder",
+      "text": "例如：openai / custom"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 850,
+      "column": 23,
+      "kind": "jsx-text",
+      "text": "可见性"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 859,
+      "column": 35,
+      "kind": "jsx-attr:placeholder",
+      "text": "例如：list / hide"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 868,
+      "column": 34,
+      "kind": "jsx-expression",
+      "text": "模型 ID 不能为空"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 878,
+      "column": 21,
+      "kind": "jsx-text",
+      "text": "保存模型资料"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 896,
+      "column": 21,
+      "kind": "jsx-text",
+      "text": "删除模型"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 902,
+      "column": 21,
+      "kind": "jsx-text",
+      "text": "当前模型不是本地实体模型，无法删除模型实体。"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 910,
+      "column": 55,
+      "kind": "jsx-text",
+      "text": "模型价格"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 914,
+      "column": 47,
+      "kind": "jsx-text",
+      "text": "输入价格"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 915,
+      "column": 47,
+      "kind": "jsx-text",
+      "text": "每 1M tokens，微积分"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 935,
+      "column": 47,
+      "kind": "jsx-text",
+      "text": "缓存输入价格"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 936,
+      "column": 47,
+      "kind": "jsx-text",
+      "text": "每 1M tokens，微积分"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 956,
+      "column": 47,
+      "kind": "jsx-text",
+      "text": "输出价格"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 957,
+      "column": 47,
+      "kind": "jsx-text",
+      "text": "每 1M tokens，微积分"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 985,
+      "column": 21,
+      "kind": "jsx-text",
+      "text": "启用价格"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 993,
+      "column": 34,
+      "kind": "jsx-expression",
+      "text": "模型 ID 不能为空"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 1003,
+      "column": 21,
+      "kind": "jsx-text",
+      "text": "保存价格"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 1021,
+      "column": 21,
+      "kind": "jsx-text",
+      "text": "删除价格"
+    },
+    {
+      "filePath": "src/pages/Models.tsx",
+      "line": 1027,
+      "column": 21,
+      "kind": "jsx-text",
+      "text": "当前模型没有本地价格记录，先保存价格后才可删除价格记录。"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 96,
+      "column": 17,
+      "kind": "message-sink",
+      "text": "租户会话已过期，请重新登录。"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 99,
+      "column": 16,
+      "kind": "message-sink",
+      "text": "登录失败：邮箱或密码不正确，或账号尚未验证邮箱。"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 116,
+      "column": 17,
+      "kind": "message-sink",
+      "text": "登录成功。"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 118,
+      "column": 69,
+      "kind": "message-sink",
+      "text": "登录失败"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 128,
+      "column": 13,
+      "kind": "message-template",
+      "text": "注册成功，验证码（debug）:"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 129,
+      "column": 13,
+      "kind": "message-sink",
+      "text": "注册成功，请输入邮箱验证码完成激活。"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 132,
+      "column": 69,
+      "kind": "message-sink",
+      "text": "注册失败"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 139,
+      "column": 17,
+      "kind": "message-sink",
+      "text": "邮箱验证成功，请使用该账号登录。"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 141,
+      "column": 69,
+      "kind": "message-sink",
+      "text": "验证失败"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 151,
+      "column": 13,
+      "kind": "message-template",
+      "text": "重置验证码（debug）:"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 152,
+      "column": 13,
+      "kind": "message-sink",
+      "text": "如邮箱存在，将收到重置验证码。"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 155,
+      "column": 69,
+      "kind": "message-sink",
+      "text": "发送重置码失败"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 163,
+      "column": 17,
+      "kind": "message-sink",
+      "text": "密码重置成功，请重新登录。"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 165,
+      "column": 69,
+      "kind": "message-sink",
+      "text": "重置密码失败"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 191,
+      "column": 51,
+      "kind": "jsx-text",
+      "text": "租户注册"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 201,
+      "column": 19,
+      "kind": "jsx-text",
+      "text": "租户名"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 219,
+      "column": 19,
+      "kind": "jsx-text",
+      "text": "邮箱"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 237,
+      "column": 19,
+      "kind": "jsx-text",
+      "text": "密码（至少8位）"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 259,
+      "column": 17,
+      "kind": "jsx-text",
+      "text": "注册"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 265,
+      "column": 51,
+      "kind": "jsx-text",
+      "text": "邮箱验证"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 275,
+      "column": 19,
+      "kind": "jsx-text",
+      "text": "邮箱"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 293,
+      "column": 19,
+      "kind": "jsx-text",
+      "text": "验证码"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 312,
+      "column": 17,
+      "kind": "jsx-text",
+      "text": "验证邮箱"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 318,
+      "column": 51,
+      "kind": "jsx-text",
+      "text": "租户登录"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 328,
+      "column": 19,
+      "kind": "jsx-text",
+      "text": "邮箱"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 346,
+      "column": 19,
+      "kind": "jsx-text",
+      "text": "密码"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 365,
+      "column": 17,
+      "kind": "jsx-text",
+      "text": "登录"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 371,
+      "column": 51,
+      "kind": "jsx-text",
+      "text": "找回密码"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 382,
+      "column": 21,
+      "kind": "jsx-text",
+      "text": "邮箱"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 401,
+      "column": 19,
+      "kind": "jsx-text",
+      "text": "发送重置码"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 414,
+      "column": 21,
+      "kind": "jsx-text",
+      "text": "重置验证码"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 430,
+      "column": 21,
+      "kind": "jsx-text",
+      "text": "新密码"
+    },
+    {
+      "filePath": "src/tenant/TenantApp.tsx",
+      "line": 452,
+      "column": 19,
+      "kind": "jsx-text",
+      "text": "重置密码"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 95,
+      "column": 65,
+      "kind": "jsx-text",
+      "text": "租户 Dashboard"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 97,
+      "column": 13,
+      "kind": "jsx-text",
+      "text": "口径：当前租户"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 97,
+      "column": 41,
+      "kind": "jsx-expression",
+      "text": "（单 API Key）"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 97,
+      "column": 57,
+      "kind": "jsx-expression",
+      "text": "（全部 API Key）"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 97,
+      "column": 72,
+      "kind": "jsx-text",
+      "text": "，时间窗口："
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 107,
+      "column": 13,
+      "kind": "jsx-text",
+      "text": "查看请求日志"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 114,
+      "column": 13,
+      "kind": "jsx-text",
+      "text": "查看账务"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 121,
+      "column": 31,
+      "kind": "jsx-text",
+      "text": "最近 24 小时"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 122,
+      "column": 31,
+      "kind": "jsx-text",
+      "text": "最近 7 天"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 123,
+      "column": 32,
+      "kind": "jsx-text",
+      "text": "最近 30 天"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 130,
+      "column": 33,
+      "kind": "jsx-text",
+      "text": "全部 API Key"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 139,
+      "column": 13,
+      "kind": "jsx-text",
+      "text": "刷新"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 147,
+      "column": 30,
+      "kind": "jsx-text",
+      "text": "租户 API Key 请求总量（所选时间）"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 153,
+      "column": 13,
+      "kind": "jsx-text",
+      "text": "统计对象：当前租户"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 153,
+      "column": 42,
+      "kind": "jsx-expression",
+      "text": "/ 单 Key"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 153,
+      "column": 55,
+      "kind": "jsx-expression",
+      "text": "/ 全部 Key"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 158,
+      "column": 30,
+      "kind": "jsx-text",
+      "text": "活跃 API Key 数（所选时间）"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 165,
+      "column": 13,
+      "kind": "jsx-text",
+      "text": "说明：仅统计有请求的 Key"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 170,
+      "column": 30,
+      "kind": "jsx-text",
+      "text": "当前可用 API Key"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 177,
+      "column": 13,
+      "kind": "jsx-text",
+      "text": "来自租户 Key 管理配置"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 184,
+      "column": 22,
+      "kind": "jsx-text",
+      "text": "请求趋势"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 186,
+      "column": 13,
+      "kind": "jsx-text",
+      "text": "口径：租户 API Key 请求量（小时粒度）"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 192,
+      "column": 15,
+      "kind": "jsx-text",
+      "text": "暂无请求数据"
+    },
+    {
+      "filePath": "src/tenant/pages/DashboardPage.tsx",
+      "line": 197,
+      "column": 52,
+      "kind": "jsx-expression",
+      "text": "请求量"
+    },
+    {
+      "filePath": "src/tenant/pages/LogsPage.tsx",
+      "line": 238,
+      "column": 59,
+      "kind": "jsx-text",
+      "text": "权限：仅当前租户"
+    },
+    {
+      "filePath": "src/tenant/pages/LogsPage.tsx",
+      "line": 247,
+      "column": 11,
+      "kind": "jsx-text",
+      "text": "请求日志"
+    },
+    {
+      "filePath": "src/tenant/pages/LogsPage.tsx",
+      "line": 254,
+      "column": 11,
+      "kind": "jsx-text",
+      "text": "审计日志"
+    },
+    {
+      "filePath": "src/tenant/pages/LogsPage.tsx",
+      "line": 261,
+      "column": 24,
+      "kind": "jsx-text",
+      "text": "请求日志"
+    },
+    {
+      "filePath": "src/tenant/pages/LogsPage.tsx",
+      "line": 262,
+      "column": 30,
+      "kind": "jsx-text",
+      "text": "口径：Data Plane 原始请求事件（仅当前租户）"
+    },
+    {
+      "filePath": "src/tenant/pages/LogsPage.tsx",
+      "line": 271,
+      "column": 35,
+      "kind": "jsx-text",
+      "text": "最近 24 小时"
+    },
+    {
+      "filePath": "src/tenant/pages/LogsPage.tsx",
+      "line": 272,
+      "column": 35,
+      "kind": "jsx-text",
+      "text": "最近 7 天"
+    },
+    {
+      "filePath": "src/tenant/pages/LogsPage.tsx",
+      "line": 273,
+      "column": 36,
+      "kind": "jsx-text",
+      "text": "最近 30 天"
+    },
+    {
+      "filePath": "src/tenant/pages/LogsPage.tsx",
+      "line": 285,
+      "column": 29,
+      "kind": "jsx-attr:placeholder",
+      "text": "状态码（如 429）"
+    },
+    {
+      "filePath": "src/tenant/pages/LogsPage.tsx",
+      "line": 297,
+      "column": 29,
+      "kind": "jsx-attr:placeholder",
+      "text": "关键词（路径/错误/模型）"
+    },
+    {
+      "filePath": "src/tenant/pages/LogsPage.tsx",
+      "line": 306,
+      "column": 25,
+      "kind": "jsx-attr:emptyText",
+      "text": "暂无日志数据"
+    },
+    {
+      "filePath": "src/tenant/pages/LogsPage.tsx",
+      "line": 313,
+      "column": 24,
+      "kind": "jsx-text",
+      "text": "审计日志"
+    },
+    {
+      "filePath": "src/tenant/pages/LogsPage.tsx",
+      "line": 314,
+      "column": 30,
+      "kind": "jsx-text",
+      "text": "口径：Control Plane 审计事件（仅当前租户）"
+    },
+    {
+      "filePath": "src/tenant/pages/LogsPage.tsx",
+      "line": 323,
+      "column": 35,
+      "kind": "jsx-text",
+      "text": "最近 24 小时"
+    },
+    {
+      "filePath": "src/tenant/pages/LogsPage.tsx",
+      "line": 324,
+      "column": 35,
+      "kind": "jsx-text",
+      "text": "最近 7 天"
+    },
+    {
+      "filePath": "src/tenant/pages/LogsPage.tsx",
+      "line": 325,
+      "column": 36,
+      "kind": "jsx-text",
+      "text": "最近 30 天"
+    },
+    {
+      "filePath": "src/tenant/pages/LogsPage.tsx",
+      "line": 355,
+      "column": 29,
+      "kind": "jsx-attr:placeholder",
+      "text": "关键词（reason/payload）"
+    },
+    {
+      "filePath": "src/tenant/pages/LogsPage.tsx",
+      "line": 364,
+      "column": 25,
+      "kind": "jsx-attr:emptyText",
+      "text": "暂无审计日志数据"
+    }
+  ]
+}

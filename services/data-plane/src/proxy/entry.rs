@@ -1,0 +1,1358 @@
+use std::collections::{HashSet, VecDeque};
+use std::io;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use anyhow::Context;
+use axum::body::Body;
+use axum::extract::ws::rejection::WebSocketUpgradeRejection;
+use axum::extract::ws::{
+    CloseFrame as AxumCloseFrame, Message as AxumWsMessage, WebSocket, WebSocketUpgrade,
+};
+use axum::extract::State;
+use axum::http::header::{AUTHORIZATION, CONTENT_LENGTH, HOST};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, Request, StatusCode};
+use axum::response::Response;
+use codex_pool_core::api::ErrorEnvelope;
+use codex_pool_core::events::RequestLogEvent;
+use codex_pool_core::model::UpstreamMode;
+use futures_util::{SinkExt, Stream, StreamExt};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use tokio::net::TcpStream;
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::handshake::client::Request as TungsteniteRequest;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use tokio_tungstenite::tungstenite::protocol::{
+    CloseFrame as TungsteniteCloseFrame, Message as TungsteniteMessage,
+};
+use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+use tracing::warn;
+use uuid::Uuid;
+
+use crate::app::AppState;
+use crate::auth::ApiPrincipal;
+
+const CHATGPT_ACCOUNT_ID: &str = "chatgpt-account-id";
+const OPENAI_BETA_HEADER: &str = "openai-beta";
+const X_OPENAI_SUBAGENT_HEADER: &str = "x-openai-subagent";
+const SESSION_ID_HEADER: &str = "session_id";
+const X_CODEX_HEADER_PREFIX: &str = "x-codex-";
+const SEC_WEBSOCKET_PROTOCOL_HEADER: &str = "sec-websocket-protocol";
+const CODEX_CLIENT_VERSION_QUERY_KEY: &str = "client_version";
+const CODEX_MODELS_PATH_SUFFIX: &str = "/models";
+const CONVERSATION_ID_HEADER: &str = "conversation_id";
+const AUTH_ERROR_EJECTION_MULTIPLIER: u64 = 10;
+const AUTH_ERROR_EJECTION_MIN_SEC: u64 = 120;
+const AUTH_ERROR_EJECTION_MAX_SEC: u64 = 1800;
+const AUTH_EXPIRED_EJECTION_MIN_SEC: u64 = 600;
+const AUTH_EXPIRED_EJECTION_MAX_SEC: u64 = 3600;
+const QUOTA_EXHAUSTED_EJECTION_MIN_SEC: u64 = 1800;
+const QUOTA_EXHAUSTED_EJECTION_MAX_SEC: u64 = 24 * 60 * 60;
+const RATE_LIMITED_EJECTION_MIN_SEC: u64 = 30;
+const SERVER_ERROR_EJECTION_MIN_SEC: u64 = 5;
+const SERVER_ERROR_EJECTION_MAX_SEC: u64 = 60;
+const TOKEN_INVALIDATED_RECOVERY_EJECTION_SEC: u64 = 5;
+const MIN_DISTINCT_FAILOVER_ATTEMPTS: usize = 2;
+const INTERNAL_RECOVERY_TIMEOUT_SEC: u64 = 5;
+const INTERNAL_BILLING_TIMEOUT_SEC: u64 = 5;
+const INTERNAL_BILLING_PRICING_TIMEOUT_SEC: u64 = 2;
+const ROUTING_CACHE_STICKY_TTL_SEC: u64 = 30 * 60;
+const BILLING_AUTHORIZATION_TTL_SEC: u64 = 15 * 60;
+const BILLING_PRICING_CACHE_TTL_SEC: u64 = 30;
+const STREAM_PROXY_BUFFER_SIZE: usize = 16;
+const STREAM_USAGE_ESTIMATE_FALLBACK_ENABLED: bool = true;
+
+type UpstreamWebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+type UpstreamByteStream = Pin<Box<dyn Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProxyRecoveryAction {
+    RotateRefreshToken,
+    DisableAccount,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProxyRecoveryOutcome {
+    NotApplied,
+    RotateSucceeded,
+    RotateFailed,
+    DisableAttempted,
+}
+
+#[derive(Debug, Deserialize)]
+struct InternalOAuthRefreshPayload {
+    last_refresh_status: String,
+}
+
+#[derive(Debug, Default)]
+struct ParsedRequestPolicyContext {
+    model: Option<String>,
+    stream: bool,
+    request_id: Option<String>,
+    estimated_input_tokens: Option<i64>,
+}
+
+#[derive(Debug)]
+enum StreamPreludeError {
+    EndOfStreamBeforeFirstChunk,
+    UpstreamReadFailed(String),
+    UpstreamErrorResponse(UpstreamErrorContext),
+}
+
+#[derive(Debug, Clone)]
+struct PendingBillingSession {
+    tenant_id: Uuid,
+    api_key_id: Uuid,
+    request_id: String,
+    model: String,
+    is_stream: bool,
+    estimated_input_tokens: i64,
+    reserved_microcredits: i64,
+}
+
+#[derive(Debug, Clone)]
+struct BillingSession {
+    account_id: Uuid,
+    tenant_id: Uuid,
+    api_key_id: Uuid,
+    request_path: String,
+    request_method: String,
+    request_started: Instant,
+    request_id: String,
+    model: String,
+    is_stream: bool,
+    estimated_input_tokens: i64,
+    authorization_id: Uuid,
+    reserved_microcredits: i64,
+}
+
+#[derive(Debug, Clone)]
+struct BillingSettleResult {
+    authorization_id: Uuid,
+    capture_status: String,
+    input_tokens: i64,
+    cached_input_tokens: i64,
+    output_tokens: i64,
+    reasoning_tokens: i64,
+}
+
+#[derive(Debug, Default)]
+struct SseUsageTracker {
+    line_buffer: Vec<u8>,
+    usage: Option<UsageTokens>,
+    output_text_chars: usize,
+    saw_output_text_delta: bool,
+    used_json_line_fallback: bool,
+}
+
+#[derive(Debug, Default)]
+struct StreamUsageObservation {
+    usage: Option<UsageTokens>,
+    estimated_output_tokens: Option<i64>,
+    used_json_line_fallback: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct InternalBillingAuthorizePayload {
+    tenant_id: Uuid,
+    api_key_id: Option<Uuid>,
+    request_id: String,
+    model: String,
+    reserved_microcredits: i64,
+    ttl_sec: Option<u64>,
+    #[serde(default)]
+    is_stream: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct InternalBillingAuthorizeResponse {
+    authorization_id: Uuid,
+    status: String,
+    reserved_microcredits: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct InternalBillingCapturePayload {
+    tenant_id: Uuid,
+    api_key_id: Option<Uuid>,
+    request_id: String,
+    model: String,
+    input_tokens: i64,
+    #[serde(default)]
+    cached_input_tokens: i64,
+    output_tokens: i64,
+    #[serde(default)]
+    reasoning_tokens: i64,
+    #[serde(default)]
+    is_stream: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct InternalBillingCaptureResponse {
+    status: String,
+    #[serde(default)]
+    charged_microcredits: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct InternalBillingPricingPayload {
+    model: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct InternalBillingPricingResponse {
+    input_price_microcredits: i64,
+    cached_input_price_microcredits: i64,
+    output_price_microcredits: i64,
+    source: String,
+}
+
+#[derive(Debug, Serialize)]
+struct InternalBillingReleasePayload {
+    tenant_id: Uuid,
+    request_id: String,
+    #[serde(default)]
+    is_stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    release_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    upstream_status_code: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    upstream_error_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    failover_action: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    failover_reason_class: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recovery_action: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recovery_outcome: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cross_account_failover_attempted: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct InternalBillingReleaseResponse {
+    status: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct BillingReleaseFailureContext {
+    release_reason: Option<String>,
+    upstream_status_code: Option<u16>,
+    upstream_error_code: Option<String>,
+    failover_action: Option<String>,
+    failover_reason_class: Option<String>,
+    recovery_action: Option<String>,
+    recovery_outcome: Option<String>,
+    cross_account_failover_attempted: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct InternalBillingErrorEnvelope {
+    error: InternalBillingErrorBody,
+}
+
+#[derive(Debug, Deserialize)]
+struct InternalBillingErrorBody {
+    message: String,
+}
+
+pub async fn proxy_handler(
+    State(state): State<std::sync::Arc<AppState>>,
+    request: Request<Body>,
+) -> Response {
+    let principal = request.extensions().get::<ApiPrincipal>().cloned();
+    let (parts, body) = request.into_parts();
+    let path = parts.uri.path().to_string();
+    let query = parts.uri.query().map(|v| v.to_string());
+    let method = parts.method.clone();
+    let sticky_key = sticky_session_key_from_headers(&parts.headers);
+
+    let body_bytes = match axum::body::to_bytes(body, state.max_request_body_bytes).await {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            warn!(
+                error = %err,
+                max_request_body_bytes = state.max_request_body_bytes,
+                "failed to read request body"
+            );
+            if is_body_too_large_error(&err) {
+                return json_error(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "payload_too_large",
+                    "request body exceeds the configured limit",
+                );
+            }
+            return json_error(
+                StatusCode::BAD_REQUEST,
+                "invalid_request_body",
+                "failed to read request body",
+            );
+        }
+    };
+    let parsed_policy_context = parse_request_policy_context(&parts.headers, &body_bytes);
+    if let Err(response) =
+        enforce_principal_request_policy(principal.as_ref(), &parts.headers, &parsed_policy_context)
+    {
+        return *response;
+    }
+    if let Some(response) = enforce_invalid_request_guard(&state, principal.as_ref()) {
+        return response;
+    }
+    let pending_billing_session = match build_pending_billing_session(
+        &state,
+        principal.as_ref(),
+        &parts.headers,
+        &parsed_policy_context,
+        &path,
+        method.as_str(),
+    )
+    .await
+    {
+        Ok(session) => session,
+        Err(error_response) => return *error_response,
+    };
+    let mut billing_session: Option<BillingSession> = None;
+
+    let started = Instant::now();
+    let failover_deadline = Instant::now() + state.request_failover_wait;
+    let mut tried_account_ids = HashSet::new();
+    let mut last_failure: Option<(Response, StatusCode, Uuid)> = None;
+    let mut did_cross_account_failover = false;
+    let mut forced_distinct_failover_round = false;
+
+    if let Some(sticky_key) = sticky_key.as_deref() {
+        if let Ok(Some(account_id)) = state.routing_cache.get_sticky_account_id(sticky_key).await {
+            let _ = state.router.bind_sticky(sticky_key, account_id);
+        }
+    }
+
+    loop {
+        let account = match state.router.pick_with_policy(
+            sticky_key.as_deref(),
+            &tried_account_ids,
+            state.sticky_prefer_non_conflicting,
+        ) {
+            Some(account) => account,
+            None => {
+                if state.enable_request_failover
+                    && !forced_distinct_failover_round
+                    && !tried_account_ids.is_empty()
+                    && state.router.enabled_total() >= MIN_DISTINCT_FAILOVER_ATTEMPTS
+                {
+                    forced_distinct_failover_round = true;
+                    tried_account_ids.clear();
+                    wait_for_route_update_or_deadline(&state, failover_deadline).await;
+                    continue;
+                }
+                if state.enable_request_failover && Instant::now() < failover_deadline {
+                    tried_account_ids.clear();
+                    wait_for_route_update_or_deadline(&state, failover_deadline).await;
+                    continue;
+                }
+
+                if let Some((response, status, account_id)) = last_failure.take() {
+                    log_failover_decision(
+                        Some(account_id),
+                        Some(status),
+                        None,
+                        "none",
+                        "failover_exhausted",
+                        "none",
+                        "none",
+                        "return_failure",
+                    );
+                    record_failover_exhausted_if_needed(&state, did_cross_account_failover);
+                    emit_request_log_event(
+                        &state,
+                        account_id,
+                        principal.as_ref(),
+                        &path,
+                        method.as_str(),
+                        status,
+                        started,
+                        false,
+                        parsed_policy_context.request_id.as_deref(),
+                        parsed_policy_context.model.as_deref(),
+                    )
+                    .await;
+                    release_billing_hold_best_effort(
+                        state.clone(),
+                        billing_session.take(),
+                        Some(BillingReleaseFailureContext {
+                            release_reason: Some("failover_exhausted".to_string()),
+                            upstream_status_code: Some(status.as_u16()),
+                            failover_action: Some("return_failure".to_string()),
+                            failover_reason_class: Some("failover_exhausted".to_string()),
+                            cross_account_failover_attempted: Some(
+                                did_cross_account_failover,
+                            ),
+                            ..Default::default()
+                        }),
+                    )
+                    .await;
+                    return response;
+                }
+
+                log_failover_decision(
+                    None,
+                    Some(StatusCode::SERVICE_UNAVAILABLE),
+                    None,
+                    "none",
+                    "no_upstream_account",
+                    "none",
+                    "none",
+                    "return_failure",
+                );
+                record_failover_exhausted_if_needed(&state, did_cross_account_failover);
+                release_billing_hold_best_effort(
+                    state.clone(),
+                    billing_session.take(),
+                    Some(BillingReleaseFailureContext {
+                        release_reason: Some("no_upstream_account".to_string()),
+                        upstream_status_code: Some(StatusCode::SERVICE_UNAVAILABLE.as_u16()),
+                        failover_action: Some("return_failure".to_string()),
+                        failover_reason_class: Some("no_upstream_account".to_string()),
+                        cross_account_failover_attempted: Some(did_cross_account_failover),
+                        ..Default::default()
+                    }),
+                )
+                .await;
+                return json_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "no_upstream_account",
+                    "no enabled upstream account is available",
+                );
+            }
+        };
+
+        if state.shared_routing_cache_enabled {
+            if let Ok(true) = state.routing_cache.is_unhealthy(account.id).await {
+                state.router.mark_unhealthy(
+                    account.id,
+                    state.retry_poll_interval.max(Duration::from_millis(1)),
+                );
+                tried_account_ids.insert(account.id);
+                continue;
+            }
+        }
+
+        if let Some(sticky_key) = sticky_key.as_deref() {
+            let _ = state
+                .routing_cache
+                .set_sticky_account_id(
+                    sticky_key,
+                    account.id,
+                    Duration::from_secs(ROUTING_CACHE_STICKY_TTL_SEC),
+                )
+                .await;
+        }
+
+        let upstream_url =
+            match build_upstream_url(&account.base_url, &account.mode, &path, query.as_deref()) {
+                Ok(url) => url,
+                Err(err) => {
+                    warn!(error = %err, "failed to build upstream url");
+                    let response = json_error(
+                        StatusCode::BAD_GATEWAY,
+                        "invalid_upstream_url",
+                        "failed to build upstream URL",
+                    );
+                    emit_request_log_event(
+                        &state,
+                        account.id,
+                        principal.as_ref(),
+                        &path,
+                        method.as_str(),
+                        StatusCode::BAD_GATEWAY,
+                        started,
+                        false,
+                        parsed_policy_context.request_id.as_deref(),
+                        parsed_policy_context.model.as_deref(),
+                    )
+                    .await;
+                    record_failover_exhausted_if_needed(&state, did_cross_account_failover);
+                    release_billing_hold_best_effort(
+                        state.clone(),
+                        billing_session.take(),
+                        Some(BillingReleaseFailureContext {
+                            release_reason: Some("invalid_upstream_url".to_string()),
+                            upstream_status_code: Some(StatusCode::BAD_GATEWAY.as_u16()),
+                            failover_action: Some("return_failure".to_string()),
+                            failover_reason_class: Some("invalid_upstream_url".to_string()),
+                            cross_account_failover_attempted: Some(
+                                did_cross_account_failover,
+                            ),
+                            ..Default::default()
+                        }),
+                    )
+                    .await;
+                    return response;
+                }
+            };
+
+        let mut same_account_retry_attempt: u32 = 0;
+        loop {
+            if billing_session.is_none() {
+                if let Some(pending_session) = pending_billing_session.as_ref() {
+                    match authorize_billing_session(
+                        &state,
+                        pending_session,
+                        account.id,
+                        &path,
+                        method.as_str(),
+                        started,
+                        pending_session.is_stream,
+                    )
+                    .await
+                    {
+                        Ok(session) => {
+                            billing_session = Some(session);
+                        }
+                        Err(error_response) => return *error_response,
+                    }
+                }
+            }
+
+            let mut upstream_request = state
+                .http_client
+                .request(method.clone(), upstream_url.clone());
+            upstream_request = apply_passthrough_headers(upstream_request, &parts.headers);
+            upstream_request =
+                upstream_request.header(AUTHORIZATION, format!("Bearer {}", account.bearer_token));
+            if let Some(account_id) = account.chatgpt_account_id.as_deref() {
+                upstream_request = upstream_request.header(CHATGPT_ACCOUNT_ID, account_id);
+            }
+            upstream_request = upstream_request.body(body_bytes.clone());
+
+            let upstream_response = match upstream_request.send().await {
+                Ok(resp) => resp,
+                Err(err) => {
+                    warn!(error = %err, account_id = %account.id, "upstream request failed");
+                    if state.enable_request_failover
+                        && should_retry_same_account_on_transport(
+                            same_account_retry_attempt,
+                            &state,
+                        )
+                        && Instant::now() < failover_deadline
+                    {
+                        log_failover_decision(
+                            Some(account.id),
+                            Some(StatusCode::BAD_GATEWAY),
+                            None,
+                            "none",
+                            "transport_error",
+                            "none",
+                            "none",
+                            "retry_same_account",
+                        );
+                        same_account_retry_attempt += 1;
+                        record_same_account_retry(&state);
+                        tokio::time::sleep(state.retry_poll_interval).await;
+                        continue;
+                    }
+
+                    state
+                        .router
+                        .mark_unhealthy(account.id, state.account_ejection_ttl);
+                    let _ = state
+                        .routing_cache
+                        .set_unhealthy(account.id, state.account_ejection_ttl)
+                        .await;
+                    if let Some(sticky_key) = sticky_key.as_deref() {
+                        let _ = state.router.unbind_sticky(sticky_key);
+                        let _ = state
+                            .routing_cache
+                            .delete_sticky_account_id(sticky_key)
+                            .await;
+                    }
+
+                    let response = json_error(
+                        StatusCode::BAD_GATEWAY,
+                        "upstream_transport_error",
+                        "upstream request failed",
+                    );
+                    if state.enable_request_failover && Instant::now() < failover_deadline {
+                        log_failover_decision(
+                            Some(account.id),
+                            Some(StatusCode::BAD_GATEWAY),
+                            None,
+                            "none",
+                            "transport_error",
+                            "none",
+                            "none",
+                            "cross_account_failover",
+                        );
+                        record_cross_account_failover_attempt(
+                            &state,
+                            &mut tried_account_ids,
+                            account.id,
+                            &mut did_cross_account_failover,
+                        );
+                        last_failure = Some((response, StatusCode::BAD_GATEWAY, account.id));
+                        break;
+                    }
+
+                    log_failover_decision(
+                        Some(account.id),
+                        Some(StatusCode::BAD_GATEWAY),
+                        None,
+                        "none",
+                        "transport_error",
+                        "none",
+                        "none",
+                        "return_failure",
+                    );
+                    emit_request_log_event(
+                        &state,
+                        account.id,
+                        principal.as_ref(),
+                        &path,
+                        method.as_str(),
+                        StatusCode::BAD_GATEWAY,
+                        started,
+                        false,
+                        parsed_policy_context.request_id.as_deref(),
+                        parsed_policy_context.model.as_deref(),
+                    )
+                    .await;
+                    record_failover_exhausted_if_needed(&state, did_cross_account_failover);
+                    release_billing_hold_best_effort(
+                        state.clone(),
+                        billing_session.take(),
+                        Some(BillingReleaseFailureContext {
+                            release_reason: Some("transport_error".to_string()),
+                            upstream_status_code: Some(StatusCode::BAD_GATEWAY.as_u16()),
+                            failover_action: Some("return_failure".to_string()),
+                            failover_reason_class: Some("transport_error".to_string()),
+                            cross_account_failover_attempted: Some(
+                                did_cross_account_failover,
+                            ),
+                            ..Default::default()
+                        }),
+                    )
+                    .await;
+                    return response;
+                }
+            };
+
+            let status = upstream_response.status();
+            let response_headers = upstream_response.headers().clone();
+            let content_type_indicates_stream = response_headers
+                .get(axum::http::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| v.contains("text/event-stream"));
+            // Some upstreams may omit SSE content-type headers on successful stream responses.
+            // For requests that explicitly ask for streaming, treat successful responses as stream
+            // even when content-type is missing or unexpected.
+            let is_stream = content_type_indicates_stream
+                || (parsed_policy_context.stream && status.is_success());
+            if let Some(session) = billing_session.as_mut() {
+                session.is_stream = is_stream;
+            }
+
+            if is_stream && status.is_success() {
+                match stream_response_with_first_chunk(
+                    state.clone(),
+                    status,
+                    &response_headers,
+                    upstream_response,
+                    billing_session.clone(),
+                )
+                .await
+                {
+                    Ok(response) => {
+                        state
+                            .stream_response_total
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if content_type_indicates_stream {
+                            state
+                                .stream_protocol_sse_header_total
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        } else if parsed_policy_context.stream {
+                            state
+                                .stream_protocol_header_missing_total
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        emit_request_log_event_with_billing(
+                            &state,
+                            account.id,
+                            principal.as_ref(),
+                            &path,
+                            method.as_str(),
+                            status,
+                            started,
+                            true,
+                            parsed_policy_context.request_id.as_deref(),
+                            parsed_policy_context.model.as_deref(),
+                            billing_session.as_ref().map(|_| "streaming_open"),
+                            billing_session
+                                .as_ref()
+                                .map(|session| session.authorization_id),
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                        )
+                        .await;
+                        record_failover_success_if_needed(&state, did_cross_account_failover);
+                        return response;
+                    }
+                    Err(err) => {
+                        let mut error_context: Option<UpstreamErrorContext> = None;
+                        let mut status = StatusCode::BAD_GATEWAY;
+                        let mut response = json_error(
+                            StatusCode::BAD_GATEWAY,
+                            "upstream_transport_error",
+                            "upstream request failed",
+                        );
+                        let mut reason_class = "stream_prelude_error";
+                        let mut should_retry_same_account = should_retry_same_account_on_transport(
+                            same_account_retry_attempt,
+                            &state,
+                        );
+                        let error_detail = match err {
+                            StreamPreludeError::EndOfStreamBeforeFirstChunk => {
+                                "end_of_stream_before_first_chunk".to_string()
+                            }
+                            StreamPreludeError::UpstreamReadFailed(message) => message,
+                            StreamPreludeError::UpstreamErrorResponse(context) => {
+                                status = context.status;
+                                response = normalize_upstream_error_response(&context);
+                                reason_class = "stream_upstream_error";
+                                error_context = Some(context);
+                                should_retry_same_account = should_retry_same_account_on_status(
+                                    status,
+                                    false,
+                                    same_account_retry_attempt,
+                                    &state,
+                                    error_context.as_ref(),
+                                );
+                                "upstream_stream_error_event".to_string()
+                            }
+                        };
+                        warn!(
+                            error = %error_detail,
+                            account_id = %account.id,
+                            "upstream stream ended before first chunk"
+                        );
+                        if state.enable_request_failover
+                            && should_retry_same_account
+                            && Instant::now() < failover_deadline
+                        {
+                            log_failover_decision(
+                                Some(account.id),
+                                Some(status),
+                                error_context
+                                    .as_ref()
+                                    .and_then(|context| context.error_code.as_deref()),
+                                upstream_error_class_label(error_context.as_ref()),
+                                reason_class,
+                                recovery_action_label(error_context.as_ref()),
+                                "none",
+                                "retry_same_account",
+                            );
+                            same_account_retry_attempt += 1;
+                            record_same_account_retry(&state);
+                            tokio::time::sleep(state.retry_poll_interval).await;
+                            continue;
+                        }
+
+                        let recovery_outcome = apply_recovery_action(
+                            &state,
+                            account.id,
+                            error_context.as_ref(),
+                        )
+                        .await;
+                        let ejection_ttl = ejection_ttl_for_response(
+                            status,
+                            state.account_ejection_ttl,
+                            false,
+                            error_context.as_ref(),
+                            recovery_outcome,
+                        )
+                        .unwrap_or(state.account_ejection_ttl);
+                        state.router.mark_unhealthy(account.id, ejection_ttl);
+                        let _ = state
+                            .routing_cache
+                            .set_unhealthy(account.id, ejection_ttl)
+                            .await;
+                        if let Some(sticky_key) = sticky_key.as_deref() {
+                            let _ = state.router.unbind_sticky(sticky_key);
+                            let _ = state
+                                .routing_cache
+                                .delete_sticky_account_id(sticky_key)
+                                .await;
+                        }
+
+                        let retryable = is_failover_retryable_error(status, error_context.as_ref());
+                        let force_cross_account = !did_cross_account_failover
+                            && state.router.enabled_total() >= MIN_DISTINCT_FAILOVER_ATTEMPTS;
+                        if state.enable_request_failover
+                            && retryable
+                            && (Instant::now() < failover_deadline || force_cross_account)
+                        {
+                            log_failover_decision(
+                                Some(account.id),
+                                Some(status),
+                                error_context
+                                    .as_ref()
+                                    .and_then(|context| context.error_code.as_deref()),
+                                upstream_error_class_label(error_context.as_ref()),
+                                reason_class,
+                                recovery_action_label(error_context.as_ref()),
+                                recovery_outcome_label(recovery_outcome),
+                                "cross_account_failover",
+                            );
+                            record_cross_account_failover_attempt(
+                                &state,
+                                &mut tried_account_ids,
+                                account.id,
+                                &mut did_cross_account_failover,
+                            );
+                            last_failure = Some((response, status, account.id));
+                            break;
+                        }
+
+                        log_failover_decision(
+                            Some(account.id),
+                            Some(status),
+                            error_context
+                                .as_ref()
+                                .and_then(|context| context.error_code.as_deref()),
+                            upstream_error_class_label(error_context.as_ref()),
+                            reason_class,
+                            recovery_action_label(error_context.as_ref()),
+                            recovery_outcome_label(recovery_outcome),
+                            "return_failure",
+                        );
+                        emit_request_log_event(
+                            &state,
+                            account.id,
+                            principal.as_ref(),
+                            &path,
+                            method.as_str(),
+                            status,
+                            started,
+                            true,
+                            parsed_policy_context.request_id.as_deref(),
+                            parsed_policy_context.model.as_deref(),
+                        )
+                        .await;
+                        record_failover_exhausted_if_needed(&state, did_cross_account_failover);
+                        release_billing_hold_best_effort(
+                            state.clone(),
+                            billing_session.take(),
+                            Some(BillingReleaseFailureContext {
+                                release_reason: Some(reason_class.to_string()),
+                                upstream_status_code: Some(status.as_u16()),
+                                upstream_error_code: error_context
+                                    .as_ref()
+                                    .and_then(|context| context.error_code.clone()),
+                                failover_action: Some("return_failure".to_string()),
+                                failover_reason_class: Some(reason_class.to_string()),
+                                recovery_action: Some(
+                                    recovery_action_label(error_context.as_ref()).to_string(),
+                                ),
+                                recovery_outcome: Some(
+                                    recovery_outcome_label(recovery_outcome).to_string(),
+                                ),
+                                cross_account_failover_attempted: Some(
+                                    did_cross_account_failover,
+                                ),
+                                ..Default::default()
+                            }),
+                        )
+                        .await;
+                        return response;
+                    }
+                }
+            }
+
+            let mut non_stream_billing_settle: Option<BillingSettleResult> = None;
+
+            let (response, upstream_error_context, is_503_overloaded) =
+                if status == StatusCode::SERVICE_UNAVAILABLE {
+                let (response, error_context) =
+                    map_service_unavailable(&response_headers, upstream_response).await;
+                let is_overloaded =
+                    matches!(error_context.class, UpstreamErrorClass::Overloaded);
+                (response, Some(error_context), is_overloaded)
+            } else {
+                let (response, error_context, body) =
+                    buffered_response(status, &response_headers, upstream_response).await;
+                let response =
+                    match settle_billing_if_needed(&state, billing_session.as_ref(), status, &body)
+                        .await
+                    {
+                        Ok(settle_result) => {
+                            if let Some(settle_result) = settle_result {
+                                non_stream_billing_settle = Some(settle_result);
+                                billing_session = None;
+                            }
+                            response
+                        }
+                        Err(error_response) => {
+                            release_billing_hold_best_effort(
+                                state.clone(),
+                                billing_session.take(),
+                                Some(BillingReleaseFailureContext {
+                                    release_reason: Some("billing_settle_failed".to_string()),
+                                    upstream_status_code: Some(error_response.status().as_u16()),
+                                    failover_action: Some("return_failure".to_string()),
+                                    failover_reason_class: Some(
+                                        "billing_settle_failed".to_string(),
+                                    ),
+                                    cross_account_failover_attempted: Some(
+                                        did_cross_account_failover,
+                                    ),
+                                    ..Default::default()
+                                }),
+                            )
+                            .await;
+                            *error_response
+                        }
+                    };
+                (response, error_context, false)
+            };
+
+            if status.is_success() {
+                let (
+                    billing_phase,
+                    authorization_id,
+                    capture_status,
+                    input_tokens,
+                    cached_input_tokens,
+                    output_tokens,
+                    reasoning_tokens,
+                ) =
+                    if is_stream {
+                        (
+                            billing_session.as_ref().map(|_| "streaming_open"),
+                            billing_session
+                                .as_ref()
+                                .map(|session| session.authorization_id),
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                        )
+                    } else if let Some(settle_result) = non_stream_billing_settle.as_ref() {
+                        (
+                            Some("released"),
+                            Some(settle_result.authorization_id),
+                            Some(settle_result.capture_status.as_str()),
+                            Some(settle_result.input_tokens),
+                            Some(settle_result.cached_input_tokens),
+                            Some(settle_result.output_tokens),
+                            Some(settle_result.reasoning_tokens),
+                        )
+                    } else {
+                        (None, None, None, None, None, None, None)
+                    };
+                emit_request_log_event_with_billing(
+                    &state,
+                    account.id,
+                    principal.as_ref(),
+                    &path,
+                    method.as_str(),
+                    status,
+                    started,
+                    is_stream,
+                    parsed_policy_context.request_id.as_deref(),
+                    parsed_policy_context.model.as_deref(),
+                    billing_phase,
+                    authorization_id,
+                    capture_status,
+                    input_tokens,
+                    cached_input_tokens,
+                    output_tokens,
+                    reasoning_tokens,
+                )
+                .await;
+                record_failover_success_if_needed(&state, did_cross_account_failover);
+                return response;
+            }
+
+            let retryable = is_failover_retryable_error(status, upstream_error_context.as_ref());
+            let same_account_retryable = should_retry_same_account_on_status(
+                status,
+                is_503_overloaded,
+                same_account_retry_attempt,
+                &state,
+                upstream_error_context.as_ref(),
+            );
+            if state.enable_request_failover
+                && retryable
+                && same_account_retryable
+                && Instant::now() < failover_deadline
+            {
+                log_failover_decision(
+                    Some(account.id),
+                    Some(status),
+                    upstream_error_context
+                        .as_ref()
+                        .and_then(|context| context.error_code.as_deref()),
+                    upstream_error_class_label(upstream_error_context.as_ref()),
+                    "retryable_status",
+                    recovery_action_label(upstream_error_context.as_ref()),
+                    "not_applied",
+                    "retry_same_account",
+                );
+                same_account_retry_attempt += 1;
+                record_same_account_retry(&state);
+                tokio::time::sleep(state.retry_poll_interval).await;
+                continue;
+            }
+
+            let force_cross_account = !did_cross_account_failover
+                && state.router.enabled_total() >= MIN_DISTINCT_FAILOVER_ATTEMPTS;
+            let should_cross_account_failover = state.enable_request_failover
+                && retryable
+                && (Instant::now() < failover_deadline || force_cross_account);
+            let recovery_outcome = if should_cross_account_failover {
+                if upstream_error_context.is_some() {
+                    let state_for_recovery = state.clone();
+                    let recovery_context = upstream_error_context.clone();
+                    tokio::spawn(async move {
+                        let _ = apply_recovery_action(
+                            state_for_recovery.as_ref(),
+                            account.id,
+                            recovery_context.as_ref(),
+                        )
+                        .await;
+                    });
+                }
+                ProxyRecoveryOutcome::NotApplied
+            } else {
+                apply_recovery_action(&state, account.id, upstream_error_context.as_ref()).await
+            };
+            if let Some(ejection_ttl) = ejection_ttl_for_response(
+                status,
+                state.account_ejection_ttl,
+                is_503_overloaded,
+                upstream_error_context.as_ref(),
+                recovery_outcome,
+            ) {
+                state.router.mark_unhealthy(account.id, ejection_ttl);
+                let _ = state
+                    .routing_cache
+                    .set_unhealthy(account.id, ejection_ttl)
+                    .await;
+                if let Some(sticky_key) = sticky_key.as_deref() {
+                    let _ = state.router.unbind_sticky(sticky_key);
+                    let _ = state
+                        .routing_cache
+                        .delete_sticky_account_id(sticky_key)
+                        .await;
+                }
+            }
+            record_invalid_request_guard_failure(
+                &state,
+                principal.as_ref(),
+                status,
+                upstream_error_context.as_ref(),
+            );
+
+            if should_cross_account_failover {
+                log_failover_decision(
+                    Some(account.id),
+                    Some(status),
+                    upstream_error_context
+                        .as_ref()
+                        .and_then(|context| context.error_code.as_deref()),
+                    upstream_error_class_label(upstream_error_context.as_ref()),
+                    "retryable_status",
+                    recovery_action_label(upstream_error_context.as_ref()),
+                    recovery_outcome_label(recovery_outcome),
+                    "cross_account_failover",
+                );
+                record_cross_account_failover_attempt(
+                    &state,
+                    &mut tried_account_ids,
+                    account.id,
+                    &mut did_cross_account_failover,
+                );
+                last_failure = Some((response, status, account.id));
+                break;
+            }
+
+            log_failover_decision(
+                Some(account.id),
+                Some(status),
+                upstream_error_context
+                    .as_ref()
+                    .and_then(|context| context.error_code.as_deref()),
+                upstream_error_class_label(upstream_error_context.as_ref()),
+                "non_retryable_or_budget_exhausted",
+                recovery_action_label(upstream_error_context.as_ref()),
+                recovery_outcome_label(recovery_outcome),
+                "return_failure",
+            );
+            emit_request_log_event(
+                &state,
+                account.id,
+                principal.as_ref(),
+                &path,
+                method.as_str(),
+                status,
+                started,
+                is_stream,
+                parsed_policy_context.request_id.as_deref(),
+                parsed_policy_context.model.as_deref(),
+            )
+            .await;
+            record_failover_exhausted_if_needed(&state, did_cross_account_failover);
+            release_billing_hold_best_effort(
+                state.clone(),
+                billing_session.take(),
+                Some(BillingReleaseFailureContext {
+                    release_reason: Some("upstream_request_failed".to_string()),
+                    upstream_status_code: Some(status.as_u16()),
+                    upstream_error_code: upstream_error_context
+                        .as_ref()
+                        .and_then(|context| context.error_code.clone()),
+                    failover_action: Some("return_failure".to_string()),
+                    failover_reason_class: Some("non_retryable_or_budget_exhausted".to_string()),
+                    recovery_action: Some(
+                        recovery_action_label(upstream_error_context.as_ref()).to_string(),
+                    ),
+                    recovery_outcome: Some(recovery_outcome_label(recovery_outcome).to_string()),
+                    cross_account_failover_attempted: Some(did_cross_account_failover),
+                }),
+            )
+            .await;
+            return response;
+        }
+    }
+}
+
+pub async fn proxy_websocket_handler(
+    State(state): State<std::sync::Arc<AppState>>,
+    ws_upgrade: Result<WebSocketUpgrade, WebSocketUpgradeRejection>,
+    request: Request<Body>,
+) -> Response {
+    let ws_upgrade = match ws_upgrade {
+        Ok(ws_upgrade) => ws_upgrade,
+        Err(err) => {
+            warn!(error = %err, "invalid websocket upgrade request");
+            return json_error(
+                StatusCode::BAD_REQUEST,
+                "invalid_websocket_upgrade",
+                "request is not a valid websocket upgrade",
+            );
+        }
+    };
+
+    let (parts, _) = request.into_parts();
+    let path = parts.uri.path().to_string();
+    let query = parts.uri.query().map(str::to_string);
+    let sticky_key = sticky_session_key_from_headers(&parts.headers);
+    let failover_deadline = Instant::now() + state.request_failover_wait;
+    let mut tried_account_ids = HashSet::new();
+    let mut last_failure: Option<Response> = None;
+    let mut did_cross_account_failover = false;
+    let mut forced_distinct_failover_round = false;
+
+    if let Some(sticky_key) = sticky_key.as_deref() {
+        if let Ok(Some(account_id)) = state.routing_cache.get_sticky_account_id(sticky_key).await {
+            let _ = state.router.bind_sticky(sticky_key, account_id);
+        }
+    }
+
+    loop {
+        let account = match state.router.pick_with_policy(
+            sticky_key.as_deref(),
+            &tried_account_ids,
+            state.sticky_prefer_non_conflicting,
+        ) {
+            Some(account) => account,
+            None => {
+                if state.enable_request_failover
+                    && !forced_distinct_failover_round
+                    && !tried_account_ids.is_empty()
+                    && state.router.enabled_total() >= MIN_DISTINCT_FAILOVER_ATTEMPTS
+                {
+                    forced_distinct_failover_round = true;
+                    tried_account_ids.clear();
+                    wait_for_route_update_or_deadline(&state, failover_deadline).await;
+                    continue;
+                }
+                if state.enable_request_failover && Instant::now() < failover_deadline {
+                    tried_account_ids.clear();
+                    wait_for_route_update_or_deadline(&state, failover_deadline).await;
+                    continue;
+                }
+                if let Some(response) = last_failure.take() {
+                    record_failover_exhausted_if_needed(&state, did_cross_account_failover);
+                    return response;
+                }
+                record_failover_exhausted_if_needed(&state, did_cross_account_failover);
+                return json_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "no_upstream_account",
+                    "no enabled upstream account is available",
+                );
+            }
+        };
+
+        if state.shared_routing_cache_enabled {
+            if let Ok(true) = state.routing_cache.is_unhealthy(account.id).await {
+                state.router.mark_unhealthy(
+                    account.id,
+                    state.retry_poll_interval.max(Duration::from_millis(1)),
+                );
+                tried_account_ids.insert(account.id);
+                continue;
+            }
+        }
+
+        if let Some(sticky_key) = sticky_key.as_deref() {
+            let _ = state
+                .routing_cache
+                .set_sticky_account_id(
+                    sticky_key,
+                    account.id,
+                    Duration::from_secs(ROUTING_CACHE_STICKY_TTL_SEC),
+                )
+                .await;
+        }
+
+        let mut same_account_retry_attempt: u32 = 0;
+        loop {
+            let upstream_request = match build_upstream_websocket_request(
+                &account.base_url,
+                &account.mode,
+                &account.bearer_token,
+                account.chatgpt_account_id.as_deref(),
+                &path,
+                query.as_deref(),
+                &parts.headers,
+            ) {
+                Ok(request) => request,
+                Err(err) => {
+                    warn!(error = %err, account_id = %account.id, "failed to build upstream websocket request");
+                    state
+                        .router
+                        .mark_unhealthy(account.id, state.account_ejection_ttl);
+                    let _ = state
+                        .routing_cache
+                        .set_unhealthy(account.id, state.account_ejection_ttl)
+                        .await;
+                    if let Some(sticky_key) = sticky_key.as_deref() {
+                        let _ = state.router.unbind_sticky(sticky_key);
+                        let _ = state
+                            .routing_cache
+                            .delete_sticky_account_id(sticky_key)
+                            .await;
+                    }
+
+                    let response = json_error(
+                        StatusCode::BAD_GATEWAY,
+                        "invalid_upstream_url",
+                        "failed to build upstream URL",
+                    );
+                    let force_cross_account = !did_cross_account_failover
+                        && state.router.enabled_total() >= MIN_DISTINCT_FAILOVER_ATTEMPTS;
+                    if state.enable_request_failover
+                        && (Instant::now() < failover_deadline || force_cross_account)
+                    {
+                        record_cross_account_failover_attempt(
+                            &state,
+                            &mut tried_account_ids,
+                            account.id,
+                            &mut did_cross_account_failover,
+                        );
+                        last_failure = Some(response);
+                        break;
+                    }
+                    record_failover_exhausted_if_needed(&state, did_cross_account_failover);
+                    return response;
+                }
+            };
+
+            let upstream_socket = match connect_async(upstream_request).await {
+                Ok((upstream_socket, _)) => upstream_socket,
+                Err(err) => {
+                    warn!(error = %err, account_id = %account.id, "failed to connect upstream websocket");
+                    if state.enable_request_failover
+                        && should_retry_same_account_on_transport(
+                            same_account_retry_attempt,
+                            &state,
+                        )
+                        && Instant::now() < failover_deadline
+                    {
+                        same_account_retry_attempt += 1;
+                        record_same_account_retry(&state);
+                        tokio::time::sleep(state.retry_poll_interval).await;
+                        continue;
+                    }
+
+                    state
+                        .router
+                        .mark_unhealthy(account.id, state.account_ejection_ttl);
+                    let _ = state
+                        .routing_cache
+                        .set_unhealthy(account.id, state.account_ejection_ttl)
+                        .await;
+                    if let Some(sticky_key) = sticky_key.as_deref() {
+                        let _ = state.router.unbind_sticky(sticky_key);
+                        let _ = state
+                            .routing_cache
+                            .delete_sticky_account_id(sticky_key)
+                            .await;
+                    }
+
+                    let response = json_error(
+                        StatusCode::BAD_GATEWAY,
+                        "upstream_websocket_connect_error",
+                        "failed to connect upstream websocket",
+                    );
+                    let force_cross_account = !did_cross_account_failover
+                        && state.router.enabled_total() >= MIN_DISTINCT_FAILOVER_ATTEMPTS;
+                    if state.enable_request_failover
+                        && (Instant::now() < failover_deadline || force_cross_account)
+                    {
+                        record_cross_account_failover_attempt(
+                            &state,
+                            &mut tried_account_ids,
+                            account.id,
+                            &mut did_cross_account_failover,
+                        );
+                        last_failure = Some(response);
+                        break;
+                    }
+                    record_failover_exhausted_if_needed(&state, did_cross_account_failover);
+                    return response;
+                }
+            };
+
+            record_failover_success_if_needed(&state, did_cross_account_failover);
+            return ws_upgrade.on_upgrade(move |downstream_socket| async move {
+                if let Err(err) = proxy_websocket_streams(downstream_socket, upstream_socket).await
+                {
+                    warn!(error = %err, "websocket proxy stream failed");
+                }
+            });
+        }
+    }
+}
+
+async fn wait_for_route_update_or_deadline(state: &AppState, deadline: Instant) {
+    let now = Instant::now();
+    if now >= deadline {
+        return;
+    }
+    let timeout = state
+        .retry_poll_interval
+        .min(deadline.saturating_duration_since(now))
+        .max(Duration::from_millis(1));
+    state.wait_for_route_update(timeout).await;
+}

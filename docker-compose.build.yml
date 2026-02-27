@@ -1,0 +1,20 @@
+name: codex-pool-build
+
+x-rust-runtime-build: &rust-runtime-build
+  context: .
+  dockerfile: docker/rust-runtime.Dockerfile
+
+services:
+  control-plane:
+    build: *rust-runtime-build
+
+  data-plane:
+    build: *rust-runtime-build
+
+  usage-worker:
+    build: *rust-runtime-build
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.runtime.Dockerfile

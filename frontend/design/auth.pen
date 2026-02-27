@@ -1,0 +1,4343 @@
+{
+  "version": "2.8",
+  "children": [
+    {
+      "type": "frame",
+      "id": "TeILm",
+      "x": 0,
+      "y": 0,
+      "name": "TenantAuth-Desktop-Light",
+      "width": 1440,
+      "height": 960,
+      "fill": "#F3F4F6",
+      "layout": "vertical",
+      "justifyContent": "center",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "P29HG",
+          "name": "Auth Shell",
+          "width": 1296,
+          "height": 816,
+          "gap": 72,
+          "padding": 48,
+          "children": [
+            {
+              "type": "frame",
+              "id": "Tpogv",
+              "name": "Brand Zone",
+              "width": 500,
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 24,
+              "justifyContent": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "DEEBg",
+                  "name": "logoRow",
+                  "gap": 10,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "txCgW",
+                      "name": "logoDot",
+                      "width": 12,
+                      "height": 12,
+                      "fill": "#111111",
+                      "cornerRadius": 6
+                    },
+                    {
+                      "type": "text",
+                      "id": "oX2iq",
+                      "name": "logoText",
+                      "fill": "#0F1115",
+                      "content": "Codex Pool",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 18,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "yAadP",
+                  "name": "heroTitle",
+                  "fill": "#0D1118",
+                  "content": "让企业级 AI 接入\n保持稳定与可控",
+                  "fontFamily": "Space Grotesk",
+                  "fontSize": 52,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "nnEat",
+                  "name": "heroDesc",
+                  "fill": "#505A6B",
+                  "content": "统一认证、可观测和策略治理，\n为每一次模型调用提供确定性体验。",
+                  "fontFamily": "Inter",
+                  "fontSize": 17,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "frame",
+                  "id": "3IA4i",
+                  "name": "pointList",
+                  "layout": "vertical",
+                  "gap": 14,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "Ece3H",
+                      "name": "pointRow1",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "qW6IH",
+                          "name": "pointDot1",
+                          "width": 8,
+                          "height": 8,
+                          "fill": "#0F1115",
+                          "cornerRadius": 4
+                        },
+                        {
+                          "type": "text",
+                          "id": "sbvsN",
+                          "name": "pointText1",
+                          "fill": "#303846",
+                          "content": "审计可追踪，满足企业合规要求",
+                          "fontFamily": "Inter",
+                          "fontSize": 15,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "T7uPH",
+                      "name": "pointRow2",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "uee0x",
+                          "name": "pointDot2",
+                          "width": 8,
+                          "height": 8,
+                          "fill": "#0F1115",
+                          "cornerRadius": 4
+                        },
+                        {
+                          "type": "text",
+                          "id": "1rek1",
+                          "name": "pointText2",
+                          "fill": "#303846",
+                          "content": "多租户隔离与统一密钥安全治理",
+                          "fontFamily": "Inter",
+                          "fontSize": 15,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "G6tjE",
+                      "name": "pointRow3",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "we2k2",
+                          "name": "pointDot3",
+                          "width": 8,
+                          "height": 8,
+                          "fill": "#0F1115",
+                          "cornerRadius": 4
+                        },
+                        {
+                          "type": "text",
+                          "id": "4CGTz",
+                          "name": "pointText3",
+                          "fill": "#303846",
+                          "content": "高可用路由与失败快速回退",
+                          "fontFamily": "Inter",
+                          "fontSize": 15,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "2PhB3",
+              "name": "Auth Zone",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "LBYOI",
+                  "name": "Tenant Auth Card",
+                  "width": 468,
+                  "height": 620,
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 20,
+                  "layout": "vertical",
+                  "gap": 18,
+                  "padding": 32,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "FBaeB",
+                      "name": "cardHead",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "K08Bz",
+                          "name": "cardTitle",
+                          "fill": "#0E1117",
+                          "content": "欢迎回来",
+                          "fontFamily": "Space Grotesk",
+                          "fontSize": 36,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "text",
+                          "id": "hw0PS",
+                          "name": "cardDesc",
+                          "fill": "#616C7F",
+                          "content": "登录或注册以继续访问你的租户控制台",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "HXDLF",
+                      "name": "Auth Switch",
+                      "width": "fill_container",
+                      "height": 48,
+                      "fill": "#F1F3F7",
+                      "cornerRadius": 14,
+                      "gap": 4,
+                      "padding": 4,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "zCTwh",
+                          "name": "loginTab",
+                          "width": "fill_container",
+                          "height": "fill_container",
+                          "fill": "#111317",
+                          "cornerRadius": 10,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "Vl7oo",
+                              "name": "loginTabText",
+                              "fill": "#FFFFFF",
+                              "content": "登录",
+                              "fontFamily": "Space Grotesk",
+                              "fontSize": 14,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "uilty",
+                          "name": "registerTab",
+                          "width": "fill_container",
+                          "height": "fill_container",
+                          "fill": "#F1F3F7",
+                          "cornerRadius": 10,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "8ZZUz",
+                              "name": "registerTabText",
+                              "fill": "#697487",
+                              "content": "注册",
+                              "fontFamily": "Space Grotesk",
+                              "fontSize": 14,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "J3X3y",
+                      "name": "loginForm",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 12,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "r6AnZ",
+                          "name": "emailLabel",
+                          "fill": "#374255",
+                          "content": "邮箱",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Q2DVW",
+                          "name": "emailInput",
+                          "width": "fill_container",
+                          "height": 46,
+                          "fill": "#FBFCFE",
+                          "cornerRadius": 12,
+                          "padding": 12,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "ieEuY",
+                              "name": "emailHint",
+                              "fill": "#9AA6B9",
+                              "content": "name@company.com",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "dH7Ai",
+                          "name": "pwdLabel",
+                          "fill": "#374255",
+                          "content": "密码",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "J7XhK",
+                          "name": "pwdInput",
+                          "width": "fill_container",
+                          "height": 46,
+                          "fill": "#FBFCFE",
+                          "cornerRadius": 12,
+                          "padding": 12,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "YamKn",
+                              "name": "pwdHint",
+                              "fill": "#9AA6B9",
+                              "content": "请输入密码",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "sdiBc",
+                          "name": "forgotRow",
+                          "width": "fill_container",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "CNPTK",
+                              "name": "forgotText",
+                              "fill": "#3A455A",
+                              "content": "忘记密码？",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "Y7KlM",
+                          "name": "submitBtn",
+                          "width": "fill_container",
+                          "height": 48,
+                          "fill": "#12141A",
+                          "cornerRadius": 12,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "tSyxu",
+                              "name": "submitText",
+                              "fill": "#FFFFFF",
+                              "content": "登录租户控制台",
+                              "fontFamily": "Space Grotesk",
+                              "fontSize": 14,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "DxfmE",
+                      "name": "sepLine",
+                      "width": "fill_container",
+                      "height": 1,
+                      "fill": "#E7EBF2"
+                    },
+                    {
+                      "type": "text",
+                      "id": "B7SDh",
+                      "name": "socialTitle",
+                      "fill": "#7C889D",
+                      "content": "或使用第三方登录（即将支持）",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "2uY9i",
+                      "name": "socialRow",
+                      "width": "fill_container",
+                      "gap": 10,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "hmoZ5",
+                          "name": "googleBtn",
+                          "width": "fill_container",
+                          "height": 42,
+                          "fill": "#FFFFFF",
+                          "cornerRadius": 10,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "xrghI",
+                              "name": "googleText",
+                              "fill": "#2A3446",
+                              "content": "Google",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "xDUBR",
+                          "name": "githubBtn",
+                          "width": "fill_container",
+                          "height": 42,
+                          "fill": "#FFFFFF",
+                          "cornerRadius": 10,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "04khY",
+                              "name": "githubText",
+                              "fill": "#2A3446",
+                              "content": "GitHub",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "jUlTn",
+                  "name": "motionNote",
+                  "fill": "#7D8797",
+                  "content": "Motion: 滑块切换 380ms / ease-out，卡片入场 360ms / spring-like。",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "7KYqI",
+      "x": 1580,
+      "y": 0,
+      "name": "TenantAuth-Desktop-Dark",
+      "width": 1440,
+      "height": 960,
+      "fill": "#0F1218",
+      "layout": "vertical",
+      "justifyContent": "center",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "TFAxj",
+          "name": "Auth Shell",
+          "width": 1296,
+          "height": 816,
+          "gap": 72,
+          "padding": 48,
+          "children": [
+            {
+              "type": "frame",
+              "id": "ree2l",
+              "name": "Brand Zone",
+              "width": 500,
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 24,
+              "justifyContent": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "3j32i",
+                  "name": "logoRow",
+                  "gap": 10,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "HiYCx",
+                      "name": "logoDot",
+                      "width": 12,
+                      "height": 12,
+                      "fill": "#111111",
+                      "cornerRadius": 6
+                    },
+                    {
+                      "type": "text",
+                      "id": "lSgTJ",
+                      "name": "logoText",
+                      "fill": "#E6EBF5",
+                      "content": "Codex Pool",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 18,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "8Adqn",
+                  "name": "heroTitle",
+                  "fill": "#F2F6FF",
+                  "content": "让企业级 AI 接入\n保持稳定与可控",
+                  "fontFamily": "Space Grotesk",
+                  "fontSize": 52,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "tnV5a",
+                  "name": "heroDesc",
+                  "fill": "#A7B2C6",
+                  "content": "统一认证、可观测和策略治理，\n为每一次模型调用提供确定性体验。",
+                  "fontFamily": "Inter",
+                  "fontSize": 17,
+                  "fontWeight": "normal"
+                },
+                {
+                  "type": "frame",
+                  "id": "uTLzm",
+                  "name": "pointList",
+                  "layout": "vertical",
+                  "gap": 14,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "JfWwO",
+                      "name": "pointRow1",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "duoXo",
+                          "name": "pointDot1",
+                          "width": 8,
+                          "height": 8,
+                          "fill": "#8B97AC",
+                          "cornerRadius": 4
+                        },
+                        {
+                          "type": "text",
+                          "id": "QVgm4",
+                          "name": "pointText1",
+                          "fill": "#C1CBDB",
+                          "content": "审计可追踪，满足企业合规要求",
+                          "fontFamily": "Inter",
+                          "fontSize": 15,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "1cnbz",
+                      "name": "pointRow2",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "dmkdQ",
+                          "name": "pointDot2",
+                          "width": 8,
+                          "height": 8,
+                          "fill": "#8B97AC",
+                          "cornerRadius": 4
+                        },
+                        {
+                          "type": "text",
+                          "id": "JdGaj",
+                          "name": "pointText2",
+                          "fill": "#C1CBDB",
+                          "content": "多租户隔离与统一密钥安全治理",
+                          "fontFamily": "Inter",
+                          "fontSize": 15,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "DPQSt",
+                      "name": "pointRow3",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "pQNVL",
+                          "name": "pointDot3",
+                          "width": 8,
+                          "height": 8,
+                          "fill": "#8B97AC",
+                          "cornerRadius": 4
+                        },
+                        {
+                          "type": "text",
+                          "id": "jmzQz",
+                          "name": "pointText3",
+                          "fill": "#C1CBDB",
+                          "content": "高可用路由与失败快速回退",
+                          "fontFamily": "Inter",
+                          "fontSize": 15,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "N9KFK",
+              "name": "Auth Zone",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "L2O7C",
+                  "name": "Tenant Auth Card",
+                  "width": 468,
+                  "height": 620,
+                  "fill": "#171D27",
+                  "cornerRadius": 20,
+                  "layout": "vertical",
+                  "gap": 18,
+                  "padding": 32,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "mef0V",
+                      "name": "cardHead",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "4V8B6",
+                          "name": "cardTitle",
+                          "fill": "#F2F6FF",
+                          "content": "欢迎回来",
+                          "fontFamily": "Space Grotesk",
+                          "fontSize": 36,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "text",
+                          "id": "lAOft",
+                          "name": "cardDesc",
+                          "fill": "#A7B2C6",
+                          "content": "登录或注册以继续访问你的租户控制台",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "ZUSMy",
+                      "name": "Auth Switch",
+                      "width": "fill_container",
+                      "height": 48,
+                      "fill": "#252E3D",
+                      "cornerRadius": 14,
+                      "gap": 4,
+                      "padding": 4,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "MO33g",
+                          "name": "loginTab",
+                          "width": "fill_container",
+                          "height": "fill_container",
+                          "fill": "#E9EEF8",
+                          "cornerRadius": 10,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "i9jSs",
+                              "name": "loginTabText",
+                              "fill": "#141922",
+                              "content": "登录",
+                              "fontFamily": "Space Grotesk",
+                              "fontSize": 14,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "CYRu4",
+                          "name": "registerTab",
+                          "width": "fill_container",
+                          "height": "fill_container",
+                          "fill": "#252E3D",
+                          "cornerRadius": 10,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "4pWT1",
+                              "name": "registerTabText",
+                              "fill": "#95A3BA",
+                              "content": "注册",
+                              "fontFamily": "Space Grotesk",
+                              "fontSize": 14,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "jfrLA",
+                      "name": "loginForm",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 12,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "istYM",
+                          "name": "emailLabel",
+                          "fill": "#C0CBDE",
+                          "content": "邮箱",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "KJR6e",
+                          "name": "emailInput",
+                          "width": "fill_container",
+                          "height": 46,
+                          "fill": "#0F141D",
+                          "cornerRadius": 12,
+                          "padding": 12,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "FfjWX",
+                              "name": "emailHint",
+                              "fill": "#72819A",
+                              "content": "name@company.com",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "ExXOD",
+                          "name": "pwdLabel",
+                          "fill": "#C0CBDE",
+                          "content": "密码",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "ZXLgq",
+                          "name": "pwdInput",
+                          "width": "fill_container",
+                          "height": 46,
+                          "fill": "#0F141D",
+                          "cornerRadius": 12,
+                          "padding": 12,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "LNMBg",
+                              "name": "pwdHint",
+                              "fill": "#72819A",
+                              "content": "请输入密码",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "cFGFA",
+                          "name": "forgotRow",
+                          "width": "fill_container",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "uLP8D",
+                              "name": "forgotText",
+                              "fill": "#92A1BB",
+                              "content": "忘记密码？",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "VRUQd",
+                          "name": "submitBtn",
+                          "width": "fill_container",
+                          "height": 48,
+                          "fill": "#E9EEF8",
+                          "cornerRadius": 12,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "X9yJz",
+                              "name": "submitText",
+                              "fill": "#151A22",
+                              "content": "登录租户控制台",
+                              "fontFamily": "Space Grotesk",
+                              "fontSize": 14,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "g56ZO",
+                      "name": "sepLine",
+                      "width": "fill_container",
+                      "height": 1,
+                      "fill": "#2B3445"
+                    },
+                    {
+                      "type": "text",
+                      "id": "otnpM",
+                      "name": "socialTitle",
+                      "fill": "#8492A8",
+                      "content": "或使用第三方登录（即将支持）",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "MsHhj",
+                      "name": "socialRow",
+                      "width": "fill_container",
+                      "gap": 10,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "T4wgn",
+                          "name": "googleBtn",
+                          "width": "fill_container",
+                          "height": 42,
+                          "fill": "#1B2330",
+                          "cornerRadius": 10,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "BewOe",
+                              "name": "googleText",
+                              "fill": "#D6DFF0",
+                              "content": "Google",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "NhJk6",
+                          "name": "githubBtn",
+                          "width": "fill_container",
+                          "height": 42,
+                          "fill": "#1B2330",
+                          "cornerRadius": 10,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "O20XG",
+                              "name": "githubText",
+                              "fill": "#D6DFF0",
+                              "content": "GitHub",
+                              "fontFamily": "Inter",
+                              "fontSize": 13,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "YgNSq",
+                  "name": "motionNote",
+                  "fill": "#7F8DA5",
+                  "content": "Motion: 滑块切换 380ms / ease-out，卡片入场 360ms / spring-like。",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "QOREG",
+      "x": 0,
+      "y": 1100,
+      "name": "TenantAuth-Mobile-Light",
+      "width": 430,
+      "height": 932,
+      "fill": "#F5F6F8",
+      "layout": "vertical",
+      "gap": 20,
+      "padding": 24,
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "1FMK1",
+          "name": "mobileLogoRow",
+          "width": "fill_container",
+          "gap": 8,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "avici",
+              "name": "mobileLogoDot",
+              "width": 10,
+              "height": 10,
+              "fill": "#13161C",
+              "cornerRadius": 5
+            },
+            {
+              "type": "text",
+              "id": "kaALh",
+              "name": "mobileLogoText",
+              "fill": "#11151E",
+              "content": "Codex Pool",
+              "fontFamily": "Space Grotesk",
+              "fontSize": 16,
+              "fontWeight": "600"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "PTpa0",
+          "name": "mobileIntro",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 8,
+          "children": [
+            {
+              "type": "text",
+              "id": "xq2ht",
+              "name": "mobileTitle",
+              "fill": "#11151E",
+              "content": "企业级 AI 接入门户",
+              "fontFamily": "Space Grotesk",
+              "fontSize": 32,
+              "fontWeight": "600"
+            },
+            {
+              "type": "text",
+              "id": "apJUp",
+              "name": "mobileDesc",
+              "fill": "#5A6477",
+              "content": "稳定、安全、可审计",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "vQSRs",
+          "name": "mobileCard",
+          "width": "fill_container",
+          "height": 640,
+          "fill": "#FFFFFF",
+          "cornerRadius": 18,
+          "layout": "vertical",
+          "gap": 16,
+          "padding": 22,
+          "children": [
+            {
+              "type": "text",
+              "id": "TA8RV",
+              "name": "mobileCardTitle",
+              "fill": "#0F131B",
+              "content": "登录 / 注册",
+              "fontFamily": "Space Grotesk",
+              "fontSize": 28,
+              "fontWeight": "600"
+            },
+            {
+              "type": "frame",
+              "id": "P7VRA",
+              "name": "mobileSwitch",
+              "width": "fill_container",
+              "height": 46,
+              "fill": "#F1F3F7",
+              "cornerRadius": 13,
+              "gap": 4,
+              "padding": 4,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "pbGIv",
+                  "name": "mobileLoginTab",
+                  "width": "fill_container",
+                  "height": "fill_container",
+                  "fill": "#111317",
+                  "cornerRadius": 9,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "rtCDM",
+                      "name": "mobileLoginText",
+                      "fill": "#FFFFFF",
+                      "content": "登录",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 13,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "7Cd5w",
+                  "name": "mobileRegisterTab",
+                  "width": "fill_container",
+                  "height": "fill_container",
+                  "fill": "#F1F3F7",
+                  "cornerRadius": 9,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "sMfxv",
+                      "name": "mobileRegisterText",
+                      "fill": "#697487",
+                      "content": "注册",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 13,
+                      "fontWeight": "500"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "Fxpu5",
+              "name": "mobileForm",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 10,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "qSzEa",
+                  "name": "mobileEmailLabel",
+                  "fill": "#374255",
+                  "content": "邮箱",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "frame",
+                  "id": "JuIBO",
+                  "name": "mobileEmailInput",
+                  "width": "fill_container",
+                  "height": 44,
+                  "fill": "#FBFCFE",
+                  "cornerRadius": 11,
+                  "padding": 12,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "jQKjd",
+                      "name": "mobileEmailHint",
+                      "fill": "#9AA6B9",
+                      "content": "name@company.com",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "yLhNK",
+                  "name": "mobilePwdLabel",
+                  "fill": "#374255",
+                  "content": "密码",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "frame",
+                  "id": "xp2uK",
+                  "name": "mobilePwdInput",
+                  "width": "fill_container",
+                  "height": 44,
+                  "fill": "#FBFCFE",
+                  "cornerRadius": 11,
+                  "padding": 12,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "nKvoZ",
+                      "name": "mobilePwdHint",
+                      "fill": "#9AA6B9",
+                      "content": "请输入密码",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "gUBPh",
+                  "name": "mobileForgot",
+                  "fill": "#3A455A",
+                  "content": "忘记密码？",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "frame",
+                  "id": "kOPMu",
+                  "name": "mobileSubmit",
+                  "width": "fill_container",
+                  "height": 46,
+                  "fill": "#12141A",
+                  "cornerRadius": 11,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "G3XT0",
+                      "name": "mobileSubmitText",
+                      "fill": "#FFFFFF",
+                      "content": "登录租户控制台",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 13,
+                      "fontWeight": "600"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "QKoOD",
+              "name": "mobileMotion",
+              "fill": "#7D8797",
+              "content": "Motion: 首屏淡入 280ms，滑块切换 340ms。",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "AVftN",
+      "x": 550,
+      "y": 1100,
+      "name": "TenantAuth-Mobile-Dark",
+      "width": 430,
+      "height": 932,
+      "fill": "#0F1218",
+      "layout": "vertical",
+      "gap": 20,
+      "padding": 24,
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "FT61w",
+          "name": "mobileLogoRow",
+          "width": "fill_container",
+          "gap": 8,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "dPFGq",
+              "name": "mobileLogoDot",
+              "width": 10,
+              "height": 10,
+              "fill": "#13161C",
+              "cornerRadius": 5
+            },
+            {
+              "type": "text",
+              "id": "6bfVR",
+              "name": "mobileLogoText",
+              "fill": "#E8EDF7",
+              "content": "Codex Pool",
+              "fontFamily": "Space Grotesk",
+              "fontSize": 16,
+              "fontWeight": "600"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "63rIK",
+          "name": "mobileIntro",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 8,
+          "children": [
+            {
+              "type": "text",
+              "id": "1hYcT",
+              "name": "mobileTitle",
+              "fill": "#F0F4FF",
+              "content": "企业级 AI 接入门户",
+              "fontFamily": "Space Grotesk",
+              "fontSize": 32,
+              "fontWeight": "600"
+            },
+            {
+              "type": "text",
+              "id": "HNigI",
+              "name": "mobileDesc",
+              "fill": "#A6B2C6",
+              "content": "稳定、安全、可审计",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "mhUrr",
+          "name": "mobileCard",
+          "width": "fill_container",
+          "height": 640,
+          "fill": "#171D27",
+          "cornerRadius": 18,
+          "layout": "vertical",
+          "gap": 16,
+          "padding": 22,
+          "children": [
+            {
+              "type": "text",
+              "id": "eghtk",
+              "name": "mobileCardTitle",
+              "fill": "#F2F6FF",
+              "content": "登录 / 注册",
+              "fontFamily": "Space Grotesk",
+              "fontSize": 28,
+              "fontWeight": "600"
+            },
+            {
+              "type": "frame",
+              "id": "S13py",
+              "name": "mobileSwitch",
+              "width": "fill_container",
+              "height": 46,
+              "fill": "#252E3D",
+              "cornerRadius": 13,
+              "gap": 4,
+              "padding": 4,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "bX9iB",
+                  "name": "mobileLoginTab",
+                  "width": "fill_container",
+                  "height": "fill_container",
+                  "fill": "#E9EEF8",
+                  "cornerRadius": 9,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "sXrrE",
+                      "name": "mobileLoginText",
+                      "fill": "#141922",
+                      "content": "登录",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 13,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "pusry",
+                  "name": "mobileRegisterTab",
+                  "width": "fill_container",
+                  "height": "fill_container",
+                  "fill": "#252E3D",
+                  "cornerRadius": 9,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "vXlTs",
+                      "name": "mobileRegisterText",
+                      "fill": "#95A3BA",
+                      "content": "注册",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 13,
+                      "fontWeight": "500"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "6kNIx",
+              "name": "mobileForm",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 10,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "lEUhI",
+                  "name": "mobileEmailLabel",
+                  "fill": "#C0CBDE",
+                  "content": "邮箱",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "frame",
+                  "id": "BkJBK",
+                  "name": "mobileEmailInput",
+                  "width": "fill_container",
+                  "height": 44,
+                  "fill": "#0F141D",
+                  "cornerRadius": 11,
+                  "padding": 12,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "cBSIJ",
+                      "name": "mobileEmailHint",
+                      "fill": "#72819A",
+                      "content": "name@company.com",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "VLl5M",
+                  "name": "mobilePwdLabel",
+                  "fill": "#C0CBDE",
+                  "content": "密码",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "frame",
+                  "id": "myOvb",
+                  "name": "mobilePwdInput",
+                  "width": "fill_container",
+                  "height": 44,
+                  "fill": "#0F141D",
+                  "cornerRadius": 11,
+                  "padding": 12,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "YrSf6",
+                      "name": "mobilePwdHint",
+                      "fill": "#72819A",
+                      "content": "请输入密码",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "yyVUm",
+                  "name": "mobileForgot",
+                  "fill": "#92A1BB",
+                  "content": "忘记密码？",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "frame",
+                  "id": "jE1l0",
+                  "name": "mobileSubmit",
+                  "width": "fill_container",
+                  "height": 46,
+                  "fill": "#E9EEF8",
+                  "cornerRadius": 11,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "tda7N",
+                      "name": "mobileSubmitText",
+                      "fill": "#151A22",
+                      "content": "登录租户控制台",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 13,
+                      "fontWeight": "600"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "DEl4i",
+              "name": "mobileMotion",
+              "fill": "#7F8DA5",
+              "content": "Motion: 首屏淡入 280ms，滑块切换 340ms。",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "UMhwg",
+      "x": 0,
+      "y": 2200,
+      "name": "TenantVerify-Desktop-Light",
+      "width": 1440,
+      "height": 960,
+      "fill": "#F3F4F6",
+      "layout": "vertical",
+      "justifyContent": "center",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "DEnOa",
+          "name": "verifyShell",
+          "width": 1296,
+          "height": 816,
+          "gap": 72,
+          "padding": 48,
+          "children": [
+            {
+              "type": "frame",
+              "id": "QBpfb",
+              "name": "verifyLeft",
+              "width": 500,
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 22,
+              "justifyContent": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "j4MnJ",
+                  "name": "verifyLogoRow",
+                  "gap": 10,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "PdaHO",
+                      "name": "verifyLogoDot",
+                      "width": 12,
+                      "height": 12,
+                      "fill": "#111111",
+                      "cornerRadius": 6
+                    },
+                    {
+                      "type": "text",
+                      "id": "Wqjof",
+                      "name": "verifyLogoText",
+                      "fill": "#0F1115",
+                      "content": "Codex Pool",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 18,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "aTaI6",
+                  "name": "verifyLeftTitle",
+                  "fill": "#0D1118",
+                  "content": "激活你的租户账号",
+                  "fontFamily": "Space Grotesk",
+                  "fontSize": 50,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "vLVG3",
+                  "name": "verifyLeftDesc",
+                  "fill": "#505A6B",
+                  "content": "注册成功后输入验证码，\n即可开启完整控制台能力。",
+                  "fontFamily": "Inter",
+                  "fontSize": 17,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "fjOrT",
+              "name": "verifyRight",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "NXYFs",
+                  "name": "verifyCard",
+                  "width": 468,
+                  "height": 520,
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 20,
+                  "layout": "vertical",
+                  "gap": 16,
+                  "padding": 32,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "MtpSL",
+                      "name": "verifyCardTitle",
+                      "fill": "#0E1117",
+                      "content": "邮箱验证",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 34,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "c2k5w",
+                      "name": "verifyCardDesc",
+                      "fill": "#616C7F",
+                      "content": "我们已向你的邮箱发送验证码",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "dyshs",
+                      "name": "verifyEmailLabel",
+                      "fill": "#374255",
+                      "content": "邮箱",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "XNEc6",
+                      "name": "verifyEmailInput",
+                      "width": "fill_container",
+                      "height": 46,
+                      "fill": "#F5F7FB",
+                      "cornerRadius": 12,
+                      "padding": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "P9vcz",
+                          "name": "verifyEmailText",
+                          "fill": "#8A97AC",
+                          "content": "name@company.com",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "VHi60",
+                      "name": "verifyCodeLabel",
+                      "fill": "#374255",
+                      "content": "验证码",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "s9cpM",
+                      "name": "verifyCodeInput",
+                      "width": "fill_container",
+                      "height": 46,
+                      "fill": "#FBFCFE",
+                      "cornerRadius": 12,
+                      "padding": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "thM6s",
+                          "name": "verifyCodeHint",
+                          "fill": "#9AA6B9",
+                          "content": "输入 6 位验证码",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Zuc9E",
+                      "name": "verifyAction",
+                      "width": "fill_container",
+                      "height": 48,
+                      "fill": "#12141A",
+                      "cornerRadius": 12,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "2QfKw",
+                          "name": "verifyActionText",
+                          "fill": "#FFFFFF",
+                          "content": "完成验证",
+                          "fontFamily": "Space Grotesk",
+                          "fontSize": 14,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "p7fjm",
+                      "name": "verifyResend",
+                      "fill": "#6B778D",
+                      "content": "没收到？60s 后重新发送",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "cfEfk",
+                      "name": "verifyBack",
+                      "fill": "#2F3A4D",
+                      "content": "返回登录",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "500"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "bWkma",
+                  "name": "verifyMotion",
+                  "fill": "#7D8797",
+                  "content": "Motion: 验证成功后 300ms 转场至登录。",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "jGV4B",
+      "x": 1580,
+      "y": 2200,
+      "name": "TenantVerify-Desktop-Dark",
+      "width": 1440,
+      "height": 960,
+      "fill": "#0F1218",
+      "layout": "vertical",
+      "justifyContent": "center",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "imu1Q",
+          "name": "verifyShell",
+          "width": 1296,
+          "height": 816,
+          "gap": 72,
+          "padding": 48,
+          "children": [
+            {
+              "type": "frame",
+              "id": "LAJgC",
+              "name": "verifyLeft",
+              "width": 500,
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 22,
+              "justifyContent": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "k4wJW",
+                  "name": "verifyLogoRow",
+                  "gap": 10,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "bJsGA",
+                      "name": "verifyLogoDot",
+                      "width": 12,
+                      "height": 12,
+                      "fill": "#111111",
+                      "cornerRadius": 6
+                    },
+                    {
+                      "type": "text",
+                      "id": "nk3o9",
+                      "name": "verifyLogoText",
+                      "fill": "#E6EBF5",
+                      "content": "Codex Pool",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 18,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "9ZqI6",
+                  "name": "verifyLeftTitle",
+                  "fill": "#F2F6FF",
+                  "content": "激活你的租户账号",
+                  "fontFamily": "Space Grotesk",
+                  "fontSize": 50,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "OaslI",
+                  "name": "verifyLeftDesc",
+                  "fill": "#A7B2C6",
+                  "content": "注册成功后输入验证码，\n即可开启完整控制台能力。",
+                  "fontFamily": "Inter",
+                  "fontSize": 17,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "Q4dEC",
+              "name": "verifyRight",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "dWNk9",
+                  "name": "verifyCard",
+                  "width": 468,
+                  "height": 520,
+                  "fill": "#171D27",
+                  "cornerRadius": 20,
+                  "layout": "vertical",
+                  "gap": 16,
+                  "padding": 32,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "rgXwv",
+                      "name": "verifyCardTitle",
+                      "fill": "#F2F6FF",
+                      "content": "邮箱验证",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 34,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "uQEli",
+                      "name": "verifyCardDesc",
+                      "fill": "#A7B2C6",
+                      "content": "我们已向你的邮箱发送验证码",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "ymGj4",
+                      "name": "verifyEmailLabel",
+                      "fill": "#C0CBDE",
+                      "content": "邮箱",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "DU8gc",
+                      "name": "verifyEmailInput",
+                      "width": "fill_container",
+                      "height": 46,
+                      "fill": "#111723",
+                      "cornerRadius": 12,
+                      "padding": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "T3pIB",
+                          "name": "verifyEmailText",
+                          "fill": "#7C8AA1",
+                          "content": "name@company.com",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "mbV9A",
+                      "name": "verifyCodeLabel",
+                      "fill": "#C0CBDE",
+                      "content": "验证码",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "4bO1g",
+                      "name": "verifyCodeInput",
+                      "width": "fill_container",
+                      "height": 46,
+                      "fill": "#0F141D",
+                      "cornerRadius": 12,
+                      "padding": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "Vj07f",
+                          "name": "verifyCodeHint",
+                          "fill": "#72819A",
+                          "content": "输入 6 位验证码",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "SGsXC",
+                      "name": "verifyAction",
+                      "width": "fill_container",
+                      "height": 48,
+                      "fill": "#E9EEF8",
+                      "cornerRadius": 12,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "59OIQ",
+                          "name": "verifyActionText",
+                          "fill": "#141922",
+                          "content": "完成验证",
+                          "fontFamily": "Space Grotesk",
+                          "fontSize": 14,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "bavBi",
+                      "name": "verifyResend",
+                      "fill": "#8A98AE",
+                      "content": "没收到？60s 后重新发送",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "OKS1x",
+                      "name": "verifyBack",
+                      "fill": "#A8B4C8",
+                      "content": "返回登录",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "500"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "CJRyf",
+                  "name": "verifyMotion",
+                  "fill": "#7F8DA5",
+                  "content": "Motion: 验证成功后 300ms 转场至登录。",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "JQ3An",
+      "x": 0,
+      "y": 3300,
+      "name": "TenantVerify-Mobile-Light",
+      "width": 430,
+      "height": 932,
+      "fill": "#F5F6F8",
+      "layout": "vertical",
+      "gap": 18,
+      "padding": 24,
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "shB9A",
+          "name": "vmLogoRow",
+          "width": "fill_container",
+          "gap": 8,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "YgbLU",
+              "name": "vmLogoDot",
+              "width": 10,
+              "height": 10,
+              "fill": "#13161C",
+              "cornerRadius": 5
+            },
+            {
+              "type": "text",
+              "id": "HCDBQ",
+              "name": "vmLogoText",
+              "fill": "#11151E",
+              "content": "Codex Pool",
+              "fontFamily": "Space Grotesk",
+              "fontSize": 16,
+              "fontWeight": "600"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "CZssT",
+          "name": "vmTitle",
+          "fill": "#11151E",
+          "content": "验证邮箱",
+          "fontFamily": "Space Grotesk",
+          "fontSize": 30,
+          "fontWeight": "600"
+        },
+        {
+          "type": "text",
+          "id": "RG8T1",
+          "name": "vmDesc",
+          "fill": "#5A6477",
+          "content": "输入验证码以激活租户账号",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "frame",
+          "id": "fNE0W",
+          "name": "vmCard",
+          "width": "fill_container",
+          "height": 500,
+          "fill": "#FFFFFF",
+          "cornerRadius": 18,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 22,
+          "children": [
+            {
+              "type": "text",
+              "id": "YrTEH",
+              "name": "vmEmailLabel",
+              "fill": "#374255",
+              "content": "邮箱",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "500"
+            },
+            {
+              "type": "frame",
+              "id": "ozxmg",
+              "name": "vmEmailInput",
+              "width": "fill_container",
+              "height": 44,
+              "fill": "#F5F7FB",
+              "cornerRadius": 11,
+              "padding": 12,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "GEQk9",
+                  "name": "vmEmailText",
+                  "fill": "#8A97AC",
+                  "content": "name@company.com",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "F4tpJ",
+              "name": "vmCodeLabel",
+              "fill": "#374255",
+              "content": "验证码",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "500"
+            },
+            {
+              "type": "frame",
+              "id": "Hs8vs",
+              "name": "vmCodeInput",
+              "width": "fill_container",
+              "height": 44,
+              "fill": "#FBFCFE",
+              "cornerRadius": 11,
+              "padding": 12,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "X4Lln",
+                  "name": "vmCodeHint",
+                  "fill": "#9AA6B9",
+                  "content": "输入 6 位验证码",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "oSFfl",
+              "name": "vmSubmit",
+              "width": "fill_container",
+              "height": 46,
+              "fill": "#12141A",
+              "cornerRadius": 11,
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "Uc73K",
+                  "name": "vmSubmitText",
+                  "fill": "#FFFFFF",
+                  "content": "完成验证",
+                  "fontFamily": "Space Grotesk",
+                  "fontSize": 13,
+                  "fontWeight": "600"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "7dQ4F",
+              "name": "vmResend",
+              "fill": "#6B778D",
+              "content": "没收到？60s 后重发",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "oYvTA",
+              "name": "vmBack",
+              "fill": "#2F3A4D",
+              "content": "返回登录",
+              "fontFamily": "Inter",
+              "fontSize": 13,
+              "fontWeight": "500"
+            },
+            {
+              "type": "text",
+              "id": "4BAY2",
+              "name": "vmMotion",
+              "fill": "#7D8797",
+              "content": "Motion: 提交成功后 300ms 淡出并跳转。",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "ZBQKV",
+      "x": 550,
+      "y": 3300,
+      "name": "TenantVerify-Mobile-Dark",
+      "width": 430,
+      "height": 932,
+      "fill": "#0F1218",
+      "layout": "vertical",
+      "gap": 18,
+      "padding": 24,
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "85HFQ",
+          "name": "vmLogoRow",
+          "width": "fill_container",
+          "gap": 8,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "R9rDG",
+              "name": "vmLogoDot",
+              "width": 10,
+              "height": 10,
+              "fill": "#13161C",
+              "cornerRadius": 5
+            },
+            {
+              "type": "text",
+              "id": "Ho6b6",
+              "name": "vmLogoText",
+              "fill": "#E8EDF7",
+              "content": "Codex Pool",
+              "fontFamily": "Space Grotesk",
+              "fontSize": 16,
+              "fontWeight": "600"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "ImG6h",
+          "name": "vmTitle",
+          "fill": "#F0F4FF",
+          "content": "验证邮箱",
+          "fontFamily": "Space Grotesk",
+          "fontSize": 30,
+          "fontWeight": "600"
+        },
+        {
+          "type": "text",
+          "id": "Yg8X8",
+          "name": "vmDesc",
+          "fill": "#A6B2C6",
+          "content": "输入验证码以激活租户账号",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "frame",
+          "id": "n7wEp",
+          "name": "vmCard",
+          "width": "fill_container",
+          "height": 500,
+          "fill": "#171D27",
+          "cornerRadius": 18,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 22,
+          "children": [
+            {
+              "type": "text",
+              "id": "YJH9F",
+              "name": "vmEmailLabel",
+              "fill": "#C0CBDE",
+              "content": "邮箱",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "500"
+            },
+            {
+              "type": "frame",
+              "id": "i2PuX",
+              "name": "vmEmailInput",
+              "width": "fill_container",
+              "height": 44,
+              "fill": "#111723",
+              "cornerRadius": 11,
+              "padding": 12,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "bU7r7",
+                  "name": "vmEmailText",
+                  "fill": "#7C8AA1",
+                  "content": "name@company.com",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "Cj52a",
+              "name": "vmCodeLabel",
+              "fill": "#C0CBDE",
+              "content": "验证码",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "500"
+            },
+            {
+              "type": "frame",
+              "id": "aS4Nc",
+              "name": "vmCodeInput",
+              "width": "fill_container",
+              "height": 44,
+              "fill": "#0F141D",
+              "cornerRadius": 11,
+              "padding": 12,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "pjxT9",
+                  "name": "vmCodeHint",
+                  "fill": "#72819A",
+                  "content": "输入 6 位验证码",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "pbpFl",
+              "name": "vmSubmit",
+              "width": "fill_container",
+              "height": 46,
+              "fill": "#E9EEF8",
+              "cornerRadius": 11,
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "bScWE",
+                  "name": "vmSubmitText",
+                  "fill": "#141922",
+                  "content": "完成验证",
+                  "fontFamily": "Space Grotesk",
+                  "fontSize": 13,
+                  "fontWeight": "600"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "SmPD1",
+              "name": "vmResend",
+              "fill": "#8A98AE",
+              "content": "没收到？60s 后重发",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "Iwg66",
+              "name": "vmBack",
+              "fill": "#A8B4C8",
+              "content": "返回登录",
+              "fontFamily": "Inter",
+              "fontSize": 13,
+              "fontWeight": "500"
+            },
+            {
+              "type": "text",
+              "id": "JSXVd",
+              "name": "vmMotion",
+              "fill": "#7F8DA5",
+              "content": "Motion: 提交成功后 300ms 淡出并跳转。",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "3AyK8",
+      "x": 0,
+      "y": 4400,
+      "name": "TenantForgot-Desktop-Light",
+      "width": 1440,
+      "height": 960,
+      "fill": "#F3F4F6",
+      "layout": "vertical",
+      "justifyContent": "center",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "S1voC",
+          "name": "forgotShell",
+          "width": 1296,
+          "height": 816,
+          "gap": 72,
+          "padding": 48,
+          "children": [
+            {
+              "type": "frame",
+              "id": "fAkTd",
+              "name": "forgotLeft",
+              "width": 500,
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 22,
+              "justifyContent": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "55Ck1",
+                  "name": "forgotLogo",
+                  "gap": 10,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "3fIs2",
+                      "name": "forgotLogoDot",
+                      "width": 12,
+                      "height": 12,
+                      "fill": "#111111",
+                      "cornerRadius": 6
+                    },
+                    {
+                      "type": "text",
+                      "id": "0EltM",
+                      "name": "forgotLogoText",
+                      "fill": "#0F1115",
+                      "content": "Codex Pool",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 18,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "JPbWV",
+                  "name": "forgotLeftTitle",
+                  "fill": "#0D1118",
+                  "content": "安全重置你的密码",
+                  "fontFamily": "Space Grotesk",
+                  "fontSize": 50,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "6yfJw",
+                  "name": "forgotLeftDesc",
+                  "fill": "#505A6B",
+                  "content": "抽屉式两步流程，\n先确认邮箱，再设置新密码。",
+                  "fontFamily": "Inter",
+                  "fontSize": 17,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "kWXYi",
+              "name": "forgotRight",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "KJl2J",
+                  "name": "forgotCard",
+                  "width": 468,
+                  "height": 560,
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 20,
+                  "layout": "vertical",
+                  "gap": 14,
+                  "padding": 28,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Ikogg",
+                      "name": "forgotTitle",
+                      "fill": "#0E1117",
+                      "content": "重置密码",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 34,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "vFdPX",
+                      "name": "forgotDesc",
+                      "fill": "#616C7F",
+                      "content": "Step 1：发送验证码",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Cml1x",
+                      "name": "forgotStepRow",
+                      "width": "fill_container",
+                      "height": 42,
+                      "fill": "#F1F3F7",
+                      "cornerRadius": 12,
+                      "gap": 4,
+                      "padding": 4,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "XHi3n",
+                          "name": "forgotStep1",
+                          "width": "fill_container",
+                          "height": "fill_container",
+                          "fill": "#111317",
+                          "cornerRadius": 8,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "eqKjI",
+                              "name": "forgotStep1Text",
+                              "fill": "#FFFFFF",
+                              "content": "1. 发送验证码",
+                              "fontFamily": "Space Grotesk",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "7T3FS",
+                          "name": "forgotStep2",
+                          "width": "fill_container",
+                          "height": "fill_container",
+                          "fill": "#F1F3F7",
+                          "cornerRadius": 8,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "pi5Qa",
+                              "name": "forgotStep2Text",
+                              "fill": "#697487",
+                              "content": "2. 设置新密码",
+                              "fontFamily": "Space Grotesk",
+                              "fontSize": 12,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "pNJZx",
+                      "name": "forgotEmailLabel",
+                      "fill": "#374255",
+                      "content": "邮箱",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "xk0lu",
+                      "name": "forgotEmailInput",
+                      "width": "fill_container",
+                      "height": 46,
+                      "fill": "#FBFCFE",
+                      "cornerRadius": 12,
+                      "padding": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "Fo7i2",
+                          "name": "forgotEmailText",
+                          "fill": "#9AA6B9",
+                          "content": "name@company.com",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "6iqLh",
+                      "name": "forgotSendBtn",
+                      "width": "fill_container",
+                      "height": 46,
+                      "fill": "#12141A",
+                      "cornerRadius": 12,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "mQSe1",
+                          "name": "forgotSendText",
+                          "fill": "#FFFFFF",
+                          "content": "发送重置验证码",
+                          "fontFamily": "Space Grotesk",
+                          "fontSize": 14,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "OOu4O",
+                      "name": "drawerPreview",
+                      "width": "fill_container",
+                      "height": 128,
+                      "fill": "#F5F7FB",
+                      "cornerRadius": 12,
+                      "layout": "vertical",
+                      "gap": 8,
+                      "padding": 12,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "28wQp",
+                          "name": "drawerTitle",
+                          "fill": "#49566C",
+                          "content": "抽屉预览（Step 2）",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "text",
+                          "id": "5qsBt",
+                          "name": "drawerHint",
+                          "fill": "#6C7890",
+                          "content": "发送成功后，自底部上滑展示验证码+新密码输入。",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "C0DxB",
+                  "name": "forgotMotion",
+                  "fill": "#7D8797",
+                  "content": "Motion: 抽屉上滑 420ms / ease-in-out。",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "DLY9D",
+      "x": 1580,
+      "y": 4400,
+      "name": "TenantForgot-Desktop-Dark",
+      "width": 1440,
+      "height": 960,
+      "fill": "#0F1218",
+      "layout": "vertical",
+      "justifyContent": "center",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "B2p1G",
+          "name": "forgotShell",
+          "width": 1296,
+          "height": 816,
+          "gap": 72,
+          "padding": 48,
+          "children": [
+            {
+              "type": "frame",
+              "id": "2FW92",
+              "name": "forgotLeft",
+              "width": 500,
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 22,
+              "justifyContent": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "vWQgw",
+                  "name": "forgotLogo",
+                  "gap": 10,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "6NCTU",
+                      "name": "forgotLogoDot",
+                      "width": 12,
+                      "height": 12,
+                      "fill": "#111111",
+                      "cornerRadius": 6
+                    },
+                    {
+                      "type": "text",
+                      "id": "ZLyg6",
+                      "name": "forgotLogoText",
+                      "fill": "#E6EBF5",
+                      "content": "Codex Pool",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 18,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "QsZiZ",
+                  "name": "forgotLeftTitle",
+                  "fill": "#F2F6FF",
+                  "content": "安全重置你的密码",
+                  "fontFamily": "Space Grotesk",
+                  "fontSize": 50,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "mI97E",
+                  "name": "forgotLeftDesc",
+                  "fill": "#A7B2C6",
+                  "content": "抽屉式两步流程，\n先确认邮箱，再设置新密码。",
+                  "fontFamily": "Inter",
+                  "fontSize": 17,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "g60EH",
+              "name": "forgotRight",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "UYjHN",
+                  "name": "forgotCard",
+                  "width": 468,
+                  "height": 560,
+                  "fill": "#171D27",
+                  "cornerRadius": 20,
+                  "layout": "vertical",
+                  "gap": 14,
+                  "padding": 28,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "2VQga",
+                      "name": "forgotTitle",
+                      "fill": "#F2F6FF",
+                      "content": "重置密码",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 34,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "sgFTd",
+                      "name": "forgotDesc",
+                      "fill": "#A7B2C6",
+                      "content": "Step 1：发送验证码",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "u5ecd",
+                      "name": "forgotStepRow",
+                      "width": "fill_container",
+                      "height": 42,
+                      "fill": "#252E3D",
+                      "cornerRadius": 12,
+                      "gap": 4,
+                      "padding": 4,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "2FxmB",
+                          "name": "forgotStep1",
+                          "width": "fill_container",
+                          "height": "fill_container",
+                          "fill": "#E9EEF8",
+                          "cornerRadius": 8,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "VWRBg",
+                              "name": "forgotStep1Text",
+                              "fill": "#141922",
+                              "content": "1. 发送验证码",
+                              "fontFamily": "Space Grotesk",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "8oo12",
+                          "name": "forgotStep2",
+                          "width": "fill_container",
+                          "height": "fill_container",
+                          "fill": "#252E3D",
+                          "cornerRadius": 8,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "f4PS6",
+                              "name": "forgotStep2Text",
+                              "fill": "#95A3BA",
+                              "content": "2. 设置新密码",
+                              "fontFamily": "Space Grotesk",
+                              "fontSize": 12,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "Aj2yf",
+                      "name": "forgotEmailLabel",
+                      "fill": "#C0CBDE",
+                      "content": "邮箱",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "QPNq9",
+                      "name": "forgotEmailInput",
+                      "width": "fill_container",
+                      "height": 46,
+                      "fill": "#0F141D",
+                      "cornerRadius": 12,
+                      "padding": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "cUdlr",
+                          "name": "forgotEmailText",
+                          "fill": "#72819A",
+                          "content": "name@company.com",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "A8DYa",
+                      "name": "forgotSendBtn",
+                      "width": "fill_container",
+                      "height": 46,
+                      "fill": "#E9EEF8",
+                      "cornerRadius": 12,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "PVvrB",
+                          "name": "forgotSendText",
+                          "fill": "#151A22",
+                          "content": "发送重置验证码",
+                          "fontFamily": "Space Grotesk",
+                          "fontSize": 14,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "N2U2K",
+                      "name": "drawerPreview",
+                      "width": "fill_container",
+                      "height": 128,
+                      "fill": "#111723",
+                      "cornerRadius": 12,
+                      "layout": "vertical",
+                      "gap": 8,
+                      "padding": 12,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "JgQ9F",
+                          "name": "drawerTitle",
+                          "fill": "#B8C4D8",
+                          "content": "抽屉预览（Step 2）",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "text",
+                          "id": "UgKOy",
+                          "name": "drawerHint",
+                          "fill": "#7F8DA5",
+                          "content": "发送成功后，自底部上滑展示验证码+新密码输入。",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "FykD3",
+                  "name": "forgotMotion",
+                  "fill": "#7F8DA5",
+                  "content": "Motion: 抽屉上滑 420ms / ease-in-out。",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "AWszO",
+      "x": 0,
+      "y": 5500,
+      "name": "TenantForgot-Mobile-Light",
+      "width": 430,
+      "height": 932,
+      "fill": "#F5F6F8",
+      "layout": "vertical",
+      "gap": 18,
+      "padding": 24,
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "WNuwV",
+          "name": "fmLogoRow",
+          "width": "fill_container",
+          "gap": 8,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "25ros",
+              "name": "fmLogoDot",
+              "width": 10,
+              "height": 10,
+              "fill": "#13161C",
+              "cornerRadius": 5
+            },
+            {
+              "type": "text",
+              "id": "iamXL",
+              "name": "fmLogoText",
+              "fill": "#11151E",
+              "content": "Codex Pool",
+              "fontFamily": "Space Grotesk",
+              "fontSize": 16,
+              "fontWeight": "600"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "zCd1u",
+          "name": "fmTitle",
+          "fill": "#11151E",
+          "content": "重置密码",
+          "fontFamily": "Space Grotesk",
+          "fontSize": 30,
+          "fontWeight": "600"
+        },
+        {
+          "type": "text",
+          "id": "kXKOS",
+          "name": "fmDesc",
+          "fill": "#5A6477",
+          "content": "抽屉式分步：先发送验证码",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "frame",
+          "id": "d0f9V",
+          "name": "fmCard",
+          "width": "fill_container",
+          "height": 540,
+          "fill": "#FFFFFF",
+          "cornerRadius": 18,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 22,
+          "children": [
+            {
+              "type": "frame",
+              "id": "y1u4u",
+              "name": "fmStepRow",
+              "width": "fill_container",
+              "height": 40,
+              "fill": "#F1F3F7",
+              "cornerRadius": 11,
+              "gap": 4,
+              "padding": 4,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "la5RF",
+                  "name": "fmStep1",
+                  "width": "fill_container",
+                  "height": "fill_container",
+                  "fill": "#111317",
+                  "cornerRadius": 8,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "jRPDr",
+                      "name": "fmStep1Text",
+                      "fill": "#FFFFFF",
+                      "content": "发送验证码",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 11,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "vzm6C",
+                  "name": "fmStep2",
+                  "width": "fill_container",
+                  "height": "fill_container",
+                  "fill": "#F1F3F7",
+                  "cornerRadius": 8,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Loi30",
+                      "name": "fmStep2Text",
+                      "fill": "#697487",
+                      "content": "设置新密码",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 11,
+                      "fontWeight": "500"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "8BEkO",
+              "name": "fmEmailLabel",
+              "fill": "#374255",
+              "content": "邮箱",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "500"
+            },
+            {
+              "type": "frame",
+              "id": "ysI0l",
+              "name": "fmEmailInput",
+              "width": "fill_container",
+              "height": 44,
+              "fill": "#FBFCFE",
+              "cornerRadius": 11,
+              "padding": 12,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "oXAlK",
+                  "name": "fmEmailText",
+                  "fill": "#9AA6B9",
+                  "content": "name@company.com",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "ZkAru",
+              "name": "fmSend",
+              "width": "fill_container",
+              "height": 46,
+              "fill": "#12141A",
+              "cornerRadius": 11,
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "rpswE",
+                  "name": "fmSendText",
+                  "fill": "#FFFFFF",
+                  "content": "发送重置验证码",
+                  "fontFamily": "Space Grotesk",
+                  "fontSize": 13,
+                  "fontWeight": "600"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "jRaP8",
+              "name": "fmDrawer",
+              "width": "fill_container",
+              "height": 132,
+              "fill": "#F5F7FB",
+              "cornerRadius": 11,
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 12,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "zxteV",
+                  "name": "fmDrawerText",
+                  "fill": "#6C7890",
+                  "content": "抽屉上滑后展示：验证码 + 新密码",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "6G9MY",
+              "name": "fmMotion",
+              "fill": "#7D8797",
+              "content": "Motion: 抽屉上滑 420ms。",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "Z690f",
+      "x": 550,
+      "y": 5500,
+      "name": "TenantForgot-Mobile-Dark",
+      "width": 430,
+      "height": 932,
+      "fill": "#0F1218",
+      "layout": "vertical",
+      "gap": 18,
+      "padding": 24,
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "mHJCr",
+          "name": "fmLogoRow",
+          "width": "fill_container",
+          "gap": 8,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "VMI7x",
+              "name": "fmLogoDot",
+              "width": 10,
+              "height": 10,
+              "fill": "#13161C",
+              "cornerRadius": 5
+            },
+            {
+              "type": "text",
+              "id": "lbKjU",
+              "name": "fmLogoText",
+              "fill": "#E8EDF7",
+              "content": "Codex Pool",
+              "fontFamily": "Space Grotesk",
+              "fontSize": 16,
+              "fontWeight": "600"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "GgWs8",
+          "name": "fmTitle",
+          "fill": "#F0F4FF",
+          "content": "重置密码",
+          "fontFamily": "Space Grotesk",
+          "fontSize": 30,
+          "fontWeight": "600"
+        },
+        {
+          "type": "text",
+          "id": "18NIw",
+          "name": "fmDesc",
+          "fill": "#A6B2C6",
+          "content": "抽屉式分步：先发送验证码",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "frame",
+          "id": "jmuXK",
+          "name": "fmCard",
+          "width": "fill_container",
+          "height": 540,
+          "fill": "#171D27",
+          "cornerRadius": 18,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 22,
+          "children": [
+            {
+              "type": "frame",
+              "id": "qDt6g",
+              "name": "fmStepRow",
+              "width": "fill_container",
+              "height": 40,
+              "fill": "#252E3D",
+              "cornerRadius": 11,
+              "gap": 4,
+              "padding": 4,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "4x4s7",
+                  "name": "fmStep1",
+                  "width": "fill_container",
+                  "height": "fill_container",
+                  "fill": "#E9EEF8",
+                  "cornerRadius": 8,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "PAPQT",
+                      "name": "fmStep1Text",
+                      "fill": "#141922",
+                      "content": "发送验证码",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 11,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "dBDD2",
+                  "name": "fmStep2",
+                  "width": "fill_container",
+                  "height": "fill_container",
+                  "fill": "#252E3D",
+                  "cornerRadius": 8,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Q3hQZ",
+                      "name": "fmStep2Text",
+                      "fill": "#95A3BA",
+                      "content": "设置新密码",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 11,
+                      "fontWeight": "500"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "bhiWS",
+              "name": "fmEmailLabel",
+              "fill": "#C0CBDE",
+              "content": "邮箱",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "500"
+            },
+            {
+              "type": "frame",
+              "id": "bsMD4",
+              "name": "fmEmailInput",
+              "width": "fill_container",
+              "height": 44,
+              "fill": "#0F141D",
+              "cornerRadius": 11,
+              "padding": 12,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "YGvz4",
+                  "name": "fmEmailText",
+                  "fill": "#72819A",
+                  "content": "name@company.com",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "yONiQ",
+              "name": "fmSend",
+              "width": "fill_container",
+              "height": 46,
+              "fill": "#E9EEF8",
+              "cornerRadius": 11,
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "fnQQ7",
+                  "name": "fmSendText",
+                  "fill": "#151A22",
+                  "content": "发送重置验证码",
+                  "fontFamily": "Space Grotesk",
+                  "fontSize": 13,
+                  "fontWeight": "600"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "nbwO3",
+              "name": "fmDrawer",
+              "width": "fill_container",
+              "height": 132,
+              "fill": "#111723",
+              "cornerRadius": 11,
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 12,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "tTz0w",
+                  "name": "fmDrawerText",
+                  "fill": "#7F8DA5",
+                  "content": "抽屉上滑后展示：验证码 + 新密码",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "lqLWF",
+              "name": "fmMotion",
+              "fill": "#7F8DA5",
+              "content": "Motion: 抽屉上滑 420ms。",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "TVvQX",
+      "x": 0,
+      "y": 6600,
+      "name": "AdminLogin-Desktop-Light",
+      "width": 1440,
+      "height": 960,
+      "fill": "#F3F4F6",
+      "layout": "vertical",
+      "justifyContent": "center",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "zc5Mq",
+          "name": "adminShell",
+          "width": 1296,
+          "height": 816,
+          "gap": 72,
+          "padding": 48,
+          "children": [
+            {
+              "type": "frame",
+              "id": "XN61F",
+              "name": "adminLeft",
+              "width": 500,
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 22,
+              "justifyContent": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "2ejlb",
+                  "name": "adminLogoRow",
+                  "gap": 10,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "jDi6M",
+                      "name": "adminLogoDot",
+                      "width": 12,
+                      "height": 12,
+                      "fill": "#111111",
+                      "cornerRadius": 6
+                    },
+                    {
+                      "type": "text",
+                      "id": "cKaLP",
+                      "name": "adminLogoText",
+                      "fill": "#0F1115",
+                      "content": "Codex Pool Admin",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 18,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "4cX7p",
+                  "name": "adminLeftTitle",
+                  "fill": "#0D1118",
+                  "content": "控制平面管理入口",
+                  "fontFamily": "Space Grotesk",
+                  "fontSize": 50,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "B2sZp",
+                  "name": "adminLeftDesc",
+                  "fill": "#505A6B",
+                  "content": "仅管理员可访问。\n所有关键操作均被审计记录。",
+                  "fontFamily": "Inter",
+                  "fontSize": 17,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "sfGIq",
+              "name": "adminRight",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "ZvaEY",
+                  "name": "adminCard",
+                  "width": 452,
+                  "height": 500,
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 20,
+                  "layout": "vertical",
+                  "gap": 14,
+                  "padding": 30,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "14ZdL",
+                      "name": "adminTitle",
+                      "fill": "#0E1117",
+                      "content": "管理员登录",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 34,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "aFv0F",
+                      "name": "adminDesc",
+                      "fill": "#616C7F",
+                      "content": "使用管理员账号访问控制台",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "SQqUZ",
+                      "name": "adminUserLabel",
+                      "fill": "#374255",
+                      "content": "用户名",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Vf9sJ",
+                      "name": "adminUserInput",
+                      "width": "fill_container",
+                      "height": 46,
+                      "fill": "#FBFCFE",
+                      "cornerRadius": 12,
+                      "padding": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "X67Pk",
+                          "name": "adminUserText",
+                          "fill": "#2E3748",
+                          "content": "admin",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "U5CPj",
+                      "name": "adminPwdLabel",
+                      "fill": "#374255",
+                      "content": "密码",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "19xvh",
+                      "name": "adminPwdInput",
+                      "width": "fill_container",
+                      "height": 46,
+                      "fill": "#FBFCFE",
+                      "cornerRadius": 12,
+                      "padding": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "mEzot",
+                          "name": "adminPwdText",
+                          "fill": "#9AA6B9",
+                          "content": "请输入密码",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "jp5TH",
+                      "name": "adminBtn",
+                      "width": "fill_container",
+                      "height": 48,
+                      "fill": "#12141A",
+                      "cornerRadius": 12,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "3LQoz",
+                          "name": "adminBtnText",
+                          "fill": "#FFFFFF",
+                          "content": "登录管理控制台",
+                          "fontFamily": "Space Grotesk",
+                          "fontSize": 14,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "aRq5g",
+                      "name": "adminNotice",
+                      "fill": "#6B778D",
+                      "content": "安全提示：连续失败将触发告警。",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "6hnf6",
+                  "name": "adminMotion",
+                  "fill": "#7D8797",
+                  "content": "Motion: 登录成功后 260ms 渐隐进入 Dashboard。",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "OC6Ca",
+      "x": 1580,
+      "y": 6600,
+      "name": "AdminLogin-Desktop-Dark",
+      "width": 1440,
+      "height": 960,
+      "fill": "#0F1218",
+      "layout": "vertical",
+      "justifyContent": "center",
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "tBMBH",
+          "name": "adminShell",
+          "width": 1296,
+          "height": 816,
+          "gap": 72,
+          "padding": 48,
+          "children": [
+            {
+              "type": "frame",
+              "id": "5Jgol",
+              "name": "adminLeft",
+              "width": 500,
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 22,
+              "justifyContent": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "b0mUB",
+                  "name": "adminLogoRow",
+                  "gap": 10,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "3rMeG",
+                      "name": "adminLogoDot",
+                      "width": 12,
+                      "height": 12,
+                      "fill": "#111111",
+                      "cornerRadius": 6
+                    },
+                    {
+                      "type": "text",
+                      "id": "mNVRI",
+                      "name": "adminLogoText",
+                      "fill": "#E6EBF5",
+                      "content": "Codex Pool Admin",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 18,
+                      "fontWeight": "600"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "6wFgk",
+                  "name": "adminLeftTitle",
+                  "fill": "#F2F6FF",
+                  "content": "控制平面管理入口",
+                  "fontFamily": "Space Grotesk",
+                  "fontSize": 50,
+                  "fontWeight": "600"
+                },
+                {
+                  "type": "text",
+                  "id": "GFOyY",
+                  "name": "adminLeftDesc",
+                  "fill": "#A7B2C6",
+                  "content": "仅管理员可访问。\n所有关键操作均被审计记录。",
+                  "fontFamily": "Inter",
+                  "fontSize": 17,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "zQigZ",
+              "name": "adminRight",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "D50G6",
+                  "name": "adminCard",
+                  "width": 452,
+                  "height": 500,
+                  "fill": "#171D27",
+                  "cornerRadius": 20,
+                  "layout": "vertical",
+                  "gap": 14,
+                  "padding": 30,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "ekjfd",
+                      "name": "adminTitle",
+                      "fill": "#F2F6FF",
+                      "content": "管理员登录",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 34,
+                      "fontWeight": "600"
+                    },
+                    {
+                      "type": "text",
+                      "id": "nuHKI",
+                      "name": "adminDesc",
+                      "fill": "#A7B2C6",
+                      "content": "使用管理员账号访问控制台",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "CkxOb",
+                      "name": "adminUserLabel",
+                      "fill": "#C0CBDE",
+                      "content": "用户名",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "UTcJL",
+                      "name": "adminUserInput",
+                      "width": "fill_container",
+                      "height": 46,
+                      "fill": "#0F141D",
+                      "cornerRadius": 12,
+                      "padding": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "Osd8s",
+                          "name": "adminUserText",
+                          "fill": "#D6DFF0",
+                          "content": "admin",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "OKcow",
+                      "name": "adminPwdLabel",
+                      "fill": "#C0CBDE",
+                      "content": "密码",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "ITjOy",
+                      "name": "adminPwdInput",
+                      "width": "fill_container",
+                      "height": 46,
+                      "fill": "#0F141D",
+                      "cornerRadius": 12,
+                      "padding": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "uGxRr",
+                          "name": "adminPwdText",
+                          "fill": "#72819A",
+                          "content": "请输入密码",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "3PxcY",
+                      "name": "adminBtn",
+                      "width": "fill_container",
+                      "height": 48,
+                      "fill": "#E9EEF8",
+                      "cornerRadius": 12,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "PY3jk",
+                          "name": "adminBtnText",
+                          "fill": "#151A22",
+                          "content": "登录管理控制台",
+                          "fontFamily": "Space Grotesk",
+                          "fontSize": 14,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "iZlig",
+                      "name": "adminNotice",
+                      "fill": "#8A98AE",
+                      "content": "安全提示：连续失败将触发告警。",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "WQ2nq",
+                  "name": "adminMotion",
+                  "fill": "#7F8DA5",
+                  "content": "Motion: 登录成功后 260ms 渐隐进入 Dashboard。",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "FBolz",
+      "x": 0,
+      "y": 7700,
+      "name": "AdminLogin-Mobile-Light",
+      "width": 430,
+      "height": 932,
+      "fill": "#F5F6F8",
+      "layout": "vertical",
+      "gap": 18,
+      "padding": 24,
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "Tsfzu",
+          "name": "amLogoRow",
+          "width": "fill_container",
+          "gap": 8,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "TfLlA",
+              "name": "amLogoDot",
+              "width": 10,
+              "height": 10,
+              "fill": "#13161C",
+              "cornerRadius": 5
+            },
+            {
+              "type": "text",
+              "id": "TxXgs",
+              "name": "amLogoText",
+              "fill": "#11151E",
+              "content": "Codex Pool Admin",
+              "fontFamily": "Space Grotesk",
+              "fontSize": 16,
+              "fontWeight": "600"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "hDro4",
+          "name": "amTitle",
+          "fill": "#11151E",
+          "content": "管理员登录",
+          "fontFamily": "Space Grotesk",
+          "fontSize": 30,
+          "fontWeight": "600"
+        },
+        {
+          "type": "text",
+          "id": "D85fr",
+          "name": "amDesc",
+          "fill": "#5A6477",
+          "content": "仅管理员可访问",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "frame",
+          "id": "HSXQr",
+          "name": "amCard",
+          "width": "fill_container",
+          "height": 470,
+          "fill": "#FFFFFF",
+          "cornerRadius": 18,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 22,
+          "children": [
+            {
+              "type": "text",
+              "id": "Pelvw",
+              "name": "amUserLabel",
+              "fill": "#374255",
+              "content": "用户名",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "500"
+            },
+            {
+              "type": "frame",
+              "id": "CRmV9",
+              "name": "amUserInput",
+              "width": "fill_container",
+              "height": 44,
+              "fill": "#FBFCFE",
+              "cornerRadius": 11,
+              "padding": 12,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "EcAVK",
+                  "name": "amUserText",
+                  "fill": "#2E3748",
+                  "content": "admin",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "4k1Db",
+              "name": "amPwdLabel",
+              "fill": "#374255",
+              "content": "密码",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "500"
+            },
+            {
+              "type": "frame",
+              "id": "N8Dri",
+              "name": "amPwdInput",
+              "width": "fill_container",
+              "height": 44,
+              "fill": "#FBFCFE",
+              "cornerRadius": 11,
+              "padding": 12,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "skjWN",
+                  "name": "amPwdText",
+                  "fill": "#9AA6B9",
+                  "content": "请输入密码",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "Dph2P",
+              "name": "amBtn",
+              "width": "fill_container",
+              "height": 46,
+              "fill": "#12141A",
+              "cornerRadius": 11,
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "k3Fdz",
+                  "name": "amBtnText",
+                  "fill": "#FFFFFF",
+                  "content": "登录管理控制台",
+                  "fontFamily": "Space Grotesk",
+                  "fontSize": 13,
+                  "fontWeight": "600"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "TKwrx",
+              "name": "amNotice",
+              "fill": "#6B778D",
+              "content": "安全提示：高风险操作会二次确认。",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "BCf9w",
+              "name": "amMotion",
+              "fill": "#7D8797",
+              "content": "Motion: 页面入场 280ms。",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "bVEys",
+      "x": 550,
+      "y": 7700,
+      "name": "AdminLogin-Mobile-Dark",
+      "width": 430,
+      "height": 932,
+      "fill": "#0F1218",
+      "layout": "vertical",
+      "gap": 18,
+      "padding": 24,
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "YkR48",
+          "name": "amLogoRow",
+          "width": "fill_container",
+          "gap": 8,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "YM4O5",
+              "name": "amLogoDot",
+              "width": 10,
+              "height": 10,
+              "fill": "#13161C",
+              "cornerRadius": 5
+            },
+            {
+              "type": "text",
+              "id": "XF49o",
+              "name": "amLogoText",
+              "fill": "#E8EDF7",
+              "content": "Codex Pool Admin",
+              "fontFamily": "Space Grotesk",
+              "fontSize": 16,
+              "fontWeight": "600"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "3kVGZ",
+          "name": "amTitle",
+          "fill": "#F0F4FF",
+          "content": "管理员登录",
+          "fontFamily": "Space Grotesk",
+          "fontSize": 30,
+          "fontWeight": "600"
+        },
+        {
+          "type": "text",
+          "id": "GGSxX",
+          "name": "amDesc",
+          "fill": "#A6B2C6",
+          "content": "仅管理员可访问",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "frame",
+          "id": "KjNaz",
+          "name": "amCard",
+          "width": "fill_container",
+          "height": 470,
+          "fill": "#171D27",
+          "cornerRadius": 18,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 22,
+          "children": [
+            {
+              "type": "text",
+              "id": "TtUAE",
+              "name": "amUserLabel",
+              "fill": "#C0CBDE",
+              "content": "用户名",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "500"
+            },
+            {
+              "type": "frame",
+              "id": "CFcbj",
+              "name": "amUserInput",
+              "width": "fill_container",
+              "height": 44,
+              "fill": "#0F141D",
+              "cornerRadius": 11,
+              "padding": 12,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "KGcWA",
+                  "name": "amUserText",
+                  "fill": "#D6DFF0",
+                  "content": "admin",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "LHENh",
+              "name": "amPwdLabel",
+              "fill": "#C0CBDE",
+              "content": "密码",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "500"
+            },
+            {
+              "type": "frame",
+              "id": "yMZhi",
+              "name": "amPwdInput",
+              "width": "fill_container",
+              "height": 44,
+              "fill": "#0F141D",
+              "cornerRadius": 11,
+              "padding": 12,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "uFiGP",
+                  "name": "amPwdText",
+                  "fill": "#72819A",
+                  "content": "请输入密码",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "eFOTF",
+              "name": "amBtn",
+              "width": "fill_container",
+              "height": 46,
+              "fill": "#E9EEF8",
+              "cornerRadius": 11,
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "HtIQW",
+                  "name": "amBtnText",
+                  "fill": "#151A22",
+                  "content": "登录管理控制台",
+                  "fontFamily": "Space Grotesk",
+                  "fontSize": 13,
+                  "fontWeight": "600"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "972pD",
+              "name": "amNotice",
+              "fill": "#8A98AE",
+              "content": "安全提示：高风险操作会二次确认。",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "text",
+              "id": "0ggeW",
+              "name": "amMotion",
+              "fill": "#7F8DA5",
+              "content": "Motion: 页面入场 280ms。",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "normal"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

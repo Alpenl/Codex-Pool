@@ -1,0 +1,368 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use axum::Router;
+use codex_pool_core::model::{RoutingStrategy, UpstreamAccount, UpstreamMode};
+use data_plane::app::build_app_with_event_sink as dp_build_app_with_event_sink;
+use data_plane::config::DataPlaneConfig;
+use data_plane::event::NoopEventSink;
+use futures_util::{SinkExt, StreamExt};
+use http::StatusCode;
+use serde_json::Value;
+use tokio::net::TcpListener;
+use tokio_tungstenite::accept_hdr_async;
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::handshake::server::ErrorResponse;
+use tokio_tungstenite::tungstenite::protocol::Message;
+use uuid::Uuid;
+
+use crate::support;
+
+async fn build_app_with_event_sink(
+    config: DataPlaneConfig,
+    event_sink: Arc<NoopEventSink>,
+) -> anyhow::Result<Router> {
+    support::ensure_test_security_env();
+    dp_build_app_with_event_sink(config, event_sink).await
+}
+
+#[derive(Clone, Debug)]
+struct HandshakeRecord {
+    path_and_query: String,
+    headers: HashMap<String, String>,
+}
+
+impl HandshakeRecord {
+    fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .get(&name.to_ascii_lowercase())
+            .map(String::as_str)
+    }
+}
+
+fn test_account(base_url: String, token: &str) -> UpstreamAccount {
+    UpstreamAccount {
+        id: Uuid::new_v4(),
+        label: "acc-1".to_string(),
+        mode: UpstreamMode::ChatGptSession,
+        base_url,
+        bearer_token: token.to_string(),
+        chatgpt_account_id: Some("acct_123".to_string()),
+        enabled: true,
+        priority: 100,
+        created_at: chrono::Utc::now(),
+    }
+}
+
+async fn test_app(accounts: Vec<UpstreamAccount>) -> Router {
+    let cfg = DataPlaneConfig {
+        listen_addr: "127.0.0.1:0".parse().unwrap(),
+        routing_strategy: RoutingStrategy::RoundRobin,
+        upstream_accounts: accounts,
+        account_ejection_ttl_sec: 30,
+        enable_request_failover: true,
+        same_account_quick_retry_max: 1,
+        request_failover_wait_ms: 2_000,
+        retry_poll_interval_ms: 100,
+        sticky_prefer_non_conflicting: true,
+        shared_routing_cache_enabled: true,
+        enable_metered_stream_billing: true,
+        billing_authorize_required_for_stream: true,
+        stream_billing_reserve_microcredits: 2_000_000,
+        billing_dynamic_preauth_enabled: true,
+        billing_preauth_expected_output_tokens: 256,
+        billing_preauth_safety_factor: 1.3,
+        billing_preauth_min_microcredits: 1_000,
+        billing_preauth_max_microcredits: 1_000_000_000_000,
+        billing_preauth_unit_price_microcredits: 10_000,
+        stream_billing_drain_timeout_ms: 5_000,
+        billing_capture_retry_max: 3,
+        billing_capture_retry_backoff_ms: 200,
+        redis_url: None,
+        auth_validate_url: None,
+        auth_validate_cache_ttl_sec: 30,
+        auth_validate_negative_cache_ttl_sec: 5,
+        auth_fail_open: false,
+        enable_internal_debug_routes: false,
+    };
+    build_app_with_event_sink(cfg, Arc::new(NoopEventSink))
+        .await
+        .expect("app should build")
+}
+
+async fn spawn_data_plane_server(accounts: Vec<UpstreamAccount>) -> String {
+    let app = test_app(accounts).await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    format!("http://{}", addr)
+}
+
+async fn spawn_ws_upstream() -> (String, Arc<Mutex<Vec<HandshakeRecord>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let records = Arc::new(Mutex::new(Vec::<HandshakeRecord>::new()));
+    let records_for_task = records.clone();
+
+    tokio::spawn(async move {
+        loop {
+            let (stream, _) = match listener.accept().await {
+                Ok(value) => value,
+                Err(_) => break,
+            };
+            let records = records_for_task.clone();
+            tokio::spawn(async move {
+                let ws_stream = accept_hdr_async(
+                    stream,
+                    |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
+                     response: tokio_tungstenite::tungstenite::handshake::server::Response|
+                     -> Result<
+                        tokio_tungstenite::tungstenite::handshake::server::Response,
+                        ErrorResponse,
+                    > {
+                        let headers = request
+                            .headers()
+                            .iter()
+                            .filter_map(|(name, value)| {
+                                value.to_str().ok().map(|value| {
+                                    (name.as_str().to_ascii_lowercase(), value.to_string())
+                                })
+                            })
+                            .collect::<HashMap<_, _>>();
+                        let path_and_query = request
+                            .uri()
+                            .path_and_query()
+                            .map(|value| value.as_str().to_string())
+                            .unwrap_or_else(|| request.uri().path().to_string());
+                        records.lock().unwrap().push(HandshakeRecord {
+                            path_and_query,
+                            headers,
+                        });
+                        Ok(response)
+                    },
+                )
+                .await;
+                let Ok(ws_stream) = ws_stream else {
+                    return;
+                };
+
+                let (mut writer, mut reader) = ws_stream.split();
+                if writer
+                    .send(Message::Text("upstream-ready".to_string().into()))
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+
+                while let Some(message) = reader.next().await {
+                    let Ok(message) = message else {
+                        break;
+                    };
+                    match message {
+                        Message::Text(text) => {
+                            if writer.send(Message::Text(text)).await.is_err() {
+                                break;
+                            }
+                        }
+                        Message::Binary(bytes) => {
+                            if writer.send(Message::Binary(bytes)).await.is_err() {
+                                break;
+                            }
+                        }
+                        Message::Close(frame) => {
+                            let _ = writer.send(Message::Close(frame)).await;
+                            break;
+                        }
+                        Message::Ping(payload) => {
+                            if writer.send(Message::Pong(payload)).await.is_err() {
+                                break;
+                            }
+                        }
+                        Message::Pong(_) => {}
+                        Message::Frame(_) => {}
+                    }
+                }
+            });
+        }
+    });
+
+    (format!("http://{}", addr), records)
+}
+
+fn ws_url(http_base: &str, path_and_query: &str) -> String {
+    format!(
+        "{}{}",
+        http_base.replacen("http://", "ws://", 1),
+        path_and_query
+    )
+}
+
+#[tokio::test]
+async fn ws_upgrade_v1_responses_forwards_headers_and_frames() {
+    let (upstream_base, records) = spawn_ws_upstream().await;
+    let data_plane_base =
+        spawn_data_plane_server(vec![test_account(upstream_base, "upstream-token")]).await;
+
+    let mut request = ws_url(&data_plane_base, "/v1/responses?trace=1")
+        .into_client_request()
+        .unwrap();
+    request
+        .headers_mut()
+        .insert("authorization", "Bearer tenant-token".parse().unwrap());
+    request
+        .headers_mut()
+        .insert("session_id", "session-abc".parse().unwrap());
+    request
+        .headers_mut()
+        .insert("x-codex-turn-state", "turn-state-1".parse().unwrap());
+    request
+        .headers_mut()
+        .insert("x-codex-turn-metadata", "meta-1".parse().unwrap());
+    request.headers_mut().insert(
+        "openai-beta",
+        "responses_websockets=2026-02-04".parse().unwrap(),
+    );
+    request
+        .headers_mut()
+        .insert("x-openai-subagent", "review".parse().unwrap());
+
+    let (mut ws_client, response) = connect_async(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+
+    let first = ws_client.next().await.unwrap().unwrap();
+    assert_eq!(first, Message::Text("upstream-ready".to_string().into()));
+
+    ws_client
+        .send(Message::Text("hello-from-client".to_string().into()))
+        .await
+        .unwrap();
+    let echoed_text = ws_client.next().await.unwrap().unwrap();
+    assert_eq!(
+        echoed_text,
+        Message::Text("hello-from-client".to_string().into())
+    );
+
+    ws_client
+        .send(Message::Binary(vec![1, 2, 3, 4].into()))
+        .await
+        .unwrap();
+    let echoed_binary = ws_client.next().await.unwrap().unwrap();
+    assert_eq!(echoed_binary, Message::Binary(vec![1, 2, 3, 4].into()));
+
+    ws_client.close(None).await.unwrap();
+    if let Some(message) = ws_client.next().await {
+        assert!(matches!(message.unwrap(), Message::Close(_)));
+    }
+
+    let records = records.lock().unwrap().clone();
+    assert_eq!(records.len(), 1);
+    let first_record = &records[0];
+    assert_eq!(first_record.path_and_query, "/v1/responses?trace=1");
+    assert_eq!(
+        first_record.header("authorization"),
+        Some("Bearer upstream-token")
+    );
+    assert_eq!(first_record.header("chatgpt-account-id"), Some("acct_123"));
+    assert_eq!(
+        first_record.header("openai-beta"),
+        Some("responses_websockets=2026-02-04")
+    );
+    assert_eq!(first_record.header("x-openai-subagent"), Some("review"));
+    assert_eq!(first_record.header("session_id"), Some("session-abc"));
+    assert_eq!(
+        first_record.header("x-codex-turn-state"),
+        Some("turn-state-1")
+    );
+    assert_eq!(first_record.header("x-codex-turn-metadata"), Some("meta-1"));
+}
+
+#[tokio::test]
+async fn ws_upgrade_supports_backend_api_codex_responses_path() {
+    let (upstream_base, records) = spawn_ws_upstream().await;
+    let data_plane_base =
+        spawn_data_plane_server(vec![test_account(upstream_base, "upstream-token")]).await;
+
+    let mut request = ws_url(&data_plane_base, "/backend-api/codex/responses")
+        .into_client_request()
+        .unwrap();
+    request.headers_mut().insert(
+        "openai-beta",
+        "responses_websockets=2026-02-04".parse().unwrap(),
+    );
+
+    let (mut ws_client, response) = connect_async(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+
+    let first = ws_client.next().await.unwrap().unwrap();
+    assert_eq!(first, Message::Text("upstream-ready".to_string().into()));
+    ws_client.close(None).await.unwrap();
+
+    let records = records.lock().unwrap().clone();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].path_and_query, "/backend-api/codex/responses");
+}
+
+#[tokio::test]
+async fn ws_upgrade_returns_structured_error_when_upstream_connect_fails() {
+    let data_plane_base = spawn_data_plane_server(vec![test_account(
+        "http://127.0.0.1:1".to_string(),
+        "upstream-token",
+    )])
+    .await;
+
+    let request = ws_url(&data_plane_base, "/v1/responses")
+        .into_client_request()
+        .unwrap();
+
+    let err = connect_async(request)
+        .await
+        .expect_err("handshake should fail");
+    let response = match err {
+        tokio_tungstenite::tungstenite::Error::Http(response) => response,
+        other => panic!("expected http response error, got {other:?}"),
+    };
+
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let payload: Value = serde_json::from_slice(response.body().as_deref().unwrap()).unwrap();
+    assert_eq!(payload["error"]["code"], "upstream_websocket_connect_error");
+}
+
+#[tokio::test]
+async fn ws_upgrade_fails_over_to_next_account_before_handshake_success() {
+    let (upstream_base, records) = spawn_ws_upstream().await;
+    let data_plane_base = spawn_data_plane_server(vec![
+        test_account("http://127.0.0.1:1".to_string(), "upstream-token-a"),
+        test_account(upstream_base, "upstream-token-b"),
+    ])
+    .await;
+
+    let request = ws_url(&data_plane_base, "/v1/responses")
+        .into_client_request()
+        .unwrap();
+
+    let (mut ws_client, response) = connect_async(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+
+    let first = ws_client.next().await.unwrap().unwrap();
+    assert_eq!(first, Message::Text("upstream-ready".to_string().into()));
+
+    ws_client
+        .send(Message::Text("ping".to_string().into()))
+        .await
+        .unwrap();
+    let echoed = ws_client.next().await.unwrap().unwrap();
+    assert_eq!(echoed, Message::Text("ping".to_string().into()));
+
+    ws_client.close(None).await.unwrap();
+
+    let records = records.lock().unwrap().clone();
+    assert_eq!(records.len(), 1);
+    assert_eq!(
+        records[0].header("authorization"),
+        Some("Bearer upstream-token-b")
+    );
+}

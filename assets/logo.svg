@@ -1,0 +1,30 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- 
+    App Name: Codex Pool 
+    Concept: Infinity Load-Balance Cloud + Developer Prompt
+  -->
+  <defs>
+    <!-- 极客风格科技渐变色：亮蓝 -> 深紫 -> 青色 -->
+    <linearGradient id="geekGrad" x1="70" y1="410" x2="460" y2="130" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3B82F6"/> 
+      <stop offset="50%" stop-color="#8B5CF6"/>
+      <stop offset="100%" stop-color="#06B6D4"/>
+    </linearGradient>
+  </defs>
+
+  <g stroke="url(#geekGrad)" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
+    
+    <!-- 连续线框云朵 (包含底部 ∞ 交叉点) -->
+    <!-- 通过精确计算的贝塞尔控制点，保证交叉点的切线完美平滑过渡 -->
+    <path d="M 256,300 
+             C 406,150 460,60 460,200 
+             C 460,340 406,450 256,300 
+             C 146,190 70,100 70,200 
+             C 70,300 146,410 256,300 Z" />
+             
+    <!-- 中心实心 >_ 终端符号 -->
+    <path d="M 196,180 L 236,220 L 196,260" />
+    <line x1="286" y1="260" x2="316" y2="260" />
+    
+  </g>
+</svg>

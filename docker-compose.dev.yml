@@ -1,0 +1,155 @@
+name: codex-pool-dev
+
+services:
+  postgres:
+    image: postgres:18.2-alpine3.22
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: codex_pool
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres18-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d codex_pool"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.25.1-p0
+    profiles: ["pgbouncer"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: codex_pool
+      POOL_MODE: transaction
+      AUTH_TYPE: scram-sha-256
+      MAX_CLIENT_CONN: 500
+      DEFAULT_POOL_SIZE: 50
+      RESERVE_POOL_SIZE: 20
+      LISTEN_PORT: 6432
+      ADMIN_USERS: postgres
+    ports:
+      - "6432:6432"
+
+  redis:
+    image: redis:7.4.8-alpine3.21
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.1.3.52-alpine
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_SKIP_USER_SETUP: "1"
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --query 'SELECT 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  control-plane:
+    build:
+      context: .
+      dockerfile: docker/rust-runtime.Dockerfile
+    image: codex-pool-rust:dev
+    command: ["control-plane"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      CONTROL_PLANE_LISTEN: 0.0.0.0:8090
+      CONTROL_PLANE_DATABASE_URL: ${CONTROL_PLANE_DATABASE_URL:-postgres://postgres:postgres@postgres:5432/codex_pool}
+      CONTROL_PLANE_API_KEY_HMAC_KEYS: ${CONTROL_PLANE_API_KEY_HMAC_KEYS:-dev:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_DATABASE: default
+      CLICKHOUSE_ACCOUNT_TABLE: usage_account_hourly
+      CLICKHOUSE_TENANT_APIKEY_TABLE: usage_tenant_api_key_hourly
+      CONTROL_PLANE_INTERNAL_AUTH_TOKEN: change-me-internal-token
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: admin123456
+      ADMIN_JWT_SECRET: change-me-admin-jwt-secret
+      RUST_LOG: info
+    ports:
+      - "8090:8090"
+
+  data-plane:
+    build:
+      context: .
+      dockerfile: docker/rust-runtime.Dockerfile
+    image: codex-pool-rust:dev
+    command: ["data-plane"]
+    depends_on:
+      control-plane:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    environment:
+      DATA_PLANE_LISTEN: 0.0.0.0:8091
+      CONTROL_PLANE_BASE_URL: http://control-plane:8090
+      AUTH_VALIDATE_URL: http://control-plane:8090/internal/v1/auth/validate
+      CONTROL_PLANE_INTERNAL_AUTH_TOKEN: change-me-internal-token
+      REDIS_URL: redis://redis:6379
+      SNAPSHOT_POLL_INTERVAL_MS: "1000"
+      RUST_LOG: info
+    ports:
+      - "8091:8091"
+
+  usage-worker:
+    build:
+      context: .
+      dockerfile: docker/rust-runtime.Dockerfile
+    image: codex-pool-rust:dev
+    command: ["usage-worker"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379
+      CLICKHOUSE_URL: http://clickhouse:8123
+      REQUEST_LOG_STREAM: stream.request_log
+      REQUEST_LOG_CONSUMER_GROUP: usage-worker
+      USAGE_WORKER_MODE: daemon
+      RUST_LOG: info
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.dev.Dockerfile
+    depends_on:
+      control-plane:
+        condition: service_started
+    environment:
+      VITE_API_PROXY_TARGET: http://control-plane:8090
+    ports:
+      - "5173:5173"
+
+volumes:
+  postgres18-data:
+  redis-data:
+  clickhouse-data:
+  clickhouse-logs:
