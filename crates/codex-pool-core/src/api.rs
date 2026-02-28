@@ -389,6 +389,7 @@ pub struct AdminMeResponse {
 pub enum OAuthImportJobStatus {
     Queued,
     Running,
+    Paused,
     Completed,
     Failed,
     Cancelled,

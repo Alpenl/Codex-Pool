@@ -729,6 +729,48 @@ async fn admin_import_job_routes_work_with_retry_semantics() {
     // retry-failed 只重试 failed 项，已成功项不会重复计入 created。
     assert_eq!(retried_job["created_count"], 1);
     assert_eq!(retried_job["failed_count"], 2);
+
+    let pause_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/api/v1/upstream-accounts/oauth/import-jobs/{job_id}/pause"
+                ))
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(pause_response.status(), StatusCode::OK);
+    let pause_body = to_bytes(pause_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let pause_json: Value = serde_json::from_slice(&pause_body).unwrap();
+    assert_eq!(pause_json["accepted"], false);
+
+    let resume_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/api/v1/upstream-accounts/oauth/import-jobs/{job_id}/resume"
+                ))
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resume_response.status(), StatusCode::OK);
+    let resume_body = to_bytes(resume_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let resume_json: Value = serde_json::from_slice(&resume_body).unwrap();
+    assert_eq!(resume_json["accepted"], false);
 }
 
 #[tokio::test]

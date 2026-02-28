@@ -26,6 +26,7 @@ use crate::store::UpsertOneTimeSessionAccountRequest;
 const DEFAULT_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const DB_STATUS_QUEUED: &str = "queued";
 const DB_STATUS_RUNNING: &str = "running";
+const DB_STATUS_PAUSED: &str = "paused";
 const DB_STATUS_COMPLETED: &str = "completed";
 const DB_STATUS_FAILED: &str = "failed";
 const DB_STATUS_CANCELLED: &str = "cancelled";
@@ -134,6 +135,10 @@ pub trait OAuthImportJobStore: Send + Sync {
     ) -> Result<()>;
 
     async fn finish_job(&self, job_id: Uuid) -> Result<OAuthImportJobSummary>;
+
+    async fn pause_job(&self, job_id: Uuid) -> Result<OAuthImportJobActionResponse>;
+
+    async fn resume_job(&self, job_id: Uuid) -> Result<OAuthImportJobActionResponse>;
 
     async fn cancel_job(&self, job_id: Uuid) -> Result<OAuthImportJobActionResponse>;
 
@@ -261,7 +266,14 @@ impl OAuthImportJobStore for InMemoryOAuthImportJobStore {
         if guard.cancel_requested {
             return Ok(Vec::new());
         }
-        if guard.summary.status == OAuthImportJobStatus::Running {
+        if matches!(
+            guard.summary.status,
+            OAuthImportJobStatus::Running
+                | OAuthImportJobStatus::Paused
+                | OAuthImportJobStatus::Completed
+                | OAuthImportJobStatus::Failed
+                | OAuthImportJobStatus::Cancelled
+        ) {
             return Ok(Vec::new());
         }
 
@@ -405,6 +417,57 @@ impl OAuthImportJobStore for InMemoryOAuthImportJobStore {
         Ok(guard.summary.clone())
     }
 
+    async fn pause_job(&self, job_id: Uuid) -> Result<OAuthImportJobActionResponse> {
+        let job = self
+            .jobs
+            .read()
+            .await
+            .get(&job_id)
+            .cloned()
+            .ok_or_else(|| anyhow!("job not found"))?;
+        let mut guard = job.lock().await;
+
+        let accepted = matches!(
+            guard.summary.status,
+            OAuthImportJobStatus::Queued | OAuthImportJobStatus::Running
+        ) && !guard.cancel_requested;
+
+        if accepted {
+            guard.summary.status = OAuthImportJobStatus::Paused;
+            guard.summary.finished_at = None;
+        }
+
+        Ok(OAuthImportJobActionResponse { job_id, accepted })
+    }
+
+    async fn resume_job(&self, job_id: Uuid) -> Result<OAuthImportJobActionResponse> {
+        let job = self
+            .jobs
+            .read()
+            .await
+            .get(&job_id)
+            .cloned()
+            .ok_or_else(|| anyhow!("job not found"))?;
+        let mut guard = job.lock().await;
+
+        let accepted =
+            guard.summary.status == OAuthImportJobStatus::Paused && !guard.cancel_requested;
+        if accepted {
+            guard.summary.status = OAuthImportJobStatus::Queued;
+            guard.summary.finished_at = None;
+            guard.summary.throughput_per_min = None;
+            for item in &mut guard.items {
+                if item.item.status == OAuthImportItemStatus::Processing {
+                    item.item.status = OAuthImportItemStatus::Pending;
+                }
+            }
+            let items = guard.items.clone();
+            refresh_summary_counts(&mut guard.summary, &items, false);
+        }
+
+        Ok(OAuthImportJobActionResponse { job_id, accepted })
+    }
+
     async fn cancel_job(&self, job_id: Uuid) -> Result<OAuthImportJobActionResponse> {
         let job = self
             .jobs
@@ -416,7 +479,10 @@ impl OAuthImportJobStore for InMemoryOAuthImportJobStore {
         let mut guard = job.lock().await;
 
         guard.cancel_requested = true;
-        if guard.summary.status == OAuthImportJobStatus::Queued {
+        if matches!(
+            guard.summary.status,
+            OAuthImportJobStatus::Queued | OAuthImportJobStatus::Paused
+        ) {
             for item in &mut guard.items {
                 if matches!(
                     item.item.status,

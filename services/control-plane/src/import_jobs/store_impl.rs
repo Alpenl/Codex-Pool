@@ -235,7 +235,7 @@ impl OAuthImportJobStore for PostgresOAuthImportJobStore {
         if cancel_requested
             || matches!(
                 status.as_str(),
-                DB_STATUS_COMPLETED | DB_STATUS_FAILED | DB_STATUS_CANCELLED
+                DB_STATUS_PAUSED | DB_STATUS_COMPLETED | DB_STATUS_FAILED | DB_STATUS_CANCELLED
             )
         {
             tx.commit()
@@ -553,18 +553,131 @@ impl OAuthImportJobStore for PostgresOAuthImportJobStore {
         self.get_job_summary(job_id).await
     }
 
+    async fn pause_job(&self, job_id: Uuid) -> Result<OAuthImportJobActionResponse> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("failed to start pause_job transaction")?;
+
+        let row = sqlx::query(
+            r#"
+            SELECT status, cancel_requested
+            FROM oauth_import_jobs
+            WHERE id = $1
+            FOR UPDATE
+            "#,
+        )
+        .bind(job_id)
+        .fetch_optional(tx.as_mut())
+        .await
+        .context("failed to lock oauth import job for pause")?
+        .ok_or_else(|| anyhow!("job not found"))?;
+
+        let status = row.try_get::<String, _>("status")?;
+        let cancel_requested = row.try_get::<bool, _>("cancel_requested")?;
+        let accepted =
+            !cancel_requested && matches!(status.as_str(), DB_STATUS_QUEUED | DB_STATUS_RUNNING);
+
+        if accepted {
+            sqlx::query(
+                r#"
+                UPDATE oauth_import_jobs
+                SET status = $2,
+                    finished_at = NULL
+                WHERE id = $1
+                "#,
+            )
+            .bind(job_id)
+            .bind(DB_STATUS_PAUSED)
+            .execute(tx.as_mut())
+            .await
+            .context("failed to pause oauth import job")?;
+        }
+
+        tx.commit()
+            .await
+            .context("failed to commit pause_job transaction")?;
+        Ok(OAuthImportJobActionResponse { job_id, accepted })
+    }
+
+    async fn resume_job(&self, job_id: Uuid) -> Result<OAuthImportJobActionResponse> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("failed to start resume_job transaction")?;
+
+        let row = sqlx::query(
+            r#"
+            SELECT status, cancel_requested
+            FROM oauth_import_jobs
+            WHERE id = $1
+            FOR UPDATE
+            "#,
+        )
+        .bind(job_id)
+        .fetch_optional(tx.as_mut())
+        .await
+        .context("failed to lock oauth import job for resume")?
+        .ok_or_else(|| anyhow!("job not found"))?;
+
+        let status = row.try_get::<String, _>("status")?;
+        let cancel_requested = row.try_get::<bool, _>("cancel_requested")?;
+        let accepted = !cancel_requested && status == DB_STATUS_PAUSED;
+        if accepted {
+            sqlx::query(
+                r#"
+                UPDATE oauth_import_job_items
+                SET status = $2,
+                    updated_at = now()
+                WHERE job_id = $1
+                  AND status = $3
+                "#,
+            )
+            .bind(job_id)
+            .bind(DB_ITEM_PENDING)
+            .bind(DB_ITEM_PROCESSING)
+            .execute(tx.as_mut())
+            .await
+            .context("failed to reset processing oauth import items on resume")?;
+
+            sqlx::query(
+                r#"
+                UPDATE oauth_import_jobs
+                SET status = $2,
+                    cancel_requested = false,
+                    finished_at = NULL,
+                    throughput_per_min = NULL
+                WHERE id = $1
+                "#,
+            )
+            .bind(job_id)
+            .bind(DB_STATUS_QUEUED)
+            .execute(tx.as_mut())
+            .await
+            .context("failed to resume oauth import job")?;
+        }
+
+        tx.commit()
+            .await
+            .context("failed to commit resume_job transaction")?;
+        Ok(OAuthImportJobActionResponse { job_id, accepted })
+    }
+
     async fn cancel_job(&self, job_id: Uuid) -> Result<OAuthImportJobActionResponse> {
         sqlx::query(
             r#"
             UPDATE oauth_import_jobs
             SET cancel_requested = true,
-                status = CASE WHEN status = $2 THEN $3 ELSE status END,
-                finished_at = CASE WHEN status = $2 THEN now() ELSE finished_at END
+                status = CASE WHEN status IN ($2, $3) THEN $4 ELSE status END,
+                finished_at = CASE WHEN status IN ($2, $3) THEN now() ELSE finished_at END
             WHERE id = $1
             "#,
         )
         .bind(job_id)
         .bind(DB_STATUS_QUEUED)
+        .bind(DB_STATUS_PAUSED)
         .bind(DB_STATUS_CANCELLED)
         .execute(&self.pool)
         .await

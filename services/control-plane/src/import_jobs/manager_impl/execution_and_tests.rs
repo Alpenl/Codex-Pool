@@ -84,6 +84,7 @@ fn job_status_to_db(status: OAuthImportJobStatus) -> &'static str {
     match status {
         OAuthImportJobStatus::Queued => DB_STATUS_QUEUED,
         OAuthImportJobStatus::Running => DB_STATUS_RUNNING,
+        OAuthImportJobStatus::Paused => DB_STATUS_PAUSED,
         OAuthImportJobStatus::Completed => DB_STATUS_COMPLETED,
         OAuthImportJobStatus::Failed => DB_STATUS_FAILED,
         OAuthImportJobStatus::Cancelled => DB_STATUS_CANCELLED,
@@ -94,6 +95,7 @@ fn parse_job_status(raw: &str) -> Result<OAuthImportJobStatus> {
     match raw {
         DB_STATUS_QUEUED => Ok(OAuthImportJobStatus::Queued),
         DB_STATUS_RUNNING => Ok(OAuthImportJobStatus::Running),
+        DB_STATUS_PAUSED => Ok(OAuthImportJobStatus::Paused),
         DB_STATUS_COMPLETED => Ok(OAuthImportJobStatus::Completed),
         DB_STATUS_FAILED => Ok(OAuthImportJobStatus::Failed),
         DB_STATUS_CANCELLED => Ok(OAuthImportJobStatus::Cancelled),
@@ -130,10 +132,64 @@ fn parse_item_status(raw: &str) -> Result<OAuthImportItemStatus> {
 mod tests {
     use super::{
         classify_import_failure_code, parse_file_records, CreateOAuthImportJobOptions,
-        ImportTaskRequest, ImportUploadFile, InMemoryOAuthImportJobStore, OAuthImportJobStore,
+        ImportTaskRequest, ImportTaskSuccess, ImportUploadFile, InMemoryOAuthImportJobStore,
+        OAuthImportJobStore, PersistedImportItem,
     };
     use bytes::Bytes;
+    use chrono::Utc;
+    use codex_pool_core::api::{
+        ImportOAuthRefreshTokenRequest, OAuthImportItemStatus, OAuthImportJobItem,
+        OAuthImportJobStatus, OAuthImportJobSummary,
+    };
     use codex_pool_core::model::UpstreamMode;
+    use uuid::Uuid;
+
+    fn build_in_memory_job_state(job_id: Uuid) -> (OAuthImportJobSummary, Vec<PersistedImportItem>) {
+        let summary = OAuthImportJobSummary {
+            job_id,
+            status: OAuthImportJobStatus::Queued,
+            total: 1,
+            processed: 0,
+            created_count: 0,
+            updated_count: 0,
+            failed_count: 0,
+            skipped_count: 0,
+            started_at: None,
+            finished_at: None,
+            created_at: Utc::now(),
+            throughput_per_min: None,
+            error_summary: Vec::new(),
+        };
+        let item = PersistedImportItem {
+            item: OAuthImportJobItem {
+                item_id: 1,
+                source_file: "pause-resume.jsonl".to_string(),
+                line_no: 1,
+                status: OAuthImportItemStatus::Pending,
+                label: "pause-resume".to_string(),
+                email: None,
+                chatgpt_account_id: Some("acct-pause-resume".to_string()),
+                account_id: None,
+                error_code: None,
+                error_message: None,
+            },
+            request: Some(ImportTaskRequest::OAuthRefresh(ImportOAuthRefreshTokenRequest {
+                label: "pause-resume".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-pause-resume".to_string(),
+                chatgpt_account_id: Some("acct-pause-resume".to_string()),
+                mode: Some(UpstreamMode::ChatGptSession),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: None,
+                source_type: None,
+            })),
+            raw_record: None,
+            normalized_record: None,
+            retry_count: 0,
+        };
+        (summary, vec![item])
+    }
 
     #[test]
     fn parse_record_reads_chatgpt_account_id_from_token_info() {
@@ -284,6 +340,61 @@ mod tests {
             .await
             .expect("query recoverable jobs");
         assert!(ids.is_empty());
+    }
+
+    #[tokio::test]
+    async fn in_memory_store_pause_and_resume_job() {
+        let store = InMemoryOAuthImportJobStore::default();
+        let job_id = Uuid::new_v4();
+        let (summary, items) = build_in_memory_job_state(job_id);
+        store.create_job(summary, items).await.expect("create job");
+
+        let pause_response = store.pause_job(job_id).await.expect("pause job");
+        assert!(pause_response.accepted);
+        let paused = store
+            .get_job_summary(job_id)
+            .await
+            .expect("get paused summary");
+        assert_eq!(paused.status, OAuthImportJobStatus::Paused);
+        let paused_claim = store.start_job(job_id, 1).await.expect("claim paused job");
+        assert!(paused_claim.is_empty());
+
+        let resume_response = store.resume_job(job_id).await.expect("resume job");
+        assert!(resume_response.accepted);
+        let resumed = store
+            .get_job_summary(job_id)
+            .await
+            .expect("get resumed summary");
+        assert_eq!(resumed.status, OAuthImportJobStatus::Queued);
+        let resumed_claim = store.start_job(job_id, 1).await.expect("claim resumed job");
+        assert_eq!(resumed_claim.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn in_memory_store_resume_rejects_terminal_job() {
+        let store = InMemoryOAuthImportJobStore::default();
+        let job_id = Uuid::new_v4();
+        let (summary, items) = build_in_memory_job_state(job_id);
+        store.create_job(summary, items).await.expect("create job");
+
+        let tasks = store.start_job(job_id, 1).await.expect("start job");
+        assert_eq!(tasks.len(), 1);
+        store
+            .mark_item_success(
+                job_id,
+                tasks[0].item_id,
+                &ImportTaskSuccess {
+                    created: true,
+                    account_id: None,
+                    chatgpt_account_id: Some("acct-pause-resume".to_string()),
+                },
+            )
+            .await
+            .expect("mark success");
+        store.finish_job(job_id).await.expect("finish job");
+
+        let response = store.resume_job(job_id).await.expect("resume completed job");
+        assert!(!response.accepted);
     }
 
     #[test]

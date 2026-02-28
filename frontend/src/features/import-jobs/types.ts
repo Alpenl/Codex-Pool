@@ -10,12 +10,25 @@ export const JSON_PARSE_LIMIT_BYTES = 2 * 1024 * 1024
 export type StagedFileStatus = 'ready' | 'warning' | 'invalid'
 export type StagedFileExtension = 'json' | 'jsonl' | 'unknown'
 
+export interface StagedImportMetadata {
+  parsedRecords: number
+  estimatedRecords: number
+  refreshTokenRecords: number
+  accessTokenRecords: number
+  chatgptAccountIdRecords: number
+  emailRecords: number
+  baseUrlTop: string[]
+  sourceTypeTop: string[]
+  planTypeTop: string[]
+}
+
 export interface StagedImportFile {
   id: string
   file: File
   status: StagedFileStatus
   checks: string[]
   extension: StagedFileExtension
+  metadata: StagedImportMetadata
 }
 
 export interface RecentJobRow {

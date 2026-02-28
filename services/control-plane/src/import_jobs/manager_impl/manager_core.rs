@@ -184,6 +184,18 @@ impl OAuthImportJobManager {
         self.job_store.cancel_job(job_id).await
     }
 
+    pub async fn pause_job(&self, job_id: Uuid) -> Result<OAuthImportJobActionResponse> {
+        self.job_store.pause_job(job_id).await
+    }
+
+    pub async fn resume_job(&self, job_id: Uuid) -> Result<OAuthImportJobActionResponse> {
+        let response = self.job_store.resume_job(job_id).await?;
+        if response.accepted {
+            self.spawn_job(job_id);
+        }
+        Ok(response)
+    }
+
     pub async fn retry_failed(&self, job_id: Uuid) -> Result<OAuthImportJobActionResponse> {
         let response = self.job_store.retry_failed(job_id).await?;
         if response.accepted {
@@ -222,6 +234,10 @@ impl OAuthImportJobManager {
                 .start_job(job_id, self.claim_batch_size)
                 .await?;
             if tasks.is_empty() {
+                let summary = self.job_store.get_job_summary(job_id).await?;
+                if summary.status == OAuthImportJobStatus::Paused {
+                    return Ok(());
+                }
                 break;
             }
 

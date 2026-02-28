@@ -12,9 +12,13 @@ import {
   MAX_UPLOAD_FILE_BYTES,
   RECENT_JOBS_STORAGE_KEY,
   type StagedFileExtension,
+  type StagedImportMetadata,
   type StagedFileStatus,
   type StagedImportFile,
 } from './types'
+
+const METADATA_MAX_RECORDS = 500
+const JSONL_METADATA_READ_LIMIT_BYTES = 4 * 1024 * 1024
 
 export function getImportStatusLabel(t: TFunction, status: string) {
   switch (status) {
@@ -108,6 +112,146 @@ function strongerStagedStatus(
   return rank[next] > rank[current] ? next : current
 }
 
+function asString(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+  const normalized = value.trim()
+  return normalized.length > 0 ? normalized : undefined
+}
+
+function asObject(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined
+  }
+  return value as Record<string, unknown>
+}
+
+function readValueByPath(record: Record<string, unknown>, path: string[]): unknown {
+  let current: unknown = record
+  for (const key of path) {
+    const currentObject = asObject(current)
+    if (!currentObject || !(key in currentObject)) {
+      return undefined
+    }
+    current = currentObject[key]
+  }
+  return current
+}
+
+function pickFirstString(record: Record<string, unknown>, paths: string[][]): string | undefined {
+  for (const path of paths) {
+    const value = asString(readValueByPath(record, path))
+    if (value) {
+      return value
+    }
+  }
+  return undefined
+}
+
+function summarizeTopValues(counter: Map<string, number>, limit = 3): string[] {
+  if (counter.size === 0) {
+    return []
+  }
+  return [...counter.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([value, count]) => `${value} (${count})`)
+}
+
+function collectMetadata(
+  records: Record<string, unknown>[],
+  estimatedRecords: number,
+): StagedImportMetadata {
+  let refreshTokenRecords = 0
+  let accessTokenRecords = 0
+  let chatgptAccountIdRecords = 0
+  let emailRecords = 0
+
+  const baseUrlCounter = new Map<string, number>()
+  const sourceTypeCounter = new Map<string, number>()
+  const planTypeCounter = new Map<string, number>()
+
+  const refreshTokenPaths = [
+    ['refresh_token'],
+    ['refreshToken'],
+    ['rt'],
+    ['refreshTokenPlaintext'],
+    ['token_info', 'refresh_token'],
+    ['tokens', 'refresh_token'],
+    ['oauth', 'refresh_token'],
+    ['auth', 'refresh_token'],
+  ]
+  const accessTokenPaths = [
+    ['access_token'],
+    ['accessToken'],
+    ['token'],
+    ['bearer_token'],
+    ['token_info', 'access_token'],
+    ['tokens', 'access_token'],
+    ['oauth', 'access_token'],
+    ['auth', 'access_token'],
+  ]
+  const chatgptAccountIdPaths = [
+    ['chatgpt_account_id'],
+    ['chatgptAccountId'],
+    ['account_id'],
+    ['accountId'],
+    ['token_info', 'chatgpt_account_id'],
+  ]
+  const emailPaths = [['email'], ['mail'], ['username'], ['user_email']]
+  const baseUrlPaths = [['base_url'], ['baseUrl'], ['endpoint'], ['upstream_base_url']]
+  const sourceTypePaths = [['source_type'], ['sourceType'], ['type'], ['provider_type']]
+  const planTypePaths = [
+    ['chatgpt_plan_type'],
+    ['token_info', 'chatgpt_plan_type'],
+    ['openai_auth', 'chatgpt_plan_type'],
+    ['https://api.openai.com/auth', 'chatgpt_plan_type'],
+  ]
+
+  for (const record of records) {
+    if (pickFirstString(record, refreshTokenPaths)) {
+      refreshTokenRecords += 1
+    }
+    if (pickFirstString(record, accessTokenPaths)) {
+      accessTokenRecords += 1
+    }
+    if (pickFirstString(record, chatgptAccountIdPaths)) {
+      chatgptAccountIdRecords += 1
+    }
+    if (pickFirstString(record, emailPaths)) {
+      emailRecords += 1
+    }
+
+    const baseUrl = pickFirstString(record, baseUrlPaths)
+    if (baseUrl) {
+      baseUrlCounter.set(baseUrl, (baseUrlCounter.get(baseUrl) ?? 0) + 1)
+    }
+
+    const sourceType = pickFirstString(record, sourceTypePaths)
+    if (sourceType) {
+      sourceTypeCounter.set(sourceType, (sourceTypeCounter.get(sourceType) ?? 0) + 1)
+    }
+
+    const planType = pickFirstString(record, planTypePaths)
+    if (planType) {
+      planTypeCounter.set(planType, (planTypeCounter.get(planType) ?? 0) + 1)
+    }
+  }
+
+  return {
+    parsedRecords: records.length,
+    estimatedRecords: Math.max(estimatedRecords, records.length),
+    refreshTokenRecords,
+    accessTokenRecords,
+    chatgptAccountIdRecords,
+    emailRecords,
+    baseUrlTop: summarizeTopValues(baseUrlCounter),
+    sourceTypeTop: summarizeTopValues(sourceTypeCounter),
+    planTypeTop: summarizeTopValues(planTypeCounter),
+  }
+}
+
 export function getStagedStatusLabel(t: TFunction, status: StagedFileStatus) {
   if (status === 'ready') {
     return t('importJobs.precheck.status.ready')
@@ -134,6 +278,8 @@ export async function inspectStagedFile(
   let status: StagedFileStatus = 'ready'
   const checks: string[] = []
   const extension = getFileExtension(file.name)
+  const sampleRecords: Record<string, unknown>[] = []
+  let estimatedRecords = 0
 
   if (extension === 'unknown') {
     status = strongerStagedStatus(status, 'invalid')
@@ -160,11 +306,23 @@ export async function inspectStagedFile(
 
   if (status !== 'invalid' && extension === 'jsonl') {
     try {
-      const preview = await file.slice(0, JSONL_PREVIEW_BYTES).text()
-      const firstDataLine = preview
+      const shouldReadMore = file.size <= JSONL_METADATA_READ_LIMIT_BYTES
+      const raw = await file
+        .slice(0, shouldReadMore ? file.size : JSONL_PREVIEW_BYTES)
+        .text()
+      const lines = raw
         .split(/\r?\n/)
         .map((line) => line.trim())
-        .find((line) => line.length > 0)
+        .filter((line) => line.length > 0)
+
+      if (shouldReadMore) {
+        estimatedRecords = lines.length
+      } else if (lines.length > 0) {
+        const avgLineBytes = Math.max(1, raw.length / lines.length)
+        estimatedRecords = Math.max(lines.length, Math.floor(file.size / avgLineBytes))
+      }
+
+      const firstDataLine = lines[0]
 
       if (!firstDataLine) {
         status = strongerStagedStatus(status, 'warning')
@@ -176,6 +334,20 @@ export async function inspectStagedFile(
           checks.push(t('importJobs.precheck.firstLineObject'))
         } else {
           checks.push(t('importJobs.precheck.firstLineValid'))
+        }
+      }
+
+      for (const line of lines) {
+        if (sampleRecords.length >= METADATA_MAX_RECORDS) {
+          break
+        }
+        try {
+          const parsed = JSON.parse(line)
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            sampleRecords.push(parsed as Record<string, unknown>)
+          }
+        } catch {
+          continue
         }
       }
     } catch {
@@ -192,8 +364,27 @@ export async function inspectStagedFile(
         if (!parsed) {
           status = strongerStagedStatus(status, 'warning')
           checks.push(t('importJobs.precheck.jsonEmpty'))
+          estimatedRecords = 0
         } else {
           checks.push(t('importJobs.precheck.jsonValid'))
+          if (Array.isArray(parsed)) {
+            estimatedRecords = parsed.length
+            parsed.forEach((item) => {
+              if (
+                sampleRecords.length < METADATA_MAX_RECORDS
+                && item
+                && typeof item === 'object'
+                && !Array.isArray(item)
+              ) {
+                sampleRecords.push(item as Record<string, unknown>)
+              }
+            })
+          } else if (typeof parsed === 'object') {
+            estimatedRecords = 1
+            sampleRecords.push(parsed as Record<string, unknown>)
+          } else {
+            estimatedRecords = 0
+          }
         }
       } catch {
         status = strongerStagedStatus(status, 'warning')
@@ -208,12 +399,15 @@ export async function inspectStagedFile(
     checks.push(t('importJobs.precheck.defaultReady'))
   }
 
+  const metadata = collectMetadata(sampleRecords, estimatedRecords)
+
   return {
     id: buildFileId(file),
     file,
     status,
     checks,
     extension,
+    metadata,
   }
 }
 
