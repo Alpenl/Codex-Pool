@@ -24,6 +24,9 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::error::{
+    Error as TungsteniteError, ProtocolError, SubProtocolError,
+};
 use tokio_tungstenite::tungstenite::handshake::client::Request as TungsteniteRequest;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::{
@@ -1166,6 +1169,7 @@ pub async fn proxy_websocket_handler(
     let (parts, _) = request.into_parts();
     let path = parts.uri.path().to_string();
     let query = parts.uri.query().map(str::to_string);
+    let requested_subprotocol = requested_websocket_subprotocol(&parts.headers);
     let sticky_key = sticky_session_key_from_headers(&parts.headers);
     let failover_deadline = Instant::now() + state.request_failover_wait;
     let mut tried_account_ids = HashSet::new();
@@ -1238,6 +1242,7 @@ pub async fn proxy_websocket_handler(
         }
 
         let mut same_account_retry_attempt: u32 = 0;
+        let mut omit_upstream_subprotocol = false;
         loop {
             let upstream_request = match build_upstream_websocket_request(
                 &account.base_url,
@@ -1247,6 +1252,7 @@ pub async fn proxy_websocket_handler(
                 &path,
                 query.as_deref(),
                 &parts.headers,
+                !omit_upstream_subprotocol,
             ) {
                 Ok(request) => request,
                 Err(err) => {
@@ -1289,6 +1295,18 @@ pub async fn proxy_websocket_handler(
             let (upstream_socket, upstream_response) = match connect_async(upstream_request).await {
                 Ok((upstream_socket, upstream_response)) => (upstream_socket, upstream_response),
                 Err(err) => {
+                    if !omit_upstream_subprotocol
+                        && requested_subprotocol.is_some()
+                        && is_upstream_no_subprotocol_error(&err)
+                    {
+                        warn!(
+                            account_id = %account.id,
+                            "upstream websocket omitted subprotocol; retrying same account without forwarding sec-websocket-protocol"
+                        );
+                        omit_upstream_subprotocol = true;
+                        continue;
+                    }
+
                     let mut status = StatusCode::BAD_GATEWAY;
                     let mut error_context: Option<UpstreamErrorContext> = None;
                     let mut response = json_error(
@@ -1470,17 +1488,36 @@ pub async fn proxy_websocket_handler(
                 }
             };
 
-            let selected_subprotocol = selected_websocket_subprotocol(upstream_response.headers());
+            let selected_subprotocol = selected_websocket_subprotocol(upstream_response.headers())
+                .or_else(|| requested_subprotocol.clone());
             let ws_upgrade = if let Some(protocol) = selected_subprotocol {
                 ws_upgrade.protocols([protocol])
             } else {
                 ws_upgrade
             };
+            let state_for_upgrade = state.clone();
+            let sticky_key_for_upgrade = sticky_key.clone();
+            let account_id_for_upgrade = account.id;
             record_failover_success_if_needed(&state, did_cross_account_failover);
             return ws_upgrade.on_upgrade(move |downstream_socket| async move {
                 if let Err(err) = proxy_websocket_streams(downstream_socket, upstream_socket).await
                 {
-                    warn!(error = %err, "websocket proxy stream failed");
+                    let ProxyWebSocketStreamError::UpstreamClosed(close) = &err;
+                    warn!(
+                        account_id = %account_id_for_upgrade,
+                        close_code = close.code,
+                        close_reason = close.reason,
+                        "upstream websocket closed"
+                    );
+                    if should_eject_account_for_websocket_close(close) {
+                        mark_account_unhealthy_and_clear_sticky(
+                            &state_for_upgrade,
+                            account_id_for_upgrade,
+                            sticky_key_for_upgrade.as_deref(),
+                            auth_error_ejection_ttl(state_for_upgrade.account_ejection_ttl),
+                        )
+                        .await;
+                    }
                 }
             });
         }
@@ -1517,6 +1554,14 @@ async fn mark_account_unhealthy_and_clear_sticky(
 }
 
 fn selected_websocket_subprotocol(headers: &HeaderMap) -> Option<String> {
+    first_websocket_subprotocol(headers)
+}
+
+fn requested_websocket_subprotocol(headers: &HeaderMap) -> Option<String> {
+    first_websocket_subprotocol(headers)
+}
+
+fn first_websocket_subprotocol(headers: &HeaderMap) -> Option<String> {
     headers
         .get(SEC_WEBSOCKET_PROTOCOL_HEADER)
         .and_then(|value| value.to_str().ok())
@@ -1524,4 +1569,17 @@ fn selected_websocket_subprotocol(headers: &HeaderMap) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToString::to_string)
+}
+
+fn is_upstream_no_subprotocol_error(error: &TungsteniteError) -> bool {
+    matches!(
+        error,
+        TungsteniteError::Protocol(ProtocolError::SecWebSocketSubProtocolError(
+            SubProtocolError::NoSubProtocol
+        ))
+    )
+}
+
+fn should_eject_account_for_websocket_close(close: &UpstreamWebSocketClose) -> bool {
+    close.code == 1008 || close.reason.to_ascii_lowercase().contains("policy")
 }

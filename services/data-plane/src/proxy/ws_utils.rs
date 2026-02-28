@@ -30,10 +30,33 @@ fn response_with_body(status: StatusCode, headers: &HeaderMap, body: Body) -> Re
         .unwrap_or_else(|_| Response::new(Body::from("internal response error")))
 }
 
+#[derive(Debug)]
+struct UpstreamWebSocketClose {
+    code: u16,
+    reason: String,
+}
+
+#[derive(Debug)]
+enum ProxyWebSocketStreamError {
+    UpstreamClosed(UpstreamWebSocketClose),
+}
+
+impl std::fmt::Display for ProxyWebSocketStreamError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UpstreamClosed(close) => {
+                write!(f, "upstream websocket closed code={} reason={}", close.code, close.reason)
+            }
+        }
+    }
+}
+
+impl std::error::Error for ProxyWebSocketStreamError {}
+
 async fn proxy_websocket_streams(
     downstream_socket: WebSocket,
     upstream_socket: UpstreamWebSocket,
-) -> anyhow::Result<()> {
+) -> Result<(), ProxyWebSocketStreamError> {
     let (mut downstream_sender, mut downstream_receiver) = downstream_socket.split();
     let (mut upstream_sender, mut upstream_receiver) = upstream_socket.split();
 
@@ -55,15 +78,29 @@ async fn proxy_websocket_streams(
             }
         }
         let _ = upstream_sender.close().await;
-        Ok::<(), anyhow::Error>(())
+        Ok::<(), ProxyWebSocketStreamError>(())
     };
 
     let upstream_to_downstream = async {
+        let mut upstream_close: Option<UpstreamWebSocketClose> = None;
         while let Some(message) = upstream_receiver.next().await {
             let Ok(message) = message else {
                 break;
             };
             let should_close = matches!(message, TungsteniteMessage::Close(_));
+            if let TungsteniteMessage::Close(frame) = &message {
+                let close = frame
+                    .as_ref()
+                    .map(|frame| UpstreamWebSocketClose {
+                        code: u16::from(frame.code),
+                        reason: frame.reason.to_string(),
+                    })
+                    .unwrap_or_else(|| UpstreamWebSocketClose {
+                        code: 1000,
+                        reason: String::new(),
+                    });
+                upstream_close = Some(close);
+            }
             if let Some(mapped) = tungstenite_message_to_axum(message) {
                 if downstream_sender.send(mapped).await.is_err() {
                     break;
@@ -74,13 +111,20 @@ async fn proxy_websocket_streams(
             }
         }
         let _ = downstream_sender.close().await;
-        Ok::<(), anyhow::Error>(())
+        if let Some(close) = upstream_close {
+            return Err(ProxyWebSocketStreamError::UpstreamClosed(close));
+        }
+        Ok::<(), ProxyWebSocketStreamError>(())
     };
 
     let (downstream_to_upstream_result, upstream_to_downstream_result) =
         tokio::join!(downstream_to_upstream, upstream_to_downstream);
-    downstream_to_upstream_result?;
-    upstream_to_downstream_result?;
+    if let Err(err) = downstream_to_upstream_result {
+        return Err(err);
+    }
+    if let Err(err) = upstream_to_downstream_result {
+        return Err(err);
+    }
 
     Ok(())
 }
@@ -249,8 +293,8 @@ mod tests {
         let session_id = HeaderName::from_static("session_id");
         let codex_state = HeaderName::from_static("x-codex-turn-state");
 
-        assert!(is_websocket_passthrough_header(&session_id));
-        assert!(is_websocket_passthrough_header(&codex_state));
+        assert!(is_websocket_passthrough_header(&session_id, true));
+        assert!(is_websocket_passthrough_header(&codex_state, true));
     }
 
     #[test]

@@ -152,6 +152,12 @@ async fn spawn_data_plane_server_with_app(app: Router) -> String {
 }
 
 async fn spawn_ws_upstream() -> (String, Arc<Mutex<Vec<HandshakeRecord>>>) {
+    spawn_ws_upstream_with_subprotocol_echo(true).await
+}
+
+async fn spawn_ws_upstream_with_subprotocol_echo(
+    echo_subprotocol: bool,
+) -> (String, Arc<Mutex<Vec<HandshakeRecord>>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let records = Arc::new(Mutex::new(Vec::<HandshakeRecord>::new()));
@@ -164,6 +170,7 @@ async fn spawn_ws_upstream() -> (String, Arc<Mutex<Vec<HandshakeRecord>>>) {
                 Err(_) => break,
             };
             let records = records_for_task.clone();
+            let echo_subprotocol = echo_subprotocol;
             tokio::spawn(async move {
                 let ws_stream = accept_hdr_async(
                     stream,
@@ -187,17 +194,19 @@ async fn spawn_ws_upstream() -> (String, Arc<Mutex<Vec<HandshakeRecord>>>) {
                             .path_and_query()
                             .map(|value| value.as_str().to_string())
                             .unwrap_or_else(|| request.uri().path().to_string());
-                        if let Some(protocol) = request
-                            .headers()
-                            .get("sec-websocket-protocol")
-                            .and_then(|value| value.to_str().ok())
-                            .map(|value| value.split(',').next().unwrap_or("").trim())
-                            .filter(|value| !value.is_empty())
-                        {
-                            response.headers_mut().insert(
-                                "sec-websocket-protocol",
-                                protocol.parse().expect("valid subprotocol"),
-                            );
+                        if echo_subprotocol {
+                            if let Some(protocol) = request
+                                .headers()
+                                .get("sec-websocket-protocol")
+                                .and_then(|value| value.to_str().ok())
+                                .map(|value| value.split(',').next().unwrap_or("").trim())
+                                .filter(|value| !value.is_empty())
+                            {
+                                response.headers_mut().insert(
+                                    "sec-websocket-protocol",
+                                    protocol.parse().expect("valid subprotocol"),
+                                );
+                            }
                         }
                         records.lock().unwrap().push(HandshakeRecord {
                             path_and_query,
@@ -465,6 +474,42 @@ async fn ws_upgrade_propagates_selected_subprotocol() {
         Some("responses-stream-v2")
     );
     ws_client.close(None).await.unwrap();
+}
+
+#[tokio::test]
+async fn ws_upgrade_falls_back_when_upstream_omits_subprotocol() {
+    let (upstream_base, records) = spawn_ws_upstream_with_subprotocol_echo(false).await;
+    let data_plane_base =
+        spawn_data_plane_server(vec![test_account(upstream_base, "upstream-token")]).await;
+
+    let mut request = ws_url(&data_plane_base, "/v1/responses")
+        .into_client_request()
+        .unwrap();
+    request.headers_mut().insert(
+        "sec-websocket-protocol",
+        "responses-stream-v2".parse().unwrap(),
+    );
+
+    let (mut ws_client, response) = connect_async(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+    assert_eq!(
+        response
+            .headers()
+            .get("sec-websocket-protocol")
+            .and_then(|value| value.to_str().ok()),
+        Some("responses-stream-v2")
+    );
+    let first = ws_client.next().await.unwrap().unwrap();
+    assert_eq!(first, Message::Text("upstream-ready".to_string().into()));
+    ws_client.close(None).await.unwrap();
+
+    let records = records.lock().unwrap().clone();
+    assert_eq!(records.len(), 2);
+    assert_eq!(
+        records[0].header("sec-websocket-protocol"),
+        Some("responses-stream-v2")
+    );
+    assert!(records[1].header("sec-websocket-protocol").is_none());
 }
 
 #[tokio::test]

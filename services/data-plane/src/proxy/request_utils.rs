@@ -986,13 +986,18 @@ fn build_upstream_websocket_request(
     path: &str,
     query: Option<&str>,
     client_headers: &HeaderMap,
+    forward_subprotocol: bool,
 ) -> anyhow::Result<TungsteniteRequest> {
     let upstream_ws_url = build_upstream_ws_url(base_url, mode, path, query)?;
     let mut upstream_request = upstream_ws_url
         .as_str()
         .into_client_request()
         .context("failed to build websocket request")?;
-    apply_websocket_passthrough_headers(upstream_request.headers_mut(), client_headers);
+    apply_websocket_passthrough_headers(
+        upstream_request.headers_mut(),
+        client_headers,
+        forward_subprotocol,
+    );
 
     let authorization_header = HeaderValue::from_str(&format!("Bearer {bearer_token}"))
         .context("invalid upstream authorization header value")?;
@@ -1045,17 +1050,19 @@ fn is_compatibility_passthrough_header_name(name: &str) -> bool {
 fn apply_websocket_passthrough_headers(
     upstream_headers: &mut HeaderMap,
     client_headers: &HeaderMap,
+    forward_subprotocol: bool,
 ) {
     for (name, value) in client_headers {
-        if is_websocket_passthrough_header(name) {
+        if is_websocket_passthrough_header(name, forward_subprotocol) {
             upstream_headers.insert(name.clone(), value.clone());
         }
     }
 }
 
-fn is_websocket_passthrough_header(name: &HeaderName) -> bool {
+fn is_websocket_passthrough_header(name: &HeaderName, forward_subprotocol: bool) -> bool {
     let name = name.as_str();
-    is_compatibility_passthrough_header_name(name) || name == SEC_WEBSOCKET_PROTOCOL_HEADER
+    is_compatibility_passthrough_header_name(name)
+        || (forward_subprotocol && name == SEC_WEBSOCKET_PROTOCOL_HEADER)
 }
 
 fn is_hop_by_hop_header(name: &HeaderName) -> bool {
