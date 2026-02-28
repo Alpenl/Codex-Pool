@@ -193,12 +193,85 @@ async fn spawn_ws_upstream() -> (String, Arc<Mutex<Vec<HandshakeRecord>>>) {
     (format!("http://{}", addr), records)
 }
 
+async fn spawn_rejecting_ws_upstream(
+    status: StatusCode,
+    error_code: &str,
+    error_message: &str,
+) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let payload = serde_json::json!({
+        "error": {
+            "code": error_code,
+            "message": error_message,
+        }
+    })
+    .to_string();
+
+    tokio::spawn(async move {
+        loop {
+            let (stream, _) = match listener.accept().await {
+                Ok(value) => value,
+                Err(_) => break,
+            };
+            let payload = payload.clone();
+            tokio::spawn(async move {
+                let _ = accept_hdr_async(
+                    stream,
+                    |_request: &tokio_tungstenite::tungstenite::handshake::server::Request,
+                     _response: tokio_tungstenite::tungstenite::handshake::server::Response|
+                     -> Result<
+                        tokio_tungstenite::tungstenite::handshake::server::Response,
+                        ErrorResponse,
+                    > {
+                        let response = http::Response::builder()
+                            .status(status)
+                            .header("content-type", "application/json")
+                            .body(Some(payload.clone()))
+                            .expect("reject websocket handshake");
+                        Err(response)
+                    },
+                )
+                .await;
+            });
+        }
+    });
+
+    format!("http://{}", addr)
+}
+
 fn ws_url(http_base: &str, path_and_query: &str) -> String {
     format!(
         "{}{}",
         http_base.replacen("http://", "ws://", 1),
         path_and_query
     )
+}
+
+#[tokio::test]
+async fn ws_upgrade_v2_responses_forwards_beta_header() {
+    let (upstream_base, records) = spawn_ws_upstream().await;
+    let data_plane_base =
+        spawn_data_plane_server(vec![test_account(upstream_base, "upstream-token")]).await;
+
+    let mut request = ws_url(&data_plane_base, "/v1/responses")
+        .into_client_request()
+        .unwrap();
+    request.headers_mut().insert(
+        "openai-beta",
+        "responses_websockets=2026-02-06".parse().unwrap(),
+    );
+
+    let (mut ws_client, response) = connect_async(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+    ws_client.close(None).await.unwrap();
+
+    let records = records.lock().unwrap().clone();
+    assert_eq!(records.len(), 1);
+    assert_eq!(
+        records[0].header("openai-beta"),
+        Some("responses_websockets=2026-02-06")
+    );
 }
 
 #[tokio::test]
@@ -329,6 +402,62 @@ async fn ws_upgrade_returns_structured_error_when_upstream_connect_fails() {
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
     let payload: Value = serde_json::from_slice(response.body().as_deref().unwrap()).unwrap();
     assert_eq!(payload["error"]["code"], "upstream_websocket_connect_error");
+}
+
+#[tokio::test]
+async fn ws_upgrade_propagates_upgrade_required_for_http_fallback() {
+    let upstream_base = spawn_rejecting_ws_upstream(
+        StatusCode::UPGRADE_REQUIRED,
+        "websocket_upgrade_required",
+        "upstream requires websocket upgrade",
+    )
+    .await;
+    let data_plane_base =
+        spawn_data_plane_server(vec![test_account(upstream_base, "upstream-token")]).await;
+
+    let request = ws_url(&data_plane_base, "/v1/responses")
+        .into_client_request()
+        .unwrap();
+
+    let err = connect_async(request)
+        .await
+        .expect_err("handshake should fail");
+    let response = match err {
+        tokio_tungstenite::tungstenite::Error::Http(response) => response,
+        other => panic!("expected http response error, got {other:?}"),
+    };
+
+    assert_eq!(response.status(), StatusCode::UPGRADE_REQUIRED);
+    let payload: Value = serde_json::from_slice(response.body().as_deref().unwrap()).unwrap();
+    assert_eq!(payload["error"]["code"], "websocket_upgrade_required");
+}
+
+#[tokio::test]
+async fn ws_upgrade_normalizes_upstream_auth_handshake_error() {
+    let upstream_base = spawn_rejecting_ws_upstream(
+        StatusCode::UNAUTHORIZED,
+        "token_expired",
+        "access token expired",
+    )
+    .await;
+    let data_plane_base =
+        spawn_data_plane_server(vec![test_account(upstream_base, "upstream-token")]).await;
+
+    let request = ws_url(&data_plane_base, "/v1/responses")
+        .into_client_request()
+        .unwrap();
+
+    let err = connect_async(request)
+        .await
+        .expect_err("handshake should fail");
+    let response = match err {
+        tokio_tungstenite::tungstenite::Error::Http(response) => response,
+        other => panic!("expected http response error, got {other:?}"),
+    };
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let payload: Value = serde_json::from_slice(response.body().as_deref().unwrap()).unwrap();
+    assert_eq!(payload["error"]["code"], "auth_expired");
 }
 
 #[tokio::test]

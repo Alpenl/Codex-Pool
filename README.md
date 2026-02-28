@@ -210,10 +210,16 @@ docker compose --env-file docker/.env.production -f docker-compose.yml up -d
 ### Data Plane（对外）
 
 - `POST /v1/responses`
+- `GET /v1/responses`（WebSocket Upgrade）
 - `POST /backend-api/codex/responses`
+- `GET /backend-api/codex/responses`（WebSocket Upgrade）
 - `POST /v1/chat/completions`
 - `GET /v1/models`
 - `GET /api/codex/usage`
+
+> WebSocket 兼容约定：  
+> - 支持透传 `OpenAI-Beta: responses_websockets=2026-02-04/2026-02-06`。  
+> - 当上游握手明确返回 `426 Upgrade Required` 时，Data Plane 会保持 `426` 返回，便于客户端快速回退到 HTTPS 传输。  
 
 ### Control Plane（管理）
 

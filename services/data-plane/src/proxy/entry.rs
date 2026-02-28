@@ -1281,12 +1281,64 @@ pub async fn proxy_websocket_handler(
             let upstream_socket = match connect_async(upstream_request).await {
                 Ok((upstream_socket, _)) => upstream_socket,
                 Err(err) => {
-                    warn!(error = %err, account_id = %account.id, "failed to connect upstream websocket");
+                    let mut status = StatusCode::BAD_GATEWAY;
+                    let mut error_context: Option<UpstreamErrorContext> = None;
+                    let mut response = json_error(
+                        StatusCode::BAD_GATEWAY,
+                        "upstream_websocket_connect_error",
+                        "failed to connect upstream websocket",
+                    );
+                    let mut is_http_handshake_error = false;
+
+                    let should_retry_same_account = match &err {
+                        tokio_tungstenite::tungstenite::Error::Http(upstream_response) => {
+                            is_http_handshake_error = true;
+                            status = upstream_response.status();
+                            let upstream_body = upstream_response.body().clone().unwrap_or_default();
+                            if status == StatusCode::UPGRADE_REQUIRED {
+                                response = json_error(
+                                    StatusCode::UPGRADE_REQUIRED,
+                                    "websocket_upgrade_required",
+                                    "upstream websocket upgrade is required",
+                                );
+                                should_retry_same_account_on_status(
+                                    status,
+                                    false,
+                                    same_account_retry_attempt,
+                                    &state,
+                                    None,
+                                )
+                            } else {
+                                if let Some(context) = build_upstream_error_context(
+                                    status,
+                                    upstream_response.headers(),
+                                    &upstream_body,
+                                ) {
+                                    status = context.status;
+                                    response = normalize_upstream_error_response(&context);
+                                    error_context = Some(context);
+                                }
+                                should_retry_same_account_on_status(
+                                    status,
+                                    false,
+                                    same_account_retry_attempt,
+                                    &state,
+                                    error_context.as_ref(),
+                                )
+                            }
+                        }
+                        _ => should_retry_same_account_on_transport(same_account_retry_attempt, &state),
+                    };
+
+                    warn!(
+                        error = %err,
+                        account_id = %account.id,
+                        upstream_status = ?status,
+                        upstream_error_class = upstream_error_class_label(error_context.as_ref()),
+                        "failed to connect upstream websocket"
+                    );
                     if state.enable_request_failover
-                        && should_retry_same_account_on_transport(
-                            same_account_retry_attempt,
-                            &state,
-                        )
+                        && should_retry_same_account
                         && Instant::now() < failover_deadline
                     {
                         same_account_retry_attempt += 1;
@@ -1309,15 +1361,15 @@ pub async fn proxy_websocket_handler(
                             .delete_sticky_account_id(sticky_key)
                             .await;
                     }
-
-                    let response = json_error(
-                        StatusCode::BAD_GATEWAY,
-                        "upstream_websocket_connect_error",
-                        "failed to connect upstream websocket",
-                    );
+                    let can_cross_account_failover = if is_http_handshake_error {
+                        is_failover_retryable_error(status, error_context.as_ref())
+                    } else {
+                        true
+                    };
                     let force_cross_account = !did_cross_account_failover
                         && state.router.enabled_total() >= MIN_DISTINCT_FAILOVER_ATTEMPTS;
                     if state.enable_request_failover
+                        && can_cross_account_failover
                         && (Instant::now() < failover_deadline || force_cross_account)
                     {
                         record_cross_account_failover_attempt(
