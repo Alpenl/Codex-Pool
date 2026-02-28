@@ -168,7 +168,7 @@ async fn spawn_ws_upstream() -> (String, Arc<Mutex<Vec<HandshakeRecord>>>) {
                 let ws_stream = accept_hdr_async(
                     stream,
                     |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
-                     response: tokio_tungstenite::tungstenite::handshake::server::Response|
+                     mut response: tokio_tungstenite::tungstenite::handshake::server::Response|
                      -> Result<
                         tokio_tungstenite::tungstenite::handshake::server::Response,
                         ErrorResponse,
@@ -187,6 +187,18 @@ async fn spawn_ws_upstream() -> (String, Arc<Mutex<Vec<HandshakeRecord>>>) {
                             .path_and_query()
                             .map(|value| value.as_str().to_string())
                             .unwrap_or_else(|| request.uri().path().to_string());
+                        if let Some(protocol) = request
+                            .headers()
+                            .get("sec-websocket-protocol")
+                            .and_then(|value| value.to_str().ok())
+                            .map(|value| value.split(',').next().unwrap_or("").trim())
+                            .filter(|value| !value.is_empty())
+                        {
+                            response.headers_mut().insert(
+                                "sec-websocket-protocol",
+                                protocol.parse().expect("valid subprotocol"),
+                            );
+                        }
                         records.lock().unwrap().push(HandshakeRecord {
                             path_and_query,
                             headers,
@@ -427,6 +439,32 @@ async fn ws_upgrade_supports_backend_api_codex_responses_path() {
     let records = records.lock().unwrap().clone();
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].path_and_query, "/backend-api/codex/responses");
+}
+
+#[tokio::test]
+async fn ws_upgrade_propagates_selected_subprotocol() {
+    let (upstream_base, _records) = spawn_ws_upstream().await;
+    let data_plane_base =
+        spawn_data_plane_server(vec![test_account(upstream_base, "upstream-token")]).await;
+
+    let mut request = ws_url(&data_plane_base, "/v1/responses")
+        .into_client_request()
+        .unwrap();
+    request.headers_mut().insert(
+        "sec-websocket-protocol",
+        "responses-stream-v2".parse().unwrap(),
+    );
+
+    let (mut ws_client, response) = connect_async(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+    assert_eq!(
+        response
+            .headers()
+            .get("sec-websocket-protocol")
+            .and_then(|value| value.to_str().ok()),
+        Some("responses-stream-v2")
+    );
+    ws_client.close(None).await.unwrap();
 }
 
 #[tokio::test]

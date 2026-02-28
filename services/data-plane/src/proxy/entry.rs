@@ -1286,8 +1286,8 @@ pub async fn proxy_websocket_handler(
                 }
             };
 
-            let upstream_socket = match connect_async(upstream_request).await {
-                Ok((upstream_socket, _)) => upstream_socket,
+            let (upstream_socket, upstream_response) = match connect_async(upstream_request).await {
+                Ok((upstream_socket, upstream_response)) => (upstream_socket, upstream_response),
                 Err(err) => {
                     let mut status = StatusCode::BAD_GATEWAY;
                     let mut error_context: Option<UpstreamErrorContext> = None;
@@ -1470,6 +1470,12 @@ pub async fn proxy_websocket_handler(
                 }
             };
 
+            let selected_subprotocol = selected_websocket_subprotocol(upstream_response.headers());
+            let ws_upgrade = if let Some(protocol) = selected_subprotocol {
+                ws_upgrade.protocols([protocol])
+            } else {
+                ws_upgrade
+            };
             record_failover_success_if_needed(&state, did_cross_account_failover);
             return ws_upgrade.on_upgrade(move |downstream_socket| async move {
                 if let Err(err) = proxy_websocket_streams(downstream_socket, upstream_socket).await
@@ -1508,4 +1514,14 @@ async fn mark_account_unhealthy_and_clear_sticky(
             .delete_sticky_account_id(sticky_key)
             .await;
     }
+}
+
+fn selected_websocket_subprotocol(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(SEC_WEBSOCKET_PROTOCOL_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
 }
