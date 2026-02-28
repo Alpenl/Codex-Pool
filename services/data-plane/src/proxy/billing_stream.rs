@@ -499,7 +499,9 @@ fn is_billable_path(path: &str, method: &str) -> bool {
     matches!(
         path,
         "/v1/responses"
+            | "/v1/responses/compact"
             | "/backend-api/codex/responses"
+            | "/backend-api/codex/responses/compact"
             | "/v1/chat/completions"
     )
 }

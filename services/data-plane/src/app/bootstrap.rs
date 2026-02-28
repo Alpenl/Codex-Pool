@@ -356,6 +356,7 @@ pub async fn build_app_with_event_sink_and_allowed_keys(
             "/v1/responses",
             post(proxy_handler).get(proxy_websocket_handler),
         )
+        .route("/v1/responses/compact", post(proxy_handler))
         .route(
             "/backend-api/codex/responses",
             post(proxy_handler).get(proxy_websocket_handler),

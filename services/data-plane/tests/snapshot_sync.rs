@@ -98,6 +98,8 @@ fn test_state() -> AppState {
         billing_capture_retry_backoff: Duration::from_millis(200),
         billing_pricing_cache: std::sync::RwLock::new(std::collections::HashMap::new()),
         routing_cache: Arc::new(InMemoryRoutingCache::new()),
+        alive_ring_router: None,
+        seen_ok_reporter: None,
         event_sink: Arc::new(NoopEventSink),
         auth_validator: None,
         control_plane_internal_auth_token: Arc::from("cp-internal-dev-token-change-me"),
