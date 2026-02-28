@@ -211,6 +211,41 @@ fn should_retry_same_account_on_status(
         && status != StatusCode::FORBIDDEN
 }
 
+fn has_untried_cross_account_candidate(
+    state: &AppState,
+    sticky_key: Option<&str>,
+    tried_account_ids: &HashSet<Uuid>,
+    current_account_id: Uuid,
+) -> bool {
+    let mut excluded_account_ids = tried_account_ids.clone();
+    excluded_account_ids.insert(current_account_id);
+    state
+        .router
+        .pick_with_policy(
+            sticky_key,
+            &excluded_account_ids,
+            state.sticky_prefer_non_conflicting,
+        )
+        .is_some()
+}
+
+fn should_cross_account_failover(
+    state: &AppState,
+    sticky_key: Option<&str>,
+    failover_deadline: Instant,
+    tried_account_ids: &HashSet<Uuid>,
+    current_account_id: Uuid,
+    retryable: bool,
+) -> bool {
+    if !state.enable_request_failover || !retryable {
+        return false;
+    }
+    if Instant::now() < failover_deadline {
+        return true;
+    }
+    has_untried_cross_account_candidate(state, sticky_key, tried_account_ids, current_account_id)
+}
+
 fn record_same_account_retry(state: &AppState) {
     state
         .same_account_retry_total

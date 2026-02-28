@@ -65,6 +65,14 @@ async fn test_app_with_control_plane(
     accounts: Vec<UpstreamAccount>,
     control_plane_base_url: Option<String>,
 ) -> Router {
+    test_app_with_control_plane_and_failover_wait(accounts, control_plane_base_url, 2_000).await
+}
+
+async fn test_app_with_control_plane_and_failover_wait(
+    accounts: Vec<UpstreamAccount>,
+    control_plane_base_url: Option<String>,
+    request_failover_wait_ms: u64,
+) -> Router {
     let auth_validate_url = control_plane_base_url
         .as_deref()
         .map(|base| format!("{}/internal/v1/auth/validate", base.trim_end_matches('/')));
@@ -75,7 +83,7 @@ async fn test_app_with_control_plane(
         account_ejection_ttl_sec: 30,
         enable_request_failover: true,
         same_account_quick_retry_max: 1,
-        request_failover_wait_ms: 2_000,
+        request_failover_wait_ms,
         retry_poll_interval_ms: 100,
         sticky_prefer_non_conflicting: true,
         shared_routing_cache_enabled: true,
@@ -112,7 +120,25 @@ async fn spawn_data_plane_server_with_control_plane(
     accounts: Vec<UpstreamAccount>,
     control_plane_base_url: Option<String>,
 ) -> String {
-    let app = test_app_with_control_plane(accounts, control_plane_base_url).await;
+    spawn_data_plane_server_with_control_plane_and_failover_wait(
+        accounts,
+        control_plane_base_url,
+        2_000,
+    )
+    .await
+}
+
+async fn spawn_data_plane_server_with_control_plane_and_failover_wait(
+    accounts: Vec<UpstreamAccount>,
+    control_plane_base_url: Option<String>,
+    request_failover_wait_ms: u64,
+) -> String {
+    let app = test_app_with_control_plane_and_failover_wait(
+        accounts,
+        control_plane_base_url,
+        request_failover_wait_ms,
+    )
+    .await;
     spawn_data_plane_server_with_app(app).await
 }
 
@@ -591,5 +617,49 @@ async fn ws_upgrade_account_deactivated_triggers_disable_and_failover() {
     assert!(
         disable_called,
         "expected disable endpoint to be called for deactivated account"
+    );
+}
+
+#[tokio::test]
+async fn ws_upgrade_continues_failover_until_untried_candidates_exhausted() {
+    let failing_upstream_a = spawn_rejecting_ws_upstream(
+        StatusCode::UNAUTHORIZED,
+        "account_deactivated",
+        "account A is deactivated",
+    )
+    .await;
+    let failing_upstream_b = spawn_rejecting_ws_upstream(
+        StatusCode::UNAUTHORIZED,
+        "account_deactivated",
+        "account B is deactivated",
+    )
+    .await;
+    let (healthy_upstream_base, records) = spawn_ws_upstream().await;
+
+    let data_plane_base = spawn_data_plane_server_with_control_plane_and_failover_wait(
+        vec![
+            test_account(failing_upstream_a, "upstream-token-a"),
+            test_account(failing_upstream_b, "upstream-token-b"),
+            test_account(healthy_upstream_base, "upstream-token-c"),
+        ],
+        None,
+        1,
+    )
+    .await;
+
+    let request = ws_url(&data_plane_base, "/v1/responses")
+        .into_client_request()
+        .unwrap();
+    let (mut ws_client, response) = connect_async(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+    let first = ws_client.next().await.unwrap().unwrap();
+    assert_eq!(first, Message::Text("upstream-ready".to_string().into()));
+    ws_client.close(None).await.unwrap();
+
+    let records = records.lock().unwrap().clone();
+    assert_eq!(records.len(), 1);
+    assert_eq!(
+        records[0].header("authorization"),
+        Some("Bearer upstream-token-c")
     );
 }

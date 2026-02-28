@@ -577,7 +577,14 @@ pub async fn proxy_handler(
                         "upstream_transport_error",
                         "upstream request failed",
                     );
-                    if state.enable_request_failover && Instant::now() < failover_deadline {
+                    if should_cross_account_failover(
+                        &state,
+                        sticky_key.as_deref(),
+                        failover_deadline,
+                        &tried_account_ids,
+                        account.id,
+                        true,
+                    ) {
                         log_failover_decision(
                             Some(account.id),
                             Some(StatusCode::BAD_GATEWAY),
@@ -792,12 +799,14 @@ pub async fn proxy_handler(
                         }
 
                         let retryable = is_failover_retryable_error(status, error_context.as_ref());
-                        let force_cross_account = !did_cross_account_failover
-                            && state.router.enabled_total() >= MIN_DISTINCT_FAILOVER_ATTEMPTS;
-                        if state.enable_request_failover
-                            && retryable
-                            && (Instant::now() < failover_deadline || force_cross_account)
-                        {
+                        if should_cross_account_failover(
+                            &state,
+                            sticky_key.as_deref(),
+                            failover_deadline,
+                            &tried_account_ids,
+                            account.id,
+                            retryable,
+                        ) {
                             log_failover_decision(
                                 Some(account.id),
                                 Some(status),
@@ -1012,12 +1021,15 @@ pub async fn proxy_handler(
                 continue;
             }
 
-            let force_cross_account = !did_cross_account_failover
-                && state.router.enabled_total() >= MIN_DISTINCT_FAILOVER_ATTEMPTS;
-            let should_cross_account_failover = state.enable_request_failover
-                && retryable
-                && (Instant::now() < failover_deadline || force_cross_account);
-            let recovery_outcome = if should_cross_account_failover {
+            let should_failover_across_accounts = should_cross_account_failover(
+                &state,
+                sticky_key.as_deref(),
+                failover_deadline,
+                &tried_account_ids,
+                account.id,
+                retryable,
+            );
+            let recovery_outcome = if should_failover_across_accounts {
                 if upstream_error_context.is_some() {
                     let state_for_recovery = state.clone();
                     let recovery_context = upstream_error_context.clone();
@@ -1061,7 +1073,7 @@ pub async fn proxy_handler(
                 upstream_error_context.as_ref(),
             );
 
-            if should_cross_account_failover {
+            if should_failover_across_accounts {
                 log_failover_decision(
                     Some(account.id),
                     Some(status),
@@ -1252,11 +1264,14 @@ pub async fn proxy_websocket_handler(
                         "invalid_upstream_url",
                         "failed to build upstream URL",
                     );
-                    let force_cross_account = !did_cross_account_failover
-                        && state.router.enabled_total() >= MIN_DISTINCT_FAILOVER_ATTEMPTS;
-                    if state.enable_request_failover
-                        && (Instant::now() < failover_deadline || force_cross_account)
-                    {
+                    if should_cross_account_failover(
+                        &state,
+                        sticky_key.as_deref(),
+                        failover_deadline,
+                        &tried_account_ids,
+                        account.id,
+                        true,
+                    ) {
                         record_cross_account_failover_attempt(
                             &state,
                             &mut tried_account_ids,
@@ -1368,12 +1383,15 @@ pub async fn proxy_websocket_handler(
                     } else {
                         true
                     };
-                    let force_cross_account = !did_cross_account_failover
-                        && state.router.enabled_total() >= MIN_DISTINCT_FAILOVER_ATTEMPTS;
-                    let should_cross_account_failover = state.enable_request_failover
-                        && can_cross_account_failover
-                        && (Instant::now() < failover_deadline || force_cross_account);
-                    let recovery_outcome = if should_cross_account_failover {
+                    let should_failover_across_accounts = should_cross_account_failover(
+                        &state,
+                        sticky_key.as_deref(),
+                        failover_deadline,
+                        &tried_account_ids,
+                        account.id,
+                        can_cross_account_failover,
+                    );
+                    let recovery_outcome = if should_failover_across_accounts {
                         if error_context.is_some() {
                             let state_for_recovery = state.clone();
                             let recovery_context = error_context.clone();
@@ -1412,7 +1430,7 @@ pub async fn proxy_websocket_handler(
                         .await;
                     }
 
-                    if should_cross_account_failover {
+                    if should_failover_across_accounts {
                         log_failover_decision(
                             Some(account.id),
                             Some(status),
