@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
+use async_trait::async_trait;
 use axum::Router;
+use codex_pool_core::events::RequestLogEvent;
 use codex_pool_core::model::{RoutingStrategy, UpstreamAccount, UpstreamMode};
 use data_plane::app::build_app_with_event_sink as dp_build_app_with_event_sink;
 use data_plane::config::DataPlaneConfig;
-use data_plane::event::NoopEventSink;
+use data_plane::event::{EventSink, NoopEventSink};
 use futures_util::{SinkExt, StreamExt};
 use http::StatusCode;
 use serde_json::{json, Value};
@@ -23,10 +26,28 @@ use crate::support;
 
 async fn build_app_with_event_sink(
     config: DataPlaneConfig,
-    event_sink: Arc<NoopEventSink>,
+    event_sink: Arc<dyn EventSink>,
 ) -> anyhow::Result<Router> {
     support::ensure_test_security_env().await;
     dp_build_app_with_event_sink(config, event_sink).await
+}
+
+#[derive(Default)]
+struct RecordingSink {
+    events: Mutex<Vec<RequestLogEvent>>,
+}
+
+impl RecordingSink {
+    fn events(&self) -> Vec<RequestLogEvent> {
+        self.events.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl EventSink for RecordingSink {
+    async fn emit_request_log(&self, event: RequestLogEvent) {
+        self.events.lock().unwrap().push(event);
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -113,6 +134,47 @@ async fn test_app_with_control_plane_and_failover_wait(
 
 async fn spawn_data_plane_server(accounts: Vec<UpstreamAccount>) -> String {
     let app = test_app(accounts).await;
+    spawn_data_plane_server_with_app(app).await
+}
+
+async fn spawn_data_plane_server_with_event_sink(
+    accounts: Vec<UpstreamAccount>,
+    event_sink: Arc<dyn EventSink>,
+) -> String {
+    let auth_validate_url = None;
+    let cfg = DataPlaneConfig {
+        listen_addr: "127.0.0.1:0".parse().unwrap(),
+        routing_strategy: RoutingStrategy::RoundRobin,
+        upstream_accounts: accounts,
+        account_ejection_ttl_sec: 30,
+        enable_request_failover: true,
+        same_account_quick_retry_max: 1,
+        request_failover_wait_ms: 2_000,
+        retry_poll_interval_ms: 100,
+        sticky_prefer_non_conflicting: true,
+        shared_routing_cache_enabled: true,
+        enable_metered_stream_billing: true,
+        billing_authorize_required_for_stream: true,
+        stream_billing_reserve_microcredits: 2_000_000,
+        billing_dynamic_preauth_enabled: true,
+        billing_preauth_expected_output_tokens: 256,
+        billing_preauth_safety_factor: 1.3,
+        billing_preauth_min_microcredits: 1_000,
+        billing_preauth_max_microcredits: 1_000_000_000_000,
+        billing_preauth_unit_price_microcredits: 10_000,
+        stream_billing_drain_timeout_ms: 5_000,
+        billing_capture_retry_max: 3,
+        billing_capture_retry_backoff_ms: 200,
+        redis_url: None,
+        auth_validate_url,
+        auth_validate_cache_ttl_sec: 30,
+        auth_validate_negative_cache_ttl_sec: 5,
+        auth_fail_open: false,
+        enable_internal_debug_routes: false,
+    };
+    let app = build_app_with_event_sink(cfg, event_sink)
+        .await
+        .expect("app should build");
     spawn_data_plane_server_with_app(app).await
 }
 
@@ -311,6 +373,111 @@ async fn spawn_rejecting_ws_upstream(
     format!("http://{}", addr)
 }
 
+async fn spawn_ws_logical_usage_upstream() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        loop {
+            let (stream, _) = match listener.accept().await {
+                Ok(value) => value,
+                Err(_) => break,
+            };
+            tokio::spawn(async move {
+                let ws_stream = accept_hdr_async(
+                    stream,
+                    |_request: &tokio_tungstenite::tungstenite::handshake::server::Request,
+                     response: tokio_tungstenite::tungstenite::handshake::server::Response|
+                     -> Result<
+                        tokio_tungstenite::tungstenite::handshake::server::Response,
+                        ErrorResponse,
+                    > { Ok(response) },
+                )
+                .await;
+                let Ok(ws_stream) = ws_stream else {
+                    return;
+                };
+
+                let (mut writer, mut reader) = ws_stream.split();
+                let mut response_index = 0usize;
+
+                while let Some(message) = reader.next().await {
+                    let Ok(message) = message else {
+                        break;
+                    };
+                    match message {
+                        Message::Text(text) => {
+                            let Ok(value) = serde_json::from_str::<Value>(&text) else {
+                                continue;
+                            };
+                            let is_create = value
+                                .get("type")
+                                .and_then(Value::as_str)
+                                .map(|item| item == "response.create")
+                                .unwrap_or(false);
+                            if !is_create {
+                                continue;
+                            }
+
+                            response_index += 1;
+                            let response_id = format!("resp-{response_index}");
+                            let model = value
+                                .get("response")
+                                .and_then(|item| item.get("model"))
+                                .and_then(Value::as_str)
+                                .unwrap_or("gpt-5.4");
+                            let created = json!({
+                                "type": "response.created",
+                                "response": {
+                                    "id": response_id,
+                                    "model": model,
+                                }
+                            });
+                            let completed = json!({
+                                "type": "response.completed",
+                                "response": {
+                                    "id": response_id,
+                                    "model": model,
+                                    "usage": {
+                                        "input_tokens": 17,
+                                        "output_tokens": 9
+                                    }
+                                }
+                            });
+                            if writer
+                                .send(Message::Text(created.to_string().into()))
+                                .await
+                                .is_err()
+                            {
+                                break;
+                            }
+                            if writer
+                                .send(Message::Text(completed.to_string().into()))
+                                .await
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                        Message::Close(frame) => {
+                            let _ = writer.send(Message::Close(frame)).await;
+                            break;
+                        }
+                        Message::Ping(payload) => {
+                            if writer.send(Message::Pong(payload)).await.is_err() {
+                                break;
+                            }
+                        }
+                        Message::Binary(_) | Message::Pong(_) | Message::Frame(_) => {}
+                    }
+                }
+            });
+        }
+    });
+
+    format!("http://{}", addr)
+}
+
 fn ws_url(http_base: &str, path_and_query: &str) -> String {
     format!(
         "{}{}",
@@ -343,6 +510,79 @@ async fn ws_upgrade_v2_responses_forwards_beta_header() {
         records[0].header("openai-beta"),
         Some("responses_websockets=2026-02-06")
     );
+}
+
+#[tokio::test]
+async fn ws_logical_usage_emits_one_event_per_completed_response() {
+    let upstream_base = spawn_ws_logical_usage_upstream().await;
+    let sink = Arc::new(RecordingSink::default());
+    let data_plane_base = spawn_data_plane_server_with_event_sink(
+        vec![test_account(upstream_base, "upstream-token")],
+        sink.clone(),
+    )
+    .await;
+
+    let request = ws_url(&data_plane_base, "/v1/responses")
+        .into_client_request()
+        .unwrap();
+    let (mut ws_client, response) = connect_async(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+
+    ws_client
+        .send(Message::Text(
+            json!({
+                "type": "response.create",
+                "request_id": "req-1",
+                "response": { "model": "gpt-5.4" }
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    ws_client
+        .send(Message::Text(
+            json!({
+                "type": "response.create",
+                "request_id": "req-2",
+                "response": { "model": "gpt-5.4-mini" }
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+    for _ in 0..4 {
+        let message = ws_client.next().await.unwrap().unwrap();
+        assert!(matches!(message, Message::Text(_)));
+    }
+
+    let events = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let events = sink.events();
+            if events.len() == 2 {
+                return events;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("events should arrive");
+
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].request_id.as_deref(), Some("req-1"));
+    assert_eq!(events[0].model.as_deref(), Some("gpt-5.4"));
+    assert_eq!(events[0].input_tokens, Some(17));
+    assert_eq!(events[0].output_tokens, Some(9));
+    assert_eq!(
+        events[0].billing_phase.as_deref(),
+        Some("ws_response_completed")
+    );
+    assert_eq!(events[1].request_id.as_deref(), Some("req-2"));
+    assert_eq!(events[1].model.as_deref(), Some("gpt-5.4-mini"));
+
+    ws_client.close(None).await.unwrap();
 }
 
 #[tokio::test]

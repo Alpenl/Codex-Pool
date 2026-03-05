@@ -41,6 +41,195 @@ enum ProxyWebSocketStreamError {
     UpstreamClosed(UpstreamWebSocketClose),
 }
 
+const WS_RESPONSE_COMPLETED_BILLING_PHASE: &str = "ws_response_completed";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WsLogicalUsageConnectionContext {
+    account_id: Uuid,
+    tenant_id: Option<Uuid>,
+    api_key_id: Option<Uuid>,
+    request_path: String,
+    request_method: String,
+}
+
+#[derive(Debug, Clone)]
+struct WsLogicalResponseSeed {
+    request_id: Option<String>,
+    response_id: Option<String>,
+    model: Option<String>,
+    started_at: Instant,
+}
+
+#[derive(Debug, Default)]
+struct WsLogicalResponseTracker {
+    pending_requests: VecDeque<WsLogicalResponseSeed>,
+    active_by_response_id: std::collections::HashMap<String, WsLogicalResponseSeed>,
+    completed_response_ids: HashSet<String>,
+}
+
+impl WsLogicalResponseTracker {
+    fn observe_downstream_message(&mut self, message: &AxumWsMessage) {
+        if let AxumWsMessage::Text(text) = message {
+            self.observe_downstream_text(text.as_ref());
+        }
+    }
+
+    fn observe_downstream_text(&mut self, text: &str) {
+        let Some(value) = parse_ws_json_text(text) else {
+            return;
+        };
+        let Some(seed) = extract_ws_logical_request_seed(&value) else {
+            return;
+        };
+
+        if let Some(response_id) = seed.response_id.clone() {
+            if self.completed_response_ids.contains(&response_id) {
+                return;
+            }
+            self.active_by_response_id.insert(response_id, seed);
+        } else {
+            self.pending_requests.push_back(seed);
+        }
+    }
+
+    fn observe_upstream_message(
+        &mut self,
+        message: &TungsteniteMessage,
+        context: &WsLogicalUsageConnectionContext,
+    ) -> Vec<RequestLogEvent> {
+        if let TungsteniteMessage::Text(text) = message {
+            return self.observe_upstream_text(text.as_ref(), context);
+        }
+        Vec::new()
+    }
+
+    fn observe_upstream_text(
+        &mut self,
+        text: &str,
+        context: &WsLogicalUsageConnectionContext,
+    ) -> Vec<RequestLogEvent> {
+        let Some(value) = parse_ws_json_text(text) else {
+            return Vec::new();
+        };
+
+        if is_ws_response_created_event(&value) {
+            self.register_response_created(&value);
+        }
+
+        if is_ws_response_completed_event(&value) {
+            if let Some(event) = self.complete_response(&value, context) {
+                return vec![event];
+            }
+        }
+
+        Vec::new()
+    }
+
+    fn register_response_created(&mut self, value: &Value) {
+        let Some(response_id) = extract_ws_response_id(value) else {
+            return;
+        };
+        if self.completed_response_ids.contains(&response_id) {
+            return;
+        }
+
+        let mut seed = self
+            .active_by_response_id
+            .remove(&response_id)
+            .or_else(|| self.pending_requests.pop_front())
+            .unwrap_or_else(|| WsLogicalResponseSeed {
+                request_id: None,
+                response_id: Some(response_id.clone()),
+                model: None,
+                started_at: Instant::now(),
+            });
+
+        if seed.request_id.is_none() {
+            seed.request_id = extract_ws_request_id(value).or_else(|| Some(response_id.clone()));
+        }
+        if seed.response_id.is_none() {
+            seed.response_id = Some(response_id.clone());
+        }
+        if seed.model.is_none() {
+            seed.model = extract_ws_model(value);
+        }
+
+        self.active_by_response_id.insert(response_id, seed);
+    }
+
+    fn complete_response(
+        &mut self,
+        value: &Value,
+        context: &WsLogicalUsageConnectionContext,
+    ) -> Option<RequestLogEvent> {
+        let response_id = extract_ws_response_id(value);
+        if let Some(response_id) = response_id.as_ref() {
+            if self.completed_response_ids.contains(response_id) {
+                return None;
+            }
+        }
+
+        let mut seed = response_id
+            .as_ref()
+            .and_then(|item| self.active_by_response_id.remove(item))
+            .or_else(|| self.pending_requests.pop_front())
+            .unwrap_or_else(|| WsLogicalResponseSeed {
+                request_id: None,
+                response_id: response_id.clone(),
+                model: None,
+                started_at: Instant::now(),
+            });
+
+        if seed.request_id.is_none() {
+            seed.request_id = extract_ws_request_id(value).or_else(|| response_id.clone());
+        }
+        if seed.response_id.is_none() {
+            seed.response_id = response_id.clone();
+        }
+        if seed.model.is_none() {
+            seed.model = extract_ws_model(value);
+        }
+
+        let usage = extract_usage_tokens_from_value(value);
+        if seed.request_id.is_none()
+            && seed.response_id.is_none()
+            && seed.model.is_none()
+            && usage.is_none()
+        {
+            return None;
+        }
+
+        if let Some(response_id) = seed.response_id.as_ref() {
+            self.completed_response_ids.insert(response_id.clone());
+        }
+
+        Some(RequestLogEvent {
+            id: Uuid::new_v4(),
+            account_id: context.account_id,
+            tenant_id: context.tenant_id,
+            api_key_id: context.api_key_id,
+            event_version: 2,
+            path: context.request_path.clone(),
+            method: context.request_method.clone(),
+            status_code: StatusCode::OK.as_u16(),
+            latency_ms: seed.started_at.elapsed().as_millis() as u64,
+            is_stream: true,
+            error_code: None,
+            request_id: seed.request_id.or(seed.response_id.clone()),
+            model: seed.model,
+            input_tokens: usage.as_ref().map(|item| item.input_tokens),
+            cached_input_tokens: usage.as_ref().map(|item| item.cached_input_tokens),
+            output_tokens: usage.as_ref().map(|item| item.output_tokens),
+            reasoning_tokens: usage.as_ref().map(|item| item.reasoning_tokens),
+            first_token_latency_ms: None,
+            billing_phase: Some(WS_RESPONSE_COMPLETED_BILLING_PHASE.to_string()),
+            authorization_id: None,
+            capture_status: None,
+            created_at: chrono::Utc::now(),
+        })
+    }
+}
+
 impl std::fmt::Display for ProxyWebSocketStreamError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -56,15 +245,23 @@ impl std::error::Error for ProxyWebSocketStreamError {}
 async fn proxy_websocket_streams(
     downstream_socket: WebSocket,
     upstream_socket: UpstreamWebSocket,
+    event_sink: std::sync::Arc<dyn crate::event::EventSink>,
+    ws_usage_context: WsLogicalUsageConnectionContext,
 ) -> Result<(), ProxyWebSocketStreamError> {
     let (mut downstream_sender, mut downstream_receiver) = downstream_socket.split();
     let (mut upstream_sender, mut upstream_receiver) = upstream_socket.split();
+    let tracker = std::sync::Arc::new(std::sync::Mutex::new(WsLogicalResponseTracker::default()));
+    let downstream_tracker = tracker.clone();
+    let upstream_tracker = tracker.clone();
 
     let downstream_to_upstream = async {
         while let Some(message) = downstream_receiver.next().await {
             let Ok(message) = message else {
                 break;
             };
+            if let Ok(mut tracker) = downstream_tracker.lock() {
+                tracker.observe_downstream_message(&message);
+            }
             let should_close = matches!(message, AxumWsMessage::Close(_));
             if upstream_sender
                 .send(axum_message_to_tungstenite(message))
@@ -87,6 +284,14 @@ async fn proxy_websocket_streams(
             let Ok(message) = message else {
                 break;
             };
+            let pending_events = if let Ok(mut tracker) = upstream_tracker.lock() {
+                tracker.observe_upstream_message(&message, &ws_usage_context)
+            } else {
+                Vec::new()
+            };
+            for event in pending_events {
+                event_sink.emit_request_log(event).await;
+            }
             let should_close = matches!(message, TungsteniteMessage::Close(_));
             if let TungsteniteMessage::Close(frame) = &message {
                 let close = frame
@@ -123,6 +328,63 @@ async fn proxy_websocket_streams(
     upstream_to_downstream_result?;
 
     Ok(())
+}
+
+fn parse_ws_json_text(text: &str) -> Option<Value> {
+    serde_json::from_str::<Value>(text).ok()
+}
+
+fn ws_string_at_path<'a>(value: &'a Value, path: &[&str]) -> Option<&'a str> {
+    let mut current = value;
+    for key in path {
+        current = current.get(*key)?;
+    }
+    current.as_str().map(str::trim).filter(|item| !item.is_empty())
+}
+
+fn extract_ws_event_type(value: &Value) -> Option<&str> {
+    ws_string_at_path(value, &["type"])
+}
+
+fn extract_ws_response_id(value: &Value) -> Option<String> {
+    ws_string_at_path(value, &["response", "id"])
+        .or_else(|| ws_string_at_path(value, &["response_id"]))
+        .map(ToString::to_string)
+}
+
+fn extract_ws_request_id(value: &Value) -> Option<String> {
+    ws_string_at_path(value, &["request_id"])
+        .or_else(|| ws_string_at_path(value, &["client_request_id"]))
+        .or_else(|| ws_string_at_path(value, &["event_id"]))
+        .map(ToString::to_string)
+}
+
+fn extract_ws_model(value: &Value) -> Option<String> {
+    ws_string_at_path(value, &["response", "model"])
+        .or_else(|| ws_string_at_path(value, &["model"]))
+        .map(ToString::to_string)
+}
+
+fn extract_ws_logical_request_seed(value: &Value) -> Option<WsLogicalResponseSeed> {
+    let event_type = extract_ws_event_type(value)?;
+    if event_type != "response.create" && !event_type.ends_with(".create") {
+        return None;
+    }
+
+    Some(WsLogicalResponseSeed {
+        request_id: extract_ws_request_id(value),
+        response_id: extract_ws_response_id(value),
+        model: extract_ws_model(value),
+        started_at: Instant::now(),
+    })
+}
+
+fn is_ws_response_created_event(value: &Value) -> bool {
+    matches!(extract_ws_event_type(value), Some("response.created"))
+}
+
+fn is_ws_response_completed_event(value: &Value) -> bool {
+    matches!(extract_ws_event_type(value), Some("response.completed" | "response.done"))
 }
 
 fn axum_message_to_tungstenite(message: AxumWsMessage) -> TungsteniteMessage {
@@ -201,9 +463,11 @@ mod tests {
         ensure_client_version_query, extract_upstream_error_code, is_body_too_large_error,
         is_compatibility_passthrough_header, is_websocket_passthrough_header,
         parse_request_policy_context, recovery_action_for_upstream_error_code,
-        sticky_session_key_from_headers,
+        sticky_session_key_from_headers, WsLogicalResponseTracker,
+        WsLogicalUsageConnectionContext,
         ProxyRecoveryAction,
     };
+    use uuid::Uuid;
 
     #[test]
     fn builds_upstream_url_with_base_path() {
@@ -446,5 +710,118 @@ mod tests {
             .await
             .expect_err("expected length limit error");
         assert!(is_body_too_large_error(&err));
+    }
+
+    fn ws_usage_test_context() -> WsLogicalUsageConnectionContext {
+        WsLogicalUsageConnectionContext {
+            account_id: Uuid::nil(),
+            tenant_id: None,
+            api_key_id: None,
+            request_path: "/v1/responses".to_string(),
+            request_method: "GET".to_string(),
+        }
+    }
+
+    #[test]
+    fn ws_logical_usage_records_completed_response() {
+        let mut tracker = WsLogicalResponseTracker::default();
+        tracker.observe_downstream_text(
+            r#"{"type":"response.create","request_id":"req-1","response":{"model":"gpt-5.4"}}"#,
+        );
+
+        assert!(tracker
+            .observe_upstream_text(
+                r#"{"type":"response.created","response":{"id":"resp-1","model":"gpt-5.4"}}"#,
+                &ws_usage_test_context(),
+            )
+            .is_empty());
+
+        let events = tracker.observe_upstream_text(
+            r#"{"type":"response.completed","response":{"id":"resp-1","usage":{"input_tokens":11,"output_tokens":7}}}"#,
+            &ws_usage_test_context(),
+        );
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].request_id.as_deref(), Some("req-1"));
+        assert_eq!(events[0].model.as_deref(), Some("gpt-5.4"));
+        assert_eq!(events[0].input_tokens, Some(11));
+        assert_eq!(events[0].output_tokens, Some(7));
+        assert_eq!(events[0].billing_phase.as_deref(), Some("ws_response_completed"));
+    }
+
+    #[test]
+    fn ws_logical_usage_records_multiple_completed_responses_in_one_session() {
+        let mut tracker = WsLogicalResponseTracker::default();
+        tracker.observe_downstream_text(
+            r#"{"type":"response.create","request_id":"req-1","response":{"model":"gpt-5.4"}}"#,
+        );
+        tracker.observe_downstream_text(
+            r#"{"type":"response.create","request_id":"req-2","response":{"model":"gpt-5.4-mini"}}"#,
+        );
+
+        assert!(tracker
+            .observe_upstream_text(
+                r#"{"type":"response.created","response":{"id":"resp-1","model":"gpt-5.4"}}"#,
+                &ws_usage_test_context(),
+            )
+            .is_empty());
+        assert!(tracker
+            .observe_upstream_text(
+                r#"{"type":"response.created","response":{"id":"resp-2","model":"gpt-5.4-mini"}}"#,
+                &ws_usage_test_context(),
+            )
+            .is_empty());
+
+        let first = tracker.observe_upstream_text(
+            r#"{"type":"response.completed","response":{"id":"resp-1","usage":{"input_tokens":5,"output_tokens":3}}}"#,
+            &ws_usage_test_context(),
+        );
+        let second = tracker.observe_upstream_text(
+            r#"{"type":"response.completed","response":{"id":"resp-2","usage":{"input_tokens":9,"output_tokens":4}}}"#,
+            &ws_usage_test_context(),
+        );
+
+        assert_eq!(first.len(), 1);
+        assert_eq!(second.len(), 1);
+        assert_eq!(first[0].request_id.as_deref(), Some("req-1"));
+        assert_eq!(second[0].request_id.as_deref(), Some("req-2"));
+    }
+
+    #[test]
+    fn ws_logical_usage_ignores_unfinished_response() {
+        let mut tracker = WsLogicalResponseTracker::default();
+        tracker.observe_downstream_text(
+            r#"{"type":"response.create","request_id":"req-1","response":{"model":"gpt-5.4"}}"#,
+        );
+        let events = tracker.observe_upstream_text(
+            r#"{"type":"response.created","response":{"id":"resp-1","model":"gpt-5.4"}}"#,
+            &ws_usage_test_context(),
+        );
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn ws_logical_usage_records_completion_without_usage_tokens() {
+        let mut tracker = WsLogicalResponseTracker::default();
+        tracker.observe_downstream_text(
+            r#"{"type":"response.create","request_id":"req-1","response":{"model":"gpt-5.4"}}"#,
+        );
+        assert!(tracker
+            .observe_upstream_text(
+                r#"{"type":"response.created","response":{"id":"resp-1","model":"gpt-5.4"}}"#,
+                &ws_usage_test_context(),
+            )
+            .is_empty());
+
+        let events = tracker.observe_upstream_text(
+            r#"{"type":"response.completed","response":{"id":"resp-1"}}"#,
+            &ws_usage_test_context(),
+        );
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].request_id.as_deref(), Some("req-1"));
+        assert_eq!(events[0].model.as_deref(), Some("gpt-5.4"));
+        assert_eq!(events[0].input_tokens, None);
+        assert_eq!(events[0].output_tokens, None);
     }
 }

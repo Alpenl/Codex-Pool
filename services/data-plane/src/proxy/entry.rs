@@ -1418,9 +1418,11 @@ pub async fn proxy_websocket_handler(
         }
     };
 
+    let principal = request.extensions().get::<ApiPrincipal>().cloned();
     let (parts, _) = request.into_parts();
     let path = parts.uri.path().to_string();
     let query = parts.uri.query().map(str::to_string);
+    let request_method = parts.method.to_string();
     let requested_subprotocol = requested_websocket_subprotocol(&parts.headers);
     let sticky_key = sticky_session_key_from_headers(&parts.headers);
     let failover_deadline = Instant::now() + state.request_failover_wait;
@@ -1757,6 +1759,14 @@ pub async fn proxy_websocket_handler(
             let state_for_upgrade = state.clone();
             let sticky_key_for_upgrade = sticky_key.clone();
             let account_id_for_upgrade = account.id;
+            let ws_usage_context = WsLogicalUsageConnectionContext {
+                account_id: account.id,
+                tenant_id: principal.as_ref().and_then(|item| item.tenant_id),
+                api_key_id: principal.as_ref().and_then(|item| item.api_key_id),
+                request_path: path.clone(),
+                request_method: request_method.clone(),
+            };
+            let event_sink_for_upgrade = state.event_sink.clone();
             if let Some(seen_ok_reporter) = state.seen_ok_reporter.clone() {
                 let account_id = account.id;
                 tokio::spawn(async move {
@@ -1765,7 +1775,13 @@ pub async fn proxy_websocket_handler(
             }
             record_failover_success_if_needed(&state, did_cross_account_failover);
             return ws_upgrade.on_upgrade(move |downstream_socket| async move {
-                if let Err(err) = proxy_websocket_streams(downstream_socket, upstream_socket).await
+                if let Err(err) = proxy_websocket_streams(
+                    downstream_socket,
+                    upstream_socket,
+                    event_sink_for_upgrade,
+                    ws_usage_context,
+                )
+                .await
                 {
                     let ProxyWebSocketStreamError::UpstreamClosed(close) = &err;
                     warn!(
