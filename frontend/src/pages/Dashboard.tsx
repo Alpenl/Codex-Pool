@@ -1,10 +1,21 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Activity, Key, RefreshCcw, Zap } from 'lucide-react'
+import { Building2, Gauge, RefreshCcw, Timer, TrendingUp, Users, Zap } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 
 import { adminKeysApi } from '@/api/adminKeys'
 import { adminTenantsApi } from '@/api/adminTenants'
@@ -21,7 +32,17 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { StandardDataTable } from '@/components/ui/standard-data-table'
-import { TrendChart } from '@/components/ui/trend-chart'
+import {
+  buildModelDistributionPoints,
+  buildTokenTrendChartPoints,
+  computePerMinute,
+  loadTokenComponentSelection,
+  persistTokenComponentSelection,
+  toggleTokenComponent,
+  type ModelDistributionMode,
+  type TokenComponentSelection,
+} from '@/lib/dashboard-metrics'
+import { formatTokenCount, formatTokenRate } from '@/lib/token-format'
 import { cn } from '@/lib/utils'
 
 type AlertSeverity = 'critical' | 'warning' | 'info'
@@ -53,12 +74,14 @@ interface StoredDashboardFilters {
 }
 
 const DASHBOARD_FILTERS_STORAGE_KEY = 'cp:admin-dashboard-filters:v1'
+const ADMIN_TOKEN_COMPONENT_STORAGE_KEY = 'cp:admin-dashboard-token-components:v1'
+const ADMIN_MODEL_MODE_STORAGE_KEY = 'cp:admin-dashboard-model-mode:v1'
 
 const containerVariants = {
   hidden: { opacity: 0 },
   show: {
     opacity: 1,
-    transition: { staggerChildren: 0.1 },
+    transition: { staggerChildren: 0.08 },
   },
 }
 
@@ -69,12 +92,6 @@ const itemVariants = {
     y: 0,
     transition: { type: 'spring' as const, stiffness: 300, damping: 24 },
   },
-}
-
-function nowRangeByDays(days: number) {
-  const end = Math.floor(Date.now() / 1000)
-  const start = end - days * 24 * 60 * 60
-  return { startTs: start, endTs: end }
 }
 
 function loadStoredFilters(): StoredDashboardFilters {
@@ -98,10 +115,11 @@ function loadStoredFilters(): StoredDashboardFilters {
     }
     const parsed = JSON.parse(raw) as Partial<StoredDashboardFilters>
     return {
-      scope: parsed.scope ?? 'global',
+      // Avoid restoring stale tenant/api-key scoped filters that can easily look like "no data".
+      scope: 'global',
       rangePreset: parsed.rangePreset ?? 1,
-      tenantId: parsed.tenantId ?? '',
-      apiKeyId: parsed.apiKeyId ?? '',
+      tenantId: '',
+      apiKeyId: '',
     }
   } catch {
     return {
@@ -113,6 +131,28 @@ function loadStoredFilters(): StoredDashboardFilters {
   }
 }
 
+function loadModelMode(): ModelDistributionMode {
+  if (typeof window === 'undefined') {
+    return 'requests'
+  }
+  const raw = window.localStorage.getItem(ADMIN_MODEL_MODE_STORAGE_KEY)
+  return raw === 'tokens' ? 'tokens' : 'requests'
+}
+
+function formatMetric(value: number): string {
+  if (value >= 1000) {
+    return value.toLocaleString(undefined, { maximumFractionDigits: 1 })
+  }
+  return value.toLocaleString(undefined, { maximumFractionDigits: 2 })
+}
+
+function compactTenantId(tenantId: string): string {
+  if (tenantId.length <= 14) {
+    return tenantId
+  }
+  return `${tenantId.slice(0, 8)}...${tenantId.slice(-4)}`
+}
+
 export default function Dashboard() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
@@ -120,6 +160,13 @@ export default function Dashboard() {
   const [rangePreset, setRangePreset] = useState<RangePreset>(() => loadStoredFilters().rangePreset)
   const [selectedTenantId, setSelectedTenantId] = useState<string>(() => loadStoredFilters().tenantId)
   const [selectedApiKeyId, setSelectedApiKeyId] = useState<string>(() => loadStoredFilters().apiKeyId)
+  const [rangeAnchorMs, setRangeAnchorMs] = useState<number>(() => Date.now())
+  const [manualRefreshing, setManualRefreshing] = useState(false)
+  const refreshIndicatorTimerRef = useRef<number | null>(null)
+  const [tokenComponents, setTokenComponents] = useState<TokenComponentSelection>(() =>
+    loadTokenComponentSelection(ADMIN_TOKEN_COMPONENT_STORAGE_KEY),
+  )
+  const [modelMode, setModelMode] = useState<ModelDistributionMode>(() => loadModelMode())
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -132,15 +179,28 @@ export default function Dashboard() {
     window.localStorage.setItem(DASHBOARD_FILTERS_STORAGE_KEY, JSON.stringify(payload))
   }, [scope, rangePreset, selectedTenantId, selectedApiKeyId])
 
-  const { startTs, endTs } = useMemo(() => nowRangeByDays(rangePreset), [rangePreset])
+  useEffect(() => {
+    persistTokenComponentSelection(ADMIN_TOKEN_COMPONENT_STORAGE_KEY, tokenComponents)
+  }, [tokenComponents])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(ADMIN_MODEL_MODE_STORAGE_KEY, modelMode)
+  }, [modelMode])
+
+  const { startTs, endTs } = useMemo(() => {
+    const end = Math.floor(rangeAnchorMs / 1000)
+    const start = end - rangePreset * 24 * 60 * 60
+    return { startTs: start, endTs: end }
+  }, [rangeAnchorMs, rangePreset])
   const scopeLabel = (currentScope: DashboardScope) => {
     if (currentScope === 'global') {
-      return t('dashboard.scope.global', { defaultValue: 'Global View' })
+      return t('dashboard.scope.global', { defaultValue: '全局视角' })
     }
     if (currentScope === 'tenant') {
-      return t('dashboard.scope.tenant', { defaultValue: 'Tenant View' })
+      return t('dashboard.scope.tenant', { defaultValue: '租户视角' })
     }
-    return t('dashboard.scope.apiKey', { defaultValue: 'API Key View' })
+    return t('dashboard.scope.apiKey', { defaultValue: 'API密钥视角' })
   }
 
   const { data: tenants = [] } = useQuery({
@@ -178,9 +238,10 @@ export default function Dashboard() {
     const params: {
       start_ts: number
       end_ts: number
-      limit: number
       tenant_id?: string
+      account_id?: string
       api_key_id?: string
+      limit?: number
     } = {
       start_ts: startTs,
       end_ts: endTs,
@@ -223,17 +284,11 @@ export default function Dashboard() {
   })
 
   const {
-    data: trendData,
-    isLoading: isLoadingTrends,
-    refetch: refetchTrends,
-    isFetching: isRefetchingTrends,
+    data: leaderboardData,
+    isLoading: isLoadingLeaderboard,
+    refetch: refetchLeaderboard,
+    isFetching: isRefetchingLeaderboard,
   } = useQuery({
-    queryKey: ['hourlyTrends', usageQueryParams],
-    queryFn: () => dashboardApi.getHourlyTrends(usageQueryParams),
-    refetchInterval: 60_000,
-  })
-
-  const { data: leaderboardData, isLoading: isLoadingLeaderboard } = useQuery({
     queryKey: ['dashboardLeaderboard', usageQueryParams],
     queryFn: () =>
       usageApi.getLeaderboard({
@@ -246,14 +301,31 @@ export default function Dashboard() {
     refetchInterval: 60_000,
   })
 
-  const isRefreshing = isRefetchingSystem || isRefetchingSummary || isRefetchingTrends
-  const isLoading = isLoadingSystem || isLoadingSummary || isLoadingTrends
+  const isRefreshing = manualRefreshing || isRefetchingSystem || isRefetchingSummary || isRefetchingLeaderboard
+  const isLoading = isLoadingSystem || isLoadingSummary
 
   const handleRefresh = () => {
+    setRangeAnchorMs(Date.now())
+    if (refreshIndicatorTimerRef.current !== null) {
+      window.clearTimeout(refreshIndicatorTimerRef.current)
+    }
+    setManualRefreshing(true)
+    refreshIndicatorTimerRef.current = window.setTimeout(() => {
+      setManualRefreshing(false)
+      refreshIndicatorTimerRef.current = null
+    }, 500)
     refetchSystem()
     refetchSummary()
-    refetchTrends()
+    refetchLeaderboard()
   }
+
+  useEffect(() => {
+    return () => {
+      if (refreshIndicatorTimerRef.current !== null) {
+        window.clearTimeout(refreshIndicatorTimerRef.current)
+      }
+    }
+  }, [])
 
   const logsSearch = useMemo(() => {
     const params = new URLSearchParams()
@@ -277,16 +349,6 @@ export default function Dashboard() {
     return params.toString()
   }, [effectiveTenantId, rangePreset])
 
-  const shortTimeFormatter = useMemo(
-    () =>
-      new Intl.DateTimeFormat(i18n.resolvedLanguage, {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      }),
-    [i18n.resolvedLanguage],
-  )
-
   const detailedDateTimeFormatter = useMemo(
     () =>
       new Intl.DateTimeFormat(i18n.resolvedLanguage, {
@@ -300,66 +362,86 @@ export default function Dashboard() {
     [i18n.resolvedLanguage],
   )
 
-  const chartData = useMemo(() => {
-    const map = new Map<number, { timestamp: number; accountRequests: number; tenantApiKeyRequests: number }>()
-    for (const row of trendData?.account_totals ?? []) {
-      map.set(row.hour_start, {
-        timestamp: row.hour_start * 1000,
-        accountRequests: row.request_count,
-        tenantApiKeyRequests: 0,
-      })
-    }
-    for (const row of trendData?.tenant_api_key_totals ?? []) {
-      const existing = map.get(row.hour_start)
-      if (existing) {
-        existing.tenantApiKeyRequests = row.request_count
-      } else {
-        map.set(row.hour_start, {
-          timestamp: row.hour_start * 1000,
-          accountRequests: 0,
-          tenantApiKeyRequests: row.request_count,
-        })
-      }
-    }
-    return Array.from(map.values()).sort((left, right) => left.timestamp - right.timestamp)
-  }, [trendData?.account_totals, trendData?.tenant_api_key_totals])
-
-  const requestMetricLabel =
-    scope === 'global'
-      ? t('dashboard.kpi.requests.global', { defaultValue: 'Total account requests (selected range)' })
-      : scope === 'tenant'
-        ? t('dashboard.kpi.requests.tenant', { defaultValue: 'Current tenant API key requests (selected range)' })
-        : t('dashboard.kpi.requests.apiKey', { defaultValue: 'Current API key requests (selected range)' })
-
-  const requestMetricValue =
-    scope === 'global'
+  const dashboardMetrics = summaryData?.dashboard_metrics
+  const tokenBreakdown = dashboardMetrics?.token_breakdown ?? {
+    input_tokens: 0,
+    cached_input_tokens: 0,
+    output_tokens: 0,
+    reasoning_tokens: 0,
+    total_tokens: 0,
+  }
+  const totalRequests = dashboardMetrics?.total_requests
+    ?? (scope === 'global'
       ? summaryData?.account_total_requests ?? 0
-      : summaryData?.tenant_api_key_total_requests ?? 0
+      : summaryData?.tenant_api_key_total_requests ?? 0)
+  const totalTokens = tokenBreakdown.total_tokens
+  const rpm = computePerMinute(totalRequests, usageQueryParams.start_ts, usageQueryParams.end_ts)
+  const tpm = computePerMinute(totalTokens, usageQueryParams.start_ts, usageQueryParams.end_ts)
+  const avgFirstTokenSec = typeof dashboardMetrics?.avg_first_token_latency_ms === 'number'
+    ? dashboardMetrics.avg_first_token_latency_ms / 1000
+    : null
+  const tokenTrendData = useMemo(() => buildTokenTrendChartPoints(dashboardMetrics), [dashboardMetrics])
+  const modelDistributionData = useMemo(
+    () => buildModelDistributionPoints(dashboardMetrics, modelMode),
+    [dashboardMetrics, modelMode],
+  )
 
   const metrics = [
     {
-      title: requestMetricLabel,
-      value: requestMetricValue.toLocaleString(),
+      id: 'total_requests',
+      title: t('dashboard.kpi.totalRequests', { defaultValue: 'Total requests' }),
+      value: totalRequests.toLocaleString(),
       change: `${scopeLabel(scope)} / ${rangePreset === 1 ? '24h' : `${rangePreset}d`}`,
+      icon: TrendingUp,
+    },
+    {
+      id: 'total_tokens',
+      title: t('dashboard.kpi.totalTokens', { defaultValue: 'Token consumption total' }),
+      value: formatTokenCount(totalTokens),
+      change: t('dashboard.kpi.totalTokensDesc', { defaultValue: 'Input + cached + output + reasoning' }),
       icon: Zap,
     },
     {
-      title: t('dashboard.kpi.activeApiKeysInRange', { defaultValue: 'Active API keys (selected range)' }),
-      value: (summaryData?.unique_tenant_api_key_count ?? 0).toLocaleString(),
-      change: scope === 'global' ? t('dashboard.kpi.globalScope', { defaultValue: 'Global scope' }) : scopeLabel(scope),
-      icon: Activity,
+      id: 'rpm',
+      title: t('dashboard.kpi.rpm', { defaultValue: 'RPM' }),
+      value: formatMetric(rpm),
+      change: t('dashboard.kpi.rpmDesc', { defaultValue: 'Requests per minute' }),
+      icon: Gauge,
     },
     {
-      title: t('dashboard.kpi.uptime'),
-      value: systemState ? `${Math.floor(systemState.uptime_sec / 3600)}h` : '0h',
-      change: t('dashboard.kpi.running'),
-      icon: RefreshCcw,
+      id: 'tpm',
+      title: t('dashboard.kpi.tpm', { defaultValue: 'TPM' }),
+      value: formatTokenRate(tpm),
+      change: t('dashboard.kpi.tpmDesc', { defaultValue: 'Tokens per minute' }),
+      icon: Gauge,
     },
     {
-      title: t('nav.apiKeys'),
-      value: systemState?.counts.api_keys?.toLocaleString() || '0',
-      change: t('dashboard.kpi.totalConfigured'),
-      icon: Key,
+      id: 'avg_first_token_speed',
+      title: t('dashboard.kpi.avgFirstTokenSpeed', { defaultValue: 'Average first-token speed' }),
+      value: avgFirstTokenSec === null ? '--' : `${avgFirstTokenSec.toFixed(2)}s`,
+      change: t('dashboard.kpi.avgFirstTokenSpeedDesc', { defaultValue: 'TTFT (streaming exact / non-stream approximate)' }),
+      icon: Timer,
+    },
+    {
+      id: 'tenant_count',
+      title: t('dashboard.kpi.tenants', { defaultValue: 'Tenants' }),
+      value: (systemState?.counts.tenants ?? 0).toLocaleString(),
+      change: t('dashboard.kpi.tenantsDesc', { defaultValue: 'Admin-only operational metric' }),
+      icon: Building2,
+    },
+    {
+      id: 'account_count',
+      title: t('dashboard.kpi.accounts', { defaultValue: 'Accounts' }),
+      value: (systemState?.counts.total_accounts ?? 0).toLocaleString(),
+      change: t('dashboard.kpi.accountsDesc', { defaultValue: 'Admin-only operational metric' }),
+      icon: Users,
+    },
+    {
+      id: 'api_key_count',
+      title: t('dashboard.kpi.apiKeys', { defaultValue: 'API keys' }),
+      value: (systemState?.counts.api_keys ?? 0).toLocaleString(),
+      change: t('dashboard.kpi.apiKeysDesc', { defaultValue: 'Configured keys in system' }),
+      icon: Zap,
     },
   ]
 
@@ -497,6 +579,33 @@ export default function Dashboard() {
   const tenantSelectValue = effectiveTenantId || '__none__'
   const apiKeySelectValue = effectiveApiKeyId || '__none__'
 
+  const tokenBreakdownRows = [
+    {
+      key: 'input' as const,
+      label: t('dashboard.tokenComponents.input', { defaultValue: 'Input' }),
+      value: tokenBreakdown.input_tokens,
+      color: '#0ea5e9',
+    },
+    {
+      key: 'cached' as const,
+      label: t('dashboard.tokenComponents.cached', { defaultValue: 'Cached' }),
+      value: tokenBreakdown.cached_input_tokens,
+      color: '#14b8a6',
+    },
+    {
+      key: 'output' as const,
+      label: t('dashboard.tokenComponents.output', { defaultValue: 'Output' }),
+      value: tokenBreakdown.output_tokens,
+      color: '#f59e0b',
+    },
+    {
+      key: 'reasoning' as const,
+      label: t('dashboard.tokenComponents.reasoning', { defaultValue: 'Reasoning' }),
+      value: tokenBreakdown.reasoning_tokens,
+      color: '#8b5cf6',
+    },
+  ]
+
   return (
     <div className="flex-1 p-4 sm:p-6 lg:p-8 w-full overflow-y-auto">
       <motion.div className="space-y-8" initial="hidden" animate="show" variants={containerVariants}>
@@ -562,8 +671,8 @@ export default function Dashboard() {
                     {t('dashboard.filters.tenantPlaceholder', { defaultValue: 'Select tenant' })}
                   </SelectItem>
                   {tenants.map((tenant) => (
-                    <SelectItem key={tenant.id} value={tenant.id}>
-                      {tenant.name} ({tenant.id})
+                    <SelectItem key={tenant.id} value={tenant.id} title={`${tenant.name} (${tenant.id})`}>
+                      {tenant.name} ({compactTenantId(tenant.id)})
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -601,9 +710,9 @@ export default function Dashboard() {
           </motion.div>
         </div>
 
-        <motion.div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4" variants={containerVariants}>
-          {metrics.map((m, i) => (
-            <motion.div key={i} variants={itemVariants} whileHover={{ y: -2, transition: { duration: 0.2 } }}>
+        <motion.div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" variants={containerVariants}>
+          {metrics.map((m) => (
+            <motion.div key={m.id} variants={itemVariants}>
               <Card className="shadow-sm border-border/50 hover:shadow-md transition-shadow duration-300">
                 <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
                   <CardTitle className="text-sm font-medium text-muted-foreground">{m.title}</CardTitle>
@@ -611,85 +720,177 @@ export default function Dashboard() {
                     <m.icon className="h-4 w-4 text-primary/70" />
                   </div>
                 </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold font-sans tracking-tight">
-                    {isLoading ? <div className="h-8 w-24 bg-muted animate-pulse rounded" /> : m.value}
+                <CardContent className="space-y-1">
+                  <div className="min-h-8 flex items-center text-2xl font-bold font-sans tracking-tight leading-tight">
+                    {isLoading ? <div className="h-8 w-28 bg-muted animate-pulse rounded" /> : m.value}
                   </div>
-                  {!isLoading ? <p className="text-xs text-muted-foreground mt-1">{m.change}</p> : null}
+                  <div className="h-4 flex items-center">
+                    {isLoading ? (
+                      <div className="h-3 w-40 bg-muted/80 animate-pulse rounded" />
+                    ) : (
+                      <p className="text-xs text-muted-foreground">{m.change}</p>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             </motion.div>
           ))}
         </motion.div>
 
-        <motion.div variants={itemVariants}>
-          <Card className="shadow-sm border-border/50">
-            <CardContent className="pt-5 text-xs text-muted-foreground">
-              {t('dashboard.scopeNotes', {
-                defaultValue:
-                  'Scope note: account requests are counted by upstream account; tenant API key requests are counted by tenant + API key. Requests not bound to tenant/API key are counted only in account scope.',
-              })}
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        <div className="grid gap-6 md:grid-cols-7">
-          <motion.div className="col-span-4 lg:col-span-5" variants={itemVariants}>
+        <div className="grid gap-6 xl:grid-cols-7">
+          <motion.div className="xl:col-span-4" variants={itemVariants}>
             <Card className="h-full shadow-sm border-border/50">
-              <CardHeader>
-                <CardTitle>{t('dashboard.trafficChart.title')}</CardTitle>
-                <CardDescription>
-                  {scope === 'global'
-                    ? t('dashboard.trafficChart.scope.global', {
-                        defaultValue: 'Scope: global account requests + global tenant API key requests',
-                      })
-                    : scope === 'tenant'
-                      ? t('dashboard.trafficChart.scope.tenant', { defaultValue: 'Scope: current tenant API key requests' })
-                      : t('dashboard.trafficChart.scope.apiKey', { defaultValue: 'Scope: current API key requests' })}
-                </CardDescription>
+              <CardHeader className="space-y-3">
+                <div className="space-y-1">
+                  <CardTitle>{t('dashboard.tokenTrend.title', { defaultValue: 'Token usage trend' })}</CardTitle>
+                  <CardDescription>
+                    {t('dashboard.tokenTrend.description', {
+                      defaultValue: 'Hourly token trend by component. Toggle components to focus specific consumption.',
+                    })}
+                  </CardDescription>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {tokenBreakdownRows.map((row) => (
+                    <Badge
+                      key={row.key}
+                      variant={tokenComponents[row.key] ? 'default' : 'outline'}
+                      className="cursor-pointer"
+                      style={tokenComponents[row.key] ? { backgroundColor: row.color, color: '#fff' } : undefined}
+                      onClick={() => setTokenComponents((prev) => toggleTokenComponent(prev, row.key))}
+                    >
+                      {row.label}: {formatTokenCount(row.value)}
+                    </Badge>
+                  ))}
+                </div>
               </CardHeader>
-              <CardContent className="pl-0">
+              <CardContent>
                 {isLoading ? (
-                  <div className="w-full h-[350px] bg-muted/50 animate-pulse rounded-md ml-6" />
+                  <div className="w-full h-[320px] bg-muted/50 animate-pulse rounded-md" />
+                ) : tokenTrendData.length === 0 ? (
+                  <div className="flex h-[320px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
+                    {t('dashboard.tokenTrend.empty', { defaultValue: 'No token trend data yet' })}
+                  </div>
                 ) : (
-                  <TrendChart
-                    data={chartData}
-                    lines={
-                      scope === 'global'
-                        ? [
-                            {
-                              dataKey: 'accountRequests',
-                              name: t('dashboard.trafficChart.series.accountRequests', { defaultValue: 'Account requests' }),
-                              stroke: 'var(--chart-1)',
-                            },
-                            {
-                              dataKey: 'tenantApiKeyRequests',
-                              name: t('dashboard.trafficChart.series.tenantApiKeyRequests', {
-                                defaultValue: 'Tenant API key requests',
-                              }),
-                              stroke: 'var(--chart-5)',
-                            },
-                          ]
-                        : [
-                            {
-                              dataKey: 'tenantApiKeyRequests',
-                              name: t('dashboard.trafficChart.series.tenantApiKeyRequestsSingle', {
-                                defaultValue: 'Tenant API key requests',
-                              }),
-                              stroke: 'var(--chart-1)',
-                            },
-                          ]
-                    }
-                    xAxisFormatter={(val) => shortTimeFormatter.format(new Date(Number(val)))}
-                    height={350}
-                  />
+                  <div style={{ width: '100%', minHeight: 320 }}>
+                    <ResponsiveContainer width="100%" height={320}>
+                      <AreaChart data={tokenTrendData} margin={{ top: 8, right: 12, left: 6, bottom: 8 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                        <XAxis
+                          dataKey="timestamp"
+                          tickFormatter={(value) =>
+                            new Intl.DateTimeFormat(undefined, {
+                              month: '2-digit',
+                              day: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              hour12: false,
+                            }).format(new Date(value))
+                          }
+                          tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} tickLine={false} axisLine={false} />
+                        <Tooltip
+                          formatter={(value) =>
+                            typeof value === 'number'
+                              ? formatTokenCount(value)
+                              : String(value ?? '')
+                          }
+                        />
+                        {tokenComponents.input ? (
+                          <Area type="monotone" dataKey="inputTokens" stackId="tokens" stroke="#0ea5e9" fill="#0ea5e9" fillOpacity={0.6} name={t('dashboard.tokenComponents.input', { defaultValue: 'Input' })} />
+                        ) : null}
+                        {tokenComponents.cached ? (
+                          <Area type="monotone" dataKey="cachedInputTokens" stackId="tokens" stroke="#14b8a6" fill="#14b8a6" fillOpacity={0.6} name={t('dashboard.tokenComponents.cached', { defaultValue: 'Cached' })} />
+                        ) : null}
+                        {tokenComponents.output ? (
+                          <Area type="monotone" dataKey="outputTokens" stackId="tokens" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.6} name={t('dashboard.tokenComponents.output', { defaultValue: 'Output' })} />
+                        ) : null}
+                        {tokenComponents.reasoning ? (
+                          <Area type="monotone" dataKey="reasoningTokens" stackId="tokens" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.6} name={t('dashboard.tokenComponents.reasoning', { defaultValue: 'Reasoning' })} />
+                        ) : null}
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
                 )}
               </CardContent>
             </Card>
           </motion.div>
 
-          <motion.div className="col-span-3 lg:col-span-2" variants={itemVariants}>
-            <Card className="h-full shadow-sm border-border/50 flex flex-col">
+          <motion.div className="xl:col-span-3" variants={itemVariants}>
+            <Card className="h-full shadow-sm border-border/50">
+              <CardHeader className="space-y-3">
+                <div className="space-y-1">
+                  <CardTitle>{t('dashboard.modelDistribution.title', { defaultValue: 'Model request distribution' })}</CardTitle>
+                  <CardDescription>{t('dashboard.modelDistribution.description', { defaultValue: 'Top models by request count or token usage.' })}</CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Badge
+                    variant={modelMode === 'requests' ? 'default' : 'outline'}
+                    className="cursor-pointer"
+                    onClick={() => setModelMode('requests')}
+                  >
+                    {t('dashboard.modelDistribution.modeRequests', { defaultValue: 'By requests' })}
+                  </Badge>
+                  <Badge
+                    variant={modelMode === 'tokens' ? 'default' : 'outline'}
+                    className="cursor-pointer"
+                    onClick={() => setModelMode('tokens')}
+                  >
+                    {t('dashboard.modelDistribution.modeTokens', { defaultValue: 'By tokens' })}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {isLoading ? (
+                  <div className="w-full h-[320px] bg-muted/50 animate-pulse rounded-md" />
+                ) : modelDistributionData.length === 0 ? (
+                  <div className="flex h-[320px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
+                    {t('dashboard.modelDistribution.empty', { defaultValue: 'No model distribution data yet' })}
+                  </div>
+                ) : (
+                  <div style={{ width: '100%', minHeight: 320 }}>
+                    <ResponsiveContainer width="100%" height={320}>
+                      <BarChart data={modelDistributionData} layout="vertical" margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
+                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
+                        <XAxis type="number" tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} tickLine={false} axisLine={false} />
+                        <YAxis
+                          type="category"
+                          dataKey="model"
+                          width={110}
+                          tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
+                          tickFormatter={(value) =>
+                            value === 'other'
+                              ? t('dashboard.modelDistribution.other', { defaultValue: 'Other' })
+                              : String(value)
+                          }
+                        />
+                        <Tooltip
+                          formatter={(value) =>
+                            typeof value === 'number'
+                              ? (modelMode === 'tokens' ? formatTokenCount(value) : value.toLocaleString())
+                              : String(value ?? '')
+                          }
+                          labelFormatter={(label) =>
+                            label === 'other'
+                              ? t('dashboard.modelDistribution.other', { defaultValue: 'Other' })
+                              : String(label)
+                          }
+                        />
+                        <Bar dataKey="value" fill="#0ea5e9" radius={[0, 8, 8, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-7">
+          <motion.div className="xl:col-span-4" variants={itemVariants}>
+            <Card className="h-full shadow-sm border-border/50">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   {t('dashboard.alerts.title')}
@@ -701,7 +902,7 @@ export default function Dashboard() {
                 </CardTitle>
                 <CardDescription>{t('dashboard.alerts.subtitle')}</CardDescription>
               </CardHeader>
-              <CardContent className="h-[350px] min-h-0">
+              <CardContent className="h-[320px] min-h-0">
                 {isLoading ? (
                   <div className="space-y-3">
                     {Array.from({ length: 6 }).map((_, index) => (
@@ -728,10 +929,9 @@ export default function Dashboard() {
               </CardContent>
             </Card>
           </motion.div>
-        </div>
 
-        <motion.div variants={itemVariants}>
-            <Card className="shadow-sm border-border/50">
+          <motion.div className="xl:col-span-3" variants={itemVariants}>
+            <Card className="h-full shadow-sm border-border/50">
               <CardHeader>
                 <CardTitle>{t('dashboard.topApiKeys.title', { defaultValue: 'Top API Keys' })}</CardTitle>
                 <CardDescription>
@@ -741,26 +941,27 @@ export default function Dashboard() {
                   })}
                 </CardDescription>
               </CardHeader>
-            <CardContent>
-              {isLoadingLeaderboard ? (
-                <div className="space-y-2">
-                  {Array.from({ length: 6 }).map((_, index) => (
-                    <div key={index} className="h-8 bg-muted rounded" />
-                  ))}
-                </div>
-              ) : (
-                <StandardDataTable
-                  columns={topKeyColumns}
-                  data={topKeyRows}
-                  density="compact"
-                  defaultPageSize={8}
-                  pageSizeOptions={[8, 16, 32]}
-                  emptyText={t('dashboard.topApiKeys.empty', { defaultValue: 'No ranking data yet' })}
-                />
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
+              <CardContent className="h-[320px] min-h-0">
+                {isLoadingLeaderboard ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 6 }).map((_, index) => (
+                      <div key={index} className="h-8 bg-muted rounded" />
+                    ))}
+                  </div>
+                ) : (
+                  <StandardDataTable
+                    columns={topKeyColumns}
+                    data={topKeyRows}
+                    density="compact"
+                    defaultPageSize={8}
+                    pageSizeOptions={[8, 16, 32]}
+                    emptyText={t('dashboard.topApiKeys.empty', { defaultValue: 'No ranking data yet' })}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+        </div>
       </motion.div>
     </div>
   )

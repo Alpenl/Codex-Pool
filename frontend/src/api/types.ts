@@ -99,6 +99,7 @@ export interface UsageSummaryQueryResponse {
   tenant_api_key_total_requests: number
   unique_account_count: number
   unique_tenant_api_key_count: number
+  dashboard_metrics?: UsageDashboardMetrics
 }
 
 export interface HourlyUsageTotalPoint {
@@ -111,6 +112,40 @@ export interface UsageHourlyTrendsResponse {
   end_ts: number
   account_totals: HourlyUsageTotalPoint[]
   tenant_api_key_totals: HourlyUsageTotalPoint[]
+  dashboard_metrics?: UsageDashboardMetrics
+}
+
+export interface UsageDashboardTokenBreakdown {
+  input_tokens: number
+  cached_input_tokens: number
+  output_tokens: number
+  reasoning_tokens: number
+  total_tokens: number
+}
+
+export interface UsageDashboardTokenTrendPoint {
+  hour_start: number
+  request_count: number
+  input_tokens: number
+  cached_input_tokens: number
+  output_tokens: number
+  reasoning_tokens: number
+  total_tokens: number
+}
+
+export interface UsageDashboardModelDistributionItem {
+  model: string
+  request_count: number
+  total_tokens: number
+}
+
+export interface UsageDashboardMetrics {
+  total_requests: number
+  token_breakdown: UsageDashboardTokenBreakdown
+  avg_first_token_latency_ms?: number
+  token_trends: UsageDashboardTokenTrendPoint[]
+  model_request_distribution: UsageDashboardModelDistributionItem[]
+  model_token_distribution: UsageDashboardModelDistributionItem[]
 }
 
 export interface HourlyTenantUsageTotalPoint {

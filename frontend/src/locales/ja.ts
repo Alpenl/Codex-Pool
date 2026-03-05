@@ -146,6 +146,14 @@ export default {
             toggleUnsupported: "現在のバックエンドバージョンではアカウントの有効化/無効化はサポートされていません。control-plane をアップグレードしてください。",
             refreshTriggered: "アカウント更新をトリガーしました"
         },
+        rateLimitRefreshJobStatus: {
+            queued: "待機中",
+            running: "実行中",
+            completed: "完了",
+            failed: "失敗",
+            cancelled: "キャンセル",
+            unknown: "不明"
+        },
         mode: {
             apiKey: "API キー",
             chatgptSession: "ChatGPT OAuth",
@@ -234,7 +242,7 @@ export default {
                 tokenInvalidated: "トークンが無効になりました",
                 transportError: "上流ネットワークエラー",
                 upstreamRequestFailed: "アップストリームリクエストが失敗しました",
-                unknown: "不明（{{value}}）"
+                unknown: "不明"
             },
             details: {
                 accrued: "獲得済み: {{value}} クレジット",
@@ -253,7 +261,7 @@ export default {
                 crossAccountFailover: "クロスアカウントフェイルオーバー",
                 retrySameAccount: "同じアカウントを再試行する",
                 returnFailure: "返品失敗",
-                unknown: "不明（{{value}}）"
+                unknown: "不明"
             },
             releaseReasons: {
                 billingSettleFailed: "請求決済に失敗しました",
@@ -264,7 +272,7 @@ export default {
                 streamUsageMissing: "ストリームの使用状況がありません",
                 transportError: "上流ネットワークエラー",
                 upstreamRequestFailed: "アップストリームリクエストが失敗しました",
-                unknown: "不明（{{value}}）"
+                unknown: "不明"
             },
             showRaw: "生のエントリを表示",
             subtitle: "現在のテナントによってフィルタリングされます。",
@@ -456,12 +464,27 @@ export default {
         },
         kpi: {
             activeApiKeysInRange: "アクティブな API キー (選択された範囲)",
+            accounts: "アカウント数",
+            accountsDesc: "管理者向け運用メトリクス",
+            apiKeys: "API キー数",
+            apiKeysDesc: "システムに設定済みのキー数",
+            avgFirstTokenSpeed: "平均ファーストトークンスピード",
+            avgFirstTokenSpeedDesc: "TTFT（ストリーミング精密 / 非ストリーミング近似）",
             globalScope: "グローバルな範囲",
+            rpm: "RPM",
+            rpmDesc: "1分あたりリクエスト数",
             requests: {
                 apiKey: "現在の API キー リクエスト (選択された範囲)",
                 global: "アカウントリクエストの総数（選択した範囲）",
                 tenant: "現在のテナント API キー リクエスト (選択された範囲)"
             },
+            tenants: "テナント数",
+            tenantsDesc: "管理者向け運用メトリクス",
+            totalRequests: "総リクエスト数",
+            totalTokens: "Token 消費総量",
+            totalTokensDesc: "入力 + キャッシュ + 出力 + 推論",
+            tpm: "TPM",
+            tpmDesc: "1分あたり Token 数",
             running: "稼働中",
             totalConfigured: "設定済み合計",
             uptime: "稼働率 99.99%",
@@ -480,11 +503,29 @@ export default {
             global: "グローバルビュー",
             tenant: "テナントビュー"
         },
-        scopeNotes: "範囲に関する注意: アカウント リクエストは上流アカウントによってカウントされます。テナント API キー リクエストはテナント + API キーでカウントされます。テナント/API キーにバインドされていないリクエストは、アカウント スコープ内でのみカウントされます。",
         subtitle: "グローバルゲートウェイプロキシ指標",
         table: {
             apiKey: "APIキー",
             requests: "リクエスト"
+        },
+        modelDistribution: {
+            description: "リクエスト数または Token 使用量でモデル Top を表示します。",
+            empty: "モデル分布データはまだありません",
+            modeRequests: "リクエスト数で表示",
+            modeTokens: "Token 量で表示",
+            other: "その他",
+            title: "モデルリクエスト分布"
+        },
+        tokenComponents: {
+            cached: "キャッシュ入力",
+            input: "入力",
+            output: "出力",
+            reasoning: "推論"
+        },
+        tokenTrend: {
+            description: "Token コンポーネントごとの時間別トレンド。表示切替で消費元を絞り込めます。",
+            empty: "Token トレンドデータはまだありません",
+            title: "Token 使用トレンド"
         },
         title: "概要",
         topApiKeys: {
@@ -1057,7 +1098,7 @@ export default {
         openNavigation: "ナビゲーションを開く",
         proxies: "プロキシ",
         system: "システム状態",
-        tenants: "テナント",
+        tenants: "テナントプール",
         usage: "利用状況",
         cleanup: "クリーンアップ",
         closeNavigation: "ナビゲーションを閉じる"
@@ -1070,6 +1111,43 @@ export default {
         sessionExpired: {
             title: "ログイン状態が期限切れです",
             description: "続行するには再度ログインしてください。"
+        }
+    },
+    errors: {
+        common: {
+            failed: "失敗",
+            network: "ネットワークエラーです。接続を確認してください。",
+            timeout: "タイムアウトしました。しばらくしてから再試行してください。"
+        },
+        api: {
+            unauthorized: "認証に失敗しました。もう一度ログインしてください。",
+            invalidRequest: "無効なリクエストです。",
+            notFound: "リソースが見つかりません。",
+            serviceUnavailable: "サービスを利用できません。",
+            internalError: "サーバー内部エラーです。",
+            oauthProviderNotConfigured: "OAuth プロバイダーが設定されていません。",
+            oauthCallbackListenerUnavailable: "OAuth コールバックリスナーが利用できません。",
+            invalidRefreshToken: "リフレッシュトークンが無効または期限切れです。",
+            refreshTokenReused: "リフレッシュトークンが再利用されています。最新のトークンを取得してください。",
+            refreshTokenRevoked: "リフレッシュトークンが失効しました。",
+            oauthMissingClientId: "OAuth プロバイダーの設定が不完全です（client_id がありません）。",
+            oauthUnauthorizedClient: "OAuth クライアントが未認可です。",
+            upstreamUnavailable: "上流サービスを利用できません。",
+            upstreamNetworkError: "上流ネットワークエラーです。",
+            oauthExchangeFailed: "OAuth 交換に失敗しました。"
+        },
+        http: {
+            badRequest: "不正なリクエスト",
+            unauthorized: "未認証",
+            forbidden: "権限がありません",
+            notFound: "見つかりません",
+            conflict: "競合",
+            payloadTooLarge: "ペイロードが大きすぎます",
+            rateLimited: "レート制限",
+            internalServerError: "サーバーエラー",
+            badGateway: "不正なゲートウェイ",
+            serviceUnavailable: "サービス利用不可",
+            gatewayTimeout: "ゲートウェイタイムアウト"
         }
     },
     proxies: {
@@ -1349,7 +1427,7 @@ export default {
             crossAccountFailover: "クロスアカウントフェイルオーバー",
             retrySameAccount: "同じアカウントを再試行",
             returnFailure: "返品失敗",
-            unknown: "不明（{{value}}）"
+            unknown: "不明"
         },
         failureReason: {
             accountDeactivated: "アカウントが無効化されました",
@@ -1360,7 +1438,7 @@ export default {
             tokenInvalidated: "トークンが無効になりました",
             transportError: "トランスポートエラー",
             upstreamRequestFailed: "アップストリームリクエストが失敗しました",
-            unknown: "不明（{{value}}）"
+            unknown: "不明"
         },
         filters: {
             day: "日",
@@ -1396,7 +1474,7 @@ export default {
                     output: "出力",
                     summary: "まとめ"
                 },
-                upstreamStatus: "上流のステータス"
+                upstreamStatus: "上流 {{status}}"
             },
             empty: "空の",
             requestTypes: {
@@ -1422,7 +1500,7 @@ export default {
             streamUsageMissing: "ストリーム使用量がありません",
             transportError: "トランスポートエラー",
             upstreamRequestFailed: "アップストリームリクエストが失敗しました",
-            unknown: "不明（{{value}}）"
+            unknown: "不明"
         },
         snapshot: {
             columns: {
@@ -1464,6 +1542,18 @@ export default {
             refresh: "リフレッシュ",
             viewBilling: "請求内容を表示する",
             viewRequestLogs: "リクエストログの表示"
+        },
+        kpi: {
+            avgFirstTokenSpeed: "平均ファーストトークンスピード",
+            avgFirstTokenSpeedDesc: "TTFT（ストリーミング精密 / 非ストリーミング近似）",
+            rpm: "RPM",
+            rpmDesc: "1分あたりリクエスト数",
+            totalRequests: "総リクエスト数",
+            totalRequestsDesc: "選択した時間範囲",
+            totalTokens: "Token 消費総量",
+            totalTokensDesc: "入力 + キャッシュ + 出力 + 推論",
+            tpm: "TPM",
+            tpmDesc: "1分あたり Token 数"
         },
         cards: {
             activeKeys: {
@@ -1513,9 +1603,32 @@ export default {
         },
         subtitle: {
             allApiKeys: "(すべての API キー)",
+            metricsFocus: "注目指標: TPM、RPM、Token 消費総量、総リクエスト数、ファーストトークンスピード。",
             scopePrefix: "範囲: 現在のテナント",
             singleApiKey: "(単一の API キー)",
             timeWindow: "、時間枠:"
+        },
+        modelDistribution: {
+            description: "リクエスト数または Token 使用量でモデル Top を表示します。",
+            empty: "モデル分布データはまだありません",
+            modeRequests: "リクエスト数で表示",
+            modeTokens: "Token 量で表示",
+            other: "その他",
+            title: "モデルリクエスト分布"
+        },
+        tokenComponents: {
+            cached: "キャッシュ入力",
+            input: "入力",
+            output: "出力",
+            reasoning: "推論"
+        },
+        tokenSummary: {
+            title: "Token コンポーネント集計"
+        },
+        tokenTrend: {
+            description: "Token コンポーネントごとの時間別トレンド。表示切替で消費元を絞り込めます。",
+            empty: "Token トレンドデータはまだありません",
+            title: "Token 使用トレンド"
         },
         topKeys: {
             description: "選択期間のリクエスト量に基づく",

@@ -10,6 +10,7 @@ import { useSearchParams } from 'react-router-dom'
 
 import { adminTenantsApi } from '@/api/adminTenants'
 import { auditLogsApi, type AuditLogItem } from '@/api/auditLogs'
+import { localizeRequestLogErrorDisplay } from '@/api/errorI18n'
 import { logsApi, type SystemLogEntry } from '@/api/logs'
 import { requestLogsApi, type RequestAuditLogItem } from '@/api/requestLogs'
 import { Button } from '@/components/ui/button'
@@ -491,8 +492,16 @@ export default function Logs() {
       {
         id: 'errorCode',
         header: t('logs.request.columns.errorCode', { defaultValue: 'Error' }),
-        accessorFn: (row) => (row.error_code ?? '').toLowerCase(),
-        cell: ({ row }) => <span className="font-mono text-xs">{row.original.error_code ?? '-'}</span>,
+        accessorFn: (row) =>
+          localizeRequestLogErrorDisplay(t, row.error_code, row.status_code).label.toLowerCase(),
+        cell: ({ row }) => {
+          const display = localizeRequestLogErrorDisplay(t, row.original.error_code, row.original.status_code)
+          return (
+            <span className="text-xs" title={display.tooltip}>
+              {display.label}
+            </span>
+          )
+        },
       },
     ],
     [t],

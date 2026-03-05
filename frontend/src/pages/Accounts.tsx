@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { TFunction } from 'i18next'
 import { motion } from 'framer-motion'
 import { ChevronDown, Download, Plus, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -11,7 +12,8 @@ import {
   type OAuthRateLimitRefreshJobSummary,
   type UpstreamAccount,
 } from '@/api/accounts'
-import { extractApiErrorMessage, extractApiErrorStatus } from '@/api/client'
+import { extractApiErrorStatus } from '@/api/client'
+import { localizeApiErrorDisplay, localizeOAuthErrorCodeDisplay } from '@/api/errorI18n'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -67,6 +69,27 @@ const BATCH_CONCURRENCY: Record<AccountBatchAction, number> = {
   refreshLogin: 4,
   pauseFamily: 6,
   resumeFamily: 6,
+}
+
+function localizeRateLimitRefreshJobStatus(
+  t: TFunction,
+  status: string | null | undefined,
+): string {
+  const normalized = (status ?? '').trim().toLowerCase()
+  switch (normalized) {
+    case 'queued':
+      return t('accounts.rateLimitRefreshJobStatus.queued', { defaultValue: 'Queued' })
+    case 'running':
+      return t('accounts.rateLimitRefreshJobStatus.running', { defaultValue: 'Running' })
+    case 'completed':
+      return t('accounts.rateLimitRefreshJobStatus.completed', { defaultValue: 'Completed' })
+    case 'failed':
+      return t('accounts.rateLimitRefreshJobStatus.failed', { defaultValue: 'Failed' })
+    case 'cancelled':
+      return t('accounts.rateLimitRefreshJobStatus.cancelled', { defaultValue: 'Cancelled' })
+    default:
+      return t('accounts.rateLimitRefreshJobStatus.unknown', { defaultValue: 'Unknown' })
+  }
 }
 
 export default function Accounts() {
@@ -166,10 +189,9 @@ export default function Accounts() {
     queryClient.invalidateQueries({ queryKey: ['upstreamAccounts'] })
   }, [queryClient])
 
-  const resolveErrorMessage = useCallback(
-    (error: unknown, fallback: string) =>
-      extractApiErrorMessage(error) ?? (error instanceof Error ? error.message : fallback),
-    [],
+  const resolveErrorLabel = useCallback(
+    (error: unknown, fallback: string) => localizeApiErrorDisplay(t, error, fallback).label,
+    [t],
   )
 
   const handleRefreshAccounts = useCallback(async () => {
@@ -200,14 +222,14 @@ export default function Accounts() {
         }
       }
 
-      if (latest.status === 'failed' || latest.status === 'cancelled') {
-        const errorSummary = (latest.error_summary ?? [])
-          .slice(0, 3)
-          .map((item) => `${item.error_code}(${item.count})`)
-          .join(', ')
-        if (errorSummary) {
-          throw new Error(
-            t('accounts.messages.rateLimitRefreshFailedSummary', {
+	      if (latest.status === 'failed' || latest.status === 'cancelled') {
+	        const errorSummary = (latest.error_summary ?? [])
+	          .slice(0, 3)
+	          .map((item) => `${localizeOAuthErrorCodeDisplay(t, item.error_code).label}(${item.count})`)
+	          .join(', ')
+	        if (errorSummary) {
+	          throw new Error(
+	            t('accounts.messages.rateLimitRefreshFailedSummary', {
               defaultValue: 'Rate-limit refresh job failed: {{summary}}',
               summary: errorSummary,
             }),
@@ -216,7 +238,7 @@ export default function Accounts() {
         throw new Error(
           t('accounts.messages.rateLimitRefreshFailedStatus', {
             defaultValue: 'Rate-limit refresh job failed, status={{status}}',
-            status: latest.status,
+            status: localizeRateLimitRefreshJobStatus(t, latest.status),
           }),
         )
       }
@@ -239,7 +261,7 @@ export default function Accounts() {
       notify({
         variant: 'error',
         title: t('accounts.messages.refreshListFailed', { defaultValue: 'Refresh List Failed' }),
-        description: resolveErrorMessage(
+        description: resolveErrorLabel(
           error,
           t('accounts.messages.requestFailed', { defaultValue: 'Request failed. Please try again later.' }),
         ),
@@ -247,14 +269,14 @@ export default function Accounts() {
     } finally {
       setIsManualRefreshing(false)
     }
-  }, [
-    isManualRefreshing,
-    oauthAccountIds.length,
-    refetchAccounts,
-    refetchOAuthStatuses,
-    resolveErrorMessage,
-    t,
-  ])
+	  }, [
+	    isManualRefreshing,
+	    oauthAccountIds.length,
+	    refetchAccounts,
+	    refetchOAuthStatuses,
+	    resolveErrorLabel,
+	    t,
+	  ])
 
   const performSetEnabled = useCallback(
     async (accountId: string, enabled: boolean) => {
@@ -309,7 +331,7 @@ export default function Accounts() {
       notify({
         variant: 'error',
         title: t('accounts.messages.refreshFailed', { defaultValue: 'Login refresh failed' }),
-        description: resolveErrorMessage(
+        description: resolveErrorLabel(
           error,
           t('accounts.messages.requestFailed', { defaultValue: 'Request failed. Please try again later.' }),
         ),
@@ -335,7 +357,7 @@ export default function Accounts() {
         title: variables.enabled
           ? t('accounts.messages.enableFailed', { defaultValue: 'Failed to enable account' })
           : t('accounts.messages.disableFailed', { defaultValue: 'Failed to disable account' }),
-        description: resolveErrorMessage(
+        description: resolveErrorLabel(
           error,
           t('accounts.messages.requestFailed', { defaultValue: 'Request failed. Please try again later.' }),
         ),
@@ -356,7 +378,7 @@ export default function Accounts() {
       notify({
         variant: 'error',
         title: t('accounts.messages.deleteFailed', { defaultValue: 'Failed to delete account' }),
-        description: resolveErrorMessage(
+        description: resolveErrorLabel(
           error,
           t('accounts.messages.requestFailed', { defaultValue: 'Request failed. Please try again later.' }),
         ),
@@ -377,7 +399,7 @@ export default function Accounts() {
       notify({
         variant: 'error',
         title: t('accounts.messages.pauseFamilyFailed', { defaultValue: 'Failed to pause linked accounts' }),
-        description: resolveErrorMessage(
+        description: resolveErrorLabel(
           error,
           t('accounts.messages.requestFailed', { defaultValue: 'Request failed. Please try again later.' }),
         ),
@@ -398,7 +420,7 @@ export default function Accounts() {
       notify({
         variant: 'error',
         title: t('accounts.messages.resumeFamilyFailed', { defaultValue: 'Failed to resume linked accounts' }),
-        description: resolveErrorMessage(
+        description: resolveErrorLabel(
           error,
           t('accounts.messages.requestFailed', { defaultValue: 'Request failed. Please try again later.' }),
         ),
@@ -673,22 +695,23 @@ export default function Accounts() {
 
         try {
           const batchResponse = await accountsApi.batchOperate(action, targetIds)
-          batchResponse.items.forEach((item) => {
-            if (item.ok) {
-              succeededIds.push(item.account_id)
-              if (action === 'refreshLogin' && item.job_id) {
+	          batchResponse.items.forEach((item) => {
+	            if (item.ok) {
+	              succeededIds.push(item.account_id)
+	              if (action === 'refreshLogin' && item.job_id) {
                 addRecentImportJobId(item.job_id)
               }
               return
-            }
-            failed += 1
-            setFirstErrorMessage(
-              item.error?.message
-              ?? t('accounts.messages.batchUnknownError', {
-                defaultValue: 'Batch operation failed',
-              }),
-            )
-          })
+	            }
+	            failed += 1
+	            setFirstErrorMessage(
+	              item.error
+	                ? localizeOAuthErrorCodeDisplay(t, item.error.code).label
+	                : t('accounts.messages.batchUnknownError', {
+	                    defaultValue: 'Batch operation failed',
+	                  }),
+	            )
+	          })
         } catch (error) {
           const status = extractApiErrorStatus(error)
           if (status !== 404 && status !== 405 && status !== 501) {
@@ -715,14 +738,14 @@ export default function Accounts() {
               addRecentImportJobId((result.value as { job_id: string }).job_id)
             }
           })
-          failures.forEach((result) => {
-            setFirstErrorMessage(
-              resolveErrorMessage(
-                result.error,
-                t('accounts.messages.batchUnknownError', { defaultValue: 'Batch operation failed' }),
-              ),
-            )
-          })
+	          failures.forEach((result) => {
+	            setFirstErrorMessage(
+	              resolveErrorLabel(
+	                result.error,
+	                t('accounts.messages.batchUnknownError', { defaultValue: 'Batch operation failed' }),
+	              ),
+	            )
+	          })
           failed = failures.length
         }
 
@@ -779,12 +802,12 @@ export default function Accounts() {
       confirm,
       invalidateAccountQueries,
       isBatchOperating,
-      performSetEnabled,
-      resolveErrorMessage,
-      selectedAccounts,
-      selectedFamilyActionAccountIds,
-      selectedRefreshableAccountIds,
-      t,
+	      performSetEnabled,
+	      resolveErrorLabel,
+	      selectedAccounts,
+	      selectedFamilyActionAccountIds,
+	      selectedRefreshableAccountIds,
+	      t,
     ],
   )
 

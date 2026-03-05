@@ -9,9 +9,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
   extractApiErrorCode,
-  extractApiErrorMessage,
   extractApiErrorStatus,
 } from '@/api/client'
+import { localizeApiErrorDisplay } from '@/api/errorI18n'
 import { notify } from '@/lib/notification'
 
 interface LoginProps {
@@ -40,16 +40,17 @@ export default function Login({ onLogin }: LoginProps) {
     } catch (err) {
       const code = extractApiErrorCode(err)
       const status = extractApiErrorStatus(err)
-      const rawMessage = extractApiErrorMessage(err)
 
       if (status === 401 || code === 'unauthorized') {
         // 401 由全局拦截器统一触发 notification，避免重复提示。
         return
       } else {
+        const fallback = t('login.messages.failed')
+        const display = localizeApiErrorDisplay(t, err, fallback)
         notify({
           variant: 'error',
           title: t('notifications.loginFailed.title'),
-          description: rawMessage || t('login.messages.failed'),
+          description: display.label,
         })
       }
     } finally {

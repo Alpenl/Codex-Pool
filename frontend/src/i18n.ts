@@ -99,6 +99,10 @@ async function ensureSupportedLanguage(language?: string | null) {
     }
 }
 
+export async function setAppLanguage(language?: string | null) {
+    await ensureSupportedLanguage(language)
+}
+
 const initPromise = i18n
     .use(LanguageDetector)
     .use(initReactI18next)

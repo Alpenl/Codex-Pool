@@ -11,6 +11,7 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import type { OAuthAccountStatusResponse, UpstreamAccount } from '@/api/accounts'
+import { localizeOAuthErrorCodeDisplay } from '@/api/errorI18n'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -190,14 +191,14 @@ export function useAccountsColumns({
 
           if (status.last_refresh_status === 'failed') {
             const statusLabel = getRefreshStatusLabel(status.last_refresh_status, t)
-            const errorCode = status.last_refresh_error_code ?? t('accounts.oauth.unknownError')
+            const errorDisplay = localizeOAuthErrorCodeDisplay(t, status.last_refresh_error_code)
             return (
               <div className={cn(cellClass, 'flex flex-col items-start justify-center gap-0.5')}>
                 <Badge variant="destructive" className="w-fit max-w-full truncate" title={statusLabel}>
                   {statusLabel}
                 </Badge>
-                <div className="max-w-full truncate text-[11px] text-muted-foreground" title={errorCode}>
-                  {errorCode}
+                <div className="max-w-full truncate text-[11px] text-muted-foreground" title={errorDisplay.tooltip}>
+                  {errorDisplay.label}
                 </div>
               </div>
             )

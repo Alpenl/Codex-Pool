@@ -10,7 +10,7 @@ import {
   type CodexOAuthLoginSession,
   type CodexOAuthLoginSessionStatus,
 } from '@/api/oauthImport'
-import { extractApiErrorMessage } from '@/api/client'
+import { localizeApiErrorDisplay } from '@/api/errorI18n'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -105,8 +105,7 @@ export default function OAuthImport() {
       notify({
         variant: 'error',
         title: t('oauthImport.notifications.sessionCreateFailedTitle'),
-        description:
-          extractApiErrorMessage(error) ?? t('oauthImport.notifications.unknownError'),
+        description: localizeApiErrorDisplay(t, error, t('oauthImport.notifications.unknownError')).label,
       })
     },
   })
@@ -133,8 +132,7 @@ export default function OAuthImport() {
       notify({
         variant: 'error',
         title: t('oauthImport.notifications.manualSubmitFailedTitle'),
-        description:
-          extractApiErrorMessage(error) ?? t('oauthImport.notifications.unknownError'),
+        description: localizeApiErrorDisplay(t, error, t('oauthImport.notifications.unknownError')).label,
       })
     },
   })

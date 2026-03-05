@@ -146,6 +146,14 @@ export default {
             toggleUnsupported: "Текущая версия бэкенда не поддерживает вкл./откл. аккаунтов. Обновите control-plane.",
             refreshTriggered: "Обновление аккаунтов запущено"
         },
+        rateLimitRefreshJobStatus: {
+            queued: "В очереди",
+            running: "Выполняется",
+            completed: "Завершено",
+            failed: "Ошибка",
+            cancelled: "Отменено",
+            unknown: "Неизвестно"
+        },
         mode: {
             apiKey: "API-ключ",
             chatgptSession: "ЧатGPT OAuth",
@@ -234,7 +242,7 @@ export default {
                 tokenInvalidated: "Токен признан недействительным",
                 transportError: "Ошибка восходящей сети",
                 upstreamRequestFailed: "Восходящий запрос не выполнен",
-                unknown: "Неизвестно ({{value}})"
+                unknown: "Неизвестно"
             },
             details: {
                 accrued: "Начислено: {{value}} кредитов",
@@ -253,7 +261,7 @@ export default {
                 crossAccountFailover: "Отработка отказа между аккаунтами",
                 retrySameAccount: "Повторить ту же учетную запись",
                 returnFailure: "Ошибка возврата",
-                unknown: "Неизвестно ({{value}})"
+                unknown: "Неизвестно"
             },
             releaseReasons: {
                 billingSettleFailed: "Оплата по счету не удалась",
@@ -264,7 +272,7 @@ export default {
                 streamUsageMissing: "Использование потока отсутствует",
                 transportError: "Ошибка восходящей сети",
                 upstreamRequestFailed: "Восходящий запрос не выполнен",
-                unknown: "Неизвестно ({{value}})"
+                unknown: "Неизвестно"
             },
             showRaw: "Показать необработанные записи",
             subtitle: "Отфильтровано по текущему арендатору.",
@@ -456,12 +464,27 @@ export default {
         },
         kpi: {
             activeApiKeysInRange: "Активные ключи API (выбранный диапазон)",
+            accounts: "Аккаунты",
+            accountsDesc: "Операционный показатель только для администратора",
+            apiKeys: "API-ключи",
+            apiKeysDesc: "Количество настроенных ключей в системе",
+            avgFirstTokenSpeed: "Средняя скорость первого токена",
+            avgFirstTokenSpeedDesc: "TTFT (точно для стрима / приблизительно для non-stream)",
             globalScope: "Глобальная область действия",
+            rpm: "RPM",
+            rpmDesc: "Запросов в минуту",
             requests: {
                 apiKey: "Текущие запросы ключей API (выбранный диапазон)",
                 global: "Всего запросов к аккаунту (выбранный диапазон)",
                 tenant: "Текущие запросы ключей API клиента (выбранный диапазон)"
             },
+            tenants: "Арендаторы",
+            tenantsDesc: "Операционный показатель только для администратора",
+            totalRequests: "Всего запросов",
+            totalTokens: "Общий расход Token",
+            totalTokensDesc: "Вход + кэш + выход + reasoning",
+            tpm: "TPM",
+            tpmDesc: "Token в минуту",
             running: "Работает",
             totalConfigured: "Всего настроено",
             uptime: "99.99% Выдано",
@@ -480,11 +503,29 @@ export default {
             global: "Глобальный вид",
             tenant: "Вид арендатора"
         },
-        scopeNotes: "Примечание по объему: запросы учетной записи учитываются по вышестоящей учетной записи; Запросы ключа API арендатора учитываются по формуле арендатор + ключ API. Запросы, не привязанные к ключу клиента/API, учитываются только в области учетной записи.",
         subtitle: "Показатели глобального шлюза",
         table: {
             apiKey: "API-ключ",
             requests: "Запросы"
+        },
+        modelDistribution: {
+            description: "Топ моделей по числу запросов или расходу Token.",
+            empty: "Пока нет данных о распределении моделей",
+            modeRequests: "По запросам",
+            modeTokens: "По Token",
+            other: "Другое",
+            title: "Распределение запросов по моделям"
+        },
+        tokenComponents: {
+            cached: "Кэшированный ввод",
+            input: "Ввод",
+            output: "Вывод",
+            reasoning: "Reasoning"
+        },
+        tokenTrend: {
+            description: "Почасовой тренд Token по компонентам. Переключайте компоненты для фокуса.",
+            empty: "Пока нет данных по тренду Token",
+            title: "Тренд использования Token"
         },
         title: "Обзор системы",
         topApiKeys: {
@@ -1057,7 +1098,7 @@ export default {
         openNavigation: "Открыть навигацию",
         proxies: "Прокси",
         system: "Состояние",
-        tenants: "Арендаторы",
+        tenants: "Пул арендаторов",
         usage: "Статистика",
         cleanup: "Очистка",
         closeNavigation: "Закрыть навигацию"
@@ -1070,6 +1111,43 @@ export default {
         sessionExpired: {
             title: "Сеанс истёк",
             description: "Войдите снова, чтобы продолжить."
+        }
+    },
+    errors: {
+        common: {
+            failed: "Ошибка",
+            network: "Ошибка сети. Проверьте подключение.",
+            timeout: "Время ожидания истекло. Повторите попытку позже."
+        },
+        api: {
+            unauthorized: "Не авторизовано. Войдите снова.",
+            invalidRequest: "Некорректный запрос.",
+            notFound: "Ресурс не найден.",
+            serviceUnavailable: "Сервис недоступен.",
+            internalError: "Внутренняя ошибка сервера.",
+            oauthProviderNotConfigured: "Провайдер OAuth не настроен.",
+            oauthCallbackListenerUnavailable: "Слушатель OAuth callback недоступен.",
+            invalidRefreshToken: "Refresh token недействителен или истёк.",
+            refreshTokenReused: "Refresh token был повторно использован. Получите актуальный refresh token.",
+            refreshTokenRevoked: "Refresh token был отозван.",
+            oauthMissingClientId: "OAuth настроен неверно (нет client_id).",
+            oauthUnauthorizedClient: "OAuth клиент не авторизован.",
+            upstreamUnavailable: "Вышестоящий сервис недоступен.",
+            upstreamNetworkError: "Сетевая ошибка вышестоящего сервиса.",
+            oauthExchangeFailed: "Не удалось выполнить OAuth обмен."
+        },
+        http: {
+            badRequest: "Некорректный запрос",
+            unauthorized: "Не авторизовано",
+            forbidden: "Доступ запрещён",
+            notFound: "Не найдено",
+            conflict: "Конфликт",
+            payloadTooLarge: "Слишком большой запрос",
+            rateLimited: "Превышен лимит",
+            internalServerError: "Ошибка сервера",
+            badGateway: "Плохой шлюз",
+            serviceUnavailable: "Сервис недоступен",
+            gatewayTimeout: "Тайм-аут шлюза"
         }
     },
     proxies: {
@@ -1349,7 +1427,7 @@ export default {
             crossAccountFailover: "Переключение при отказе между учетными записями",
             retrySameAccount: "Повторить ту же учетную запись",
             returnFailure: "Ошибка возврата",
-            unknown: "Неизвестно ({{value}})"
+            unknown: "Неизвестно"
         },
         failureReason: {
             accountDeactivated: "Аккаунт деактивирован",
@@ -1360,7 +1438,7 @@ export default {
             tokenInvalidated: "Токен недействителен",
             transportError: "Ошибка транспорта",
             upstreamRequestFailed: "Восходящий запрос не выполнен",
-            unknown: "Неизвестно ({{value}})"
+            unknown: "Неизвестно"
         },
         filters: {
             day: "День",
@@ -1396,7 +1474,7 @@ export default {
                     output: "Выход",
                     summary: "Краткое содержание"
                 },
-                upstreamStatus: "Статус восходящего потока"
+                upstreamStatus: "Апстрим {{status}}"
             },
             empty: "Пустой",
             requestTypes: {
@@ -1422,7 +1500,7 @@ export default {
             streamUsageMissing: "Использование потока отсутствует",
             transportError: "Ошибка транспорта",
             upstreamRequestFailed: "Восходящий запрос не выполнен",
-            unknown: "Неизвестно ({{value}})"
+            unknown: "Неизвестно"
         },
         snapshot: {
             columns: {
@@ -1464,6 +1542,18 @@ export default {
             refresh: "Обновить",
             viewBilling: "Посмотреть платежные данные",
             viewRequestLogs: "Просмотр журналов запросов"
+        },
+        kpi: {
+            avgFirstTokenSpeed: "Средняя скорость первого токена",
+            avgFirstTokenSpeedDesc: "TTFT (точно для стрима / приблизительно для non-stream)",
+            rpm: "RPM",
+            rpmDesc: "Запросов в минуту",
+            totalRequests: "Всего запросов",
+            totalRequestsDesc: "Выбранный диапазон времени",
+            totalTokens: "Общий расход Token",
+            totalTokensDesc: "Вход + кэш + выход + reasoning",
+            tpm: "TPM",
+            tpmDesc: "Token в минуту"
         },
         cards: {
             activeKeys: {
@@ -1513,9 +1603,32 @@ export default {
         },
         subtitle: {
             allApiKeys: "(все ключи API)",
+            metricsFocus: "Ключевые метрики: TPM, RPM, общий расход Token, число запросов и скорость первого токена.",
             scopePrefix: "Объем: текущий арендатор",
             singleApiKey: "(один ключ API)",
             timeWindow: ", временное окно:"
+        },
+        modelDistribution: {
+            description: "Топ моделей по числу запросов или расходу Token.",
+            empty: "Пока нет данных о распределении моделей",
+            modeRequests: "По запросам",
+            modeTokens: "По Token",
+            other: "Другое",
+            title: "Распределение запросов по моделям"
+        },
+        tokenComponents: {
+            cached: "Кэшированный ввод",
+            input: "Ввод",
+            output: "Вывод",
+            reasoning: "Reasoning"
+        },
+        tokenSummary: {
+            title: "Сводка по компонентам Token"
+        },
+        tokenTrend: {
+            description: "Почасовой тренд Token по компонентам. Переключайте компоненты для фокуса.",
+            empty: "Пока нет данных по тренду Token",
+            title: "Тренд использования Token"
         },
         topKeys: {
             description: "Основано на объеме запросов за выбранный период",

@@ -146,6 +146,14 @@ export default {
             toggleUnsupported: "目前後端版本不支援帳號啟用/停用介面，請升級 control-plane。",
             refreshTriggered: "已觸發帳號刷新"
         },
+        rateLimitRefreshJobStatus: {
+            queued: "排隊中",
+            running: "執行中",
+            completed: "已完成",
+            failed: "失敗",
+            cancelled: "已取消",
+            unknown: "未知"
+        },
         mode: {
             apiKey: "API 金鑰",
             chatgptSession: "ChatGPT OAuth",
@@ -234,7 +242,7 @@ export default {
                 tokenInvalidated: "令牌失效",
                 transportError: "上行網路錯誤",
                 upstreamRequestFailed: "上游請求失敗",
-                unknown: "未知（{{value}}）"
+                unknown: "未知"
             },
             details: {
                 accrued: "應計：{{value}} 積分",
@@ -253,7 +261,7 @@ export default {
                 crossAccountFailover: "跨帳號故障轉移",
                 retrySameAccount: "重試同一帳號",
                 returnFailure: "回傳失敗",
-                unknown: "未知（{{value}}）"
+                unknown: "未知"
             },
             releaseReasons: {
                 billingSettleFailed: "帳單結算失敗",
@@ -264,7 +272,7 @@ export default {
                 streamUsageMissing: "流使用缺失",
                 transportError: "上行網路錯誤",
                 upstreamRequestFailed: "上游請求失敗",
-                unknown: "未知（{{value}}）"
+                unknown: "未知"
             },
             showRaw: "顯示原始條目",
             subtitle: "按當前租戶過濾。",
@@ -456,12 +464,27 @@ export default {
         },
         kpi: {
             activeApiKeysInRange: "活動 API 金鑰（選定範圍）",
+            accounts: "帳號數",
+            accountsDesc: "僅管理員可見的營運指標",
+            apiKeys: "API 金鑰數",
+            apiKeysDesc: "系統已配置金鑰數",
+            avgFirstTokenSpeed: "平均首字速度",
+            avgFirstTokenSpeedDesc: "TTFT（流式精確 / 非流式近似）",
             globalScope: "全球範圍",
+            rpm: "RPM",
+            rpmDesc: "每分鐘請求數",
             requests: {
                 apiKey: "目前 API 金鑰請求（選定範圍）",
                 global: "帳號請求總數（選定範圍）",
                 tenant: "目前租用戶 API 金鑰請求（選定範圍）"
             },
+            tenants: "租戶數",
+            tenantsDesc: "僅管理員可見的營運指標",
+            totalRequests: "總請求數",
+            totalTokens: "Token 消耗總量",
+            totalTokensDesc: "輸入 + 快取 + 輸出 + 推理",
+            tpm: "TPM",
+            tpmDesc: "每分鐘 Token 數",
             running: "運行中",
             totalConfigured: "已配置總數",
             uptime: "99.99% 上線率",
@@ -480,11 +503,29 @@ export default {
             global: "全球視野",
             tenant: "租戶視圖"
         },
-        scopeNotes: "範圍說明：帳號請求依上游帳號統計；租用戶 API 金鑰請求按租用戶 + API 金鑰計數。未綁定到租用戶/API 金鑰的請求僅在帳號範圍內計數。",
-        subtitle: "閘道全域代理指標檢視",
+        subtitle: "閘道全域代理指標視角",
         table: {
             apiKey: "API 金鑰",
             requests: "請求數"
+        },
+        modelDistribution: {
+            description: "依請求數或 Token 用量查看模型 Top 分布。",
+            empty: "暫無模型分布資料",
+            modeRequests: "依請求數",
+            modeTokens: "依 Token",
+            other: "其他",
+            title: "模型請求分布"
+        },
+        tokenComponents: {
+            cached: "快取輸入",
+            input: "輸入",
+            output: "輸出",
+            reasoning: "推理"
+        },
+        tokenTrend: {
+            description: "按小時展示 Token 元件趨勢，可透過開關聚焦消耗來源。",
+            empty: "暫無 Token 趨勢資料",
+            title: "Token 使用趨勢"
         },
         title: "服務總覽",
         topApiKeys: {
@@ -1048,8 +1089,8 @@ export default {
             operations: "營運操作",
             system: "系統管理"
         },
-        importJobs: "上傳匯入",
-        oauthImport: "OAuth 登入匯入",
+        importJobs: "批次上傳",
+        oauthImport: "登入匯入",
         logs: "系統日誌",
         mainNavigation: "主導覽",
         models: "模型池",
@@ -1057,7 +1098,7 @@ export default {
         openNavigation: "開啟導覽",
         proxies: "代理池",
         system: "節點健康",
-        tenants: "租戶",
+        tenants: "租戶池",
         usage: "用量帳單",
         cleanup: "憑證治理",
         closeNavigation: "關閉導覽"
@@ -1070,6 +1111,43 @@ export default {
         sessionExpired: {
             title: "登入狀態已過期",
             description: "請重新登入後再繼續操作。"
+        }
+    },
+    errors: {
+        common: {
+            failed: "失敗",
+            network: "網路錯誤，請檢查網路連線。",
+            timeout: "請求逾時，請稍後再試。"
+        },
+        api: {
+            unauthorized: "未授權，請重新登入。",
+            invalidRequest: "請求參數無效。",
+            notFound: "資源不存在。",
+            serviceUnavailable: "服務暫不可用。",
+            internalError: "伺服器內部錯誤。",
+            oauthProviderNotConfigured: "OAuth 服務未設定。",
+            oauthCallbackListenerUnavailable: "OAuth 回呼監聽不可用。",
+            invalidRefreshToken: "Refresh token 無效或已過期。",
+            refreshTokenReused: "Refresh token 已重複使用，請重新取得最新 refresh token。",
+            refreshTokenRevoked: "Refresh token 已被撤銷。",
+            oauthMissingClientId: "OAuth 服務設定不完整（缺少 client_id）。",
+            oauthUnauthorizedClient: "OAuth 用戶端未授權。",
+            upstreamUnavailable: "上游服務不可用。",
+            upstreamNetworkError: "上游網路錯誤。",
+            oauthExchangeFailed: "OAuth 交換失敗。"
+        },
+        http: {
+            badRequest: "請求錯誤",
+            unauthorized: "未授權",
+            forbidden: "無權限",
+            notFound: "未找到",
+            conflict: "衝突",
+            payloadTooLarge: "請求內容過大",
+            rateLimited: "請求過於頻繁",
+            internalServerError: "伺服器錯誤",
+            badGateway: "閘道錯誤",
+            serviceUnavailable: "服務不可用",
+            gatewayTimeout: "閘道逾時"
         }
     },
     proxies: {
@@ -1349,7 +1427,7 @@ export default {
             crossAccountFailover: "跨帳號故障轉移",
             retrySameAccount: "重試同一帳號",
             returnFailure: "回傳失敗",
-            unknown: "未知（{{value}}）"
+            unknown: "未知"
         },
         failureReason: {
             accountDeactivated: "帳號已停用",
@@ -1360,7 +1438,7 @@ export default {
             tokenInvalidated: "令牌失效",
             transportError: "傳輸錯誤",
             upstreamRequestFailed: "上游請求失敗",
-            unknown: "未知（{{value}}）"
+            unknown: "未知"
         },
         filters: {
             day: "按日",
@@ -1396,7 +1474,7 @@ export default {
                     output: "輸出",
                     summary: "單價彙總"
                 },
-                upstreamStatus: "上游狀態"
+                upstreamStatus: "上游 {{status}}"
             },
             empty: "暫無帳本流水",
             requestTypes: {
@@ -1422,7 +1500,7 @@ export default {
             streamUsageMissing: "流使用缺失",
             transportError: "傳輸錯誤",
             upstreamRequestFailed: "上游請求失敗",
-            unknown: "未知（{{value}}）"
+            unknown: "未知"
         },
         snapshot: {
             columns: {
@@ -1464,6 +1542,18 @@ export default {
             refresh: "刷新",
             viewBilling: "檢視帳單",
             viewRequestLogs: "查看請求日誌"
+        },
+        kpi: {
+            avgFirstTokenSpeed: "平均首字速度",
+            avgFirstTokenSpeedDesc: "TTFT（流式精確 / 非流式近似）",
+            rpm: "RPM",
+            rpmDesc: "每分鐘請求數",
+            totalRequests: "總請求數",
+            totalRequestsDesc: "所選時間範圍",
+            totalTokens: "Token 消耗總量",
+            totalTokensDesc: "輸入 + 快取 + 輸出 + 推理",
+            tpm: "TPM",
+            tpmDesc: "每分鐘 Token 數"
         },
         cards: {
             activeKeys: {
@@ -1513,9 +1603,32 @@ export default {
         },
         subtitle: {
             allApiKeys: "（所有 API 金鑰）",
+            metricsFocus: "關注指標：TPM、RPM、Token 消耗總量、總請求數與首字速度。",
             scopePrefix: "範圍：目前租戶",
             singleApiKey: "（單一 API 金鑰）",
             timeWindow: "，時間窗口："
+        },
+        modelDistribution: {
+            description: "依請求數或 Token 用量查看模型 Top 分布。",
+            empty: "暫無模型分布資料",
+            modeRequests: "依請求數",
+            modeTokens: "依 Token",
+            other: "其他",
+            title: "模型請求分布"
+        },
+        tokenComponents: {
+            cached: "快取輸入",
+            input: "輸入",
+            output: "輸出",
+            reasoning: "推理"
+        },
+        tokenSummary: {
+            title: "Token 元件彙總"
+        },
+        tokenTrend: {
+            description: "按小時展示 Token 元件趨勢，可透過開關聚焦消耗來源。",
+            empty: "暫無 Token 趨勢資料",
+            title: "Token 使用趨勢"
         },
         topKeys: {
             description: "依所選期間的請求量排序",

@@ -146,6 +146,14 @@ export default {
             toggleUnsupported: "当前后端版本不支持账号启用/禁用接口，请升级 control-plane。",
             refreshTriggered: "已触发账号刷新"
         },
+        rateLimitRefreshJobStatus: {
+            queued: "排队中",
+            running: "运行中",
+            completed: "已完成",
+            failed: "失败",
+            cancelled: "已取消",
+            unknown: "未知"
+        },
         mode: {
             apiKey: "API 密钥",
             chatgptSession: "ChatGPT OAuth",
@@ -234,7 +242,7 @@ export default {
                 tokenInvalidated: "令牌失效",
                 transportError: "上行网络错误",
                 upstreamRequestFailed: "上游请求失败",
-                unknown: "未知（{{value}}）"
+                unknown: "未知"
             },
             details: {
                 accrued: "应计：{{value}} 积分",
@@ -253,7 +261,7 @@ export default {
                 crossAccountFailover: "跨账号故障转移",
                 retrySameAccount: "重试同一账号",
                 returnFailure: "返回失败",
-                unknown: "未知（{{value}}）"
+                unknown: "未知"
             },
             releaseReasons: {
                 billingSettleFailed: "账单结算失败",
@@ -264,7 +272,7 @@ export default {
                 streamUsageMissing: "流使用缺失",
                 transportError: "上行网络错误",
                 upstreamRequestFailed: "上游请求失败",
-                unknown: "未知（{{value}}）"
+                unknown: "未知"
             },
             showRaw: "显示原始条目",
             subtitle: "按当前租户过滤。",
@@ -456,12 +464,27 @@ export default {
         },
         kpi: {
             activeApiKeysInRange: "活动 API 密钥（选定范围）",
+            accounts: "账号数",
+            accountsDesc: "仅管理员可见的运营指标",
+            apiKeys: "API 密钥数",
+            apiKeysDesc: "系统已配置密钥数",
+            avgFirstTokenSpeed: "平均首字速度",
+            avgFirstTokenSpeedDesc: "TTFT（流式精确 / 非流式近似）",
             globalScope: "全球范围",
+            rpm: "RPM",
+            rpmDesc: "每分钟请求数",
             requests: {
                 apiKey: "当前 API 密钥请求（选定范围）",
                 global: "账号请求总数（选定范围）",
                 tenant: "当前租户 API 密钥请求（选定范围）"
             },
+            tenants: "租户数",
+            tenantsDesc: "仅管理员可见的运营指标",
+            totalRequests: "总请求数",
+            totalTokens: "Token 消耗总量",
+            totalTokensDesc: "输入 + 缓存 + 输出 + 推理",
+            tpm: "TPM",
+            tpmDesc: "每分钟 Token 数",
             running: "运行中",
             totalConfigured: "已配置总数",
             uptime: "99.99% 在线率",
@@ -476,15 +499,33 @@ export default {
             oauthLabel: "OAuth"
         },
         scope: {
-            apiKey: "API 密钥视图",
-            global: "全球视野",
-            tenant: "租户视图"
+            apiKey: "API密钥视角",
+            global: "全局视角",
+            tenant: "租户视角"
         },
-        scopeNotes: "范围说明：账号请求按上游账号统计；租户 API 密钥请求按租户 + API 密钥计数。未绑定到租户/API 密钥的请求仅在账号范围内计数。",
-        subtitle: "网关全局代理指标视图",
+        subtitle: "网关全局代理指标视角",
         table: {
             apiKey: "API 密钥",
             requests: "请求数"
+        },
+        modelDistribution: {
+            description: "按请求数或 Token 用量查看模型 Top 分布。",
+            empty: "暂无模型分布数据",
+            modeRequests: "按请求数",
+            modeTokens: "按 Token",
+            other: "其他",
+            title: "模型请求分布"
+        },
+        tokenComponents: {
+            cached: "缓存输入",
+            input: "输入",
+            output: "输出",
+            reasoning: "推理"
+        },
+        tokenTrend: {
+            description: "按小时展示 Token 组件趋势，可按组件开关聚焦消耗来源。",
+            empty: "暂无 Token 趋势数据",
+            title: "Token 使用趋势"
         },
         title: "服务总览",
         topApiKeys: {
@@ -1048,8 +1089,8 @@ export default {
             operations: "运营操作",
             system: "系统管理"
         },
-        importJobs: "上传导入",
-        oauthImport: "OAuth 登录导入",
+        importJobs: "批量上传",
+        oauthImport: "登录导入",
         logs: "系统日志",
         mainNavigation: "主导航",
         models: "模型池",
@@ -1057,7 +1098,7 @@ export default {
         openNavigation: "打开导航",
         proxies: "代理池",
         system: "节点健康",
-        tenants: "租户",
+        tenants: "租户池",
         usage: "用量账单",
         cleanup: "凭证治理",
         closeNavigation: "关闭导航"
@@ -1070,6 +1111,43 @@ export default {
         sessionExpired: {
             title: "登录状态已过期",
             description: "请重新登录后继续操作。"
+        }
+    },
+    errors: {
+        common: {
+            failed: "失败",
+            network: "网络错误，请检查网络连接。",
+            timeout: "请求超时，请稍后重试。"
+        },
+        api: {
+            unauthorized: "未授权，请重新登录。",
+            invalidRequest: "请求参数无效。",
+            notFound: "资源不存在。",
+            serviceUnavailable: "服务暂不可用。",
+            internalError: "服务器内部错误。",
+            oauthProviderNotConfigured: "OAuth 服务未配置。",
+            oauthCallbackListenerUnavailable: "OAuth 回调监听不可用。",
+            invalidRefreshToken: "Refresh token 无效或已过期。",
+            refreshTokenReused: "Refresh token 已复用，请重新获取最新 refresh token。",
+            refreshTokenRevoked: "Refresh token 已被吊销。",
+            oauthMissingClientId: "OAuth 服务配置不完整（缺少 client_id）。",
+            oauthUnauthorizedClient: "OAuth 客户端未授权。",
+            upstreamUnavailable: "上游服务不可用。",
+            upstreamNetworkError: "上游网络错误。",
+            oauthExchangeFailed: "OAuth 交换失败。"
+        },
+        http: {
+            badRequest: "请求错误",
+            unauthorized: "未授权",
+            forbidden: "无权限",
+            notFound: "未找到",
+            conflict: "冲突",
+            payloadTooLarge: "请求体过大",
+            rateLimited: "请求过于频繁",
+            internalServerError: "服务器错误",
+            badGateway: "网关错误",
+            serviceUnavailable: "服务不可用",
+            gatewayTimeout: "网关超时"
         }
     },
     proxies: {
@@ -1349,7 +1427,7 @@ export default {
             crossAccountFailover: "跨账号故障转移",
             retrySameAccount: "重试同一账号",
             returnFailure: "返回失败",
-            unknown: "未知（{{value}}）"
+            unknown: "未知"
         },
         failureReason: {
             accountDeactivated: "账号已停用",
@@ -1360,7 +1438,7 @@ export default {
             tokenInvalidated: "令牌失效",
             transportError: "传输错误",
             upstreamRequestFailed: "上游请求失败",
-            unknown: "未知（{{value}}）"
+            unknown: "未知"
         },
         filters: {
             day: "按日",
@@ -1396,7 +1474,7 @@ export default {
                     output: "输出",
                     summary: "单价汇总"
                 },
-                upstreamStatus: "上游状态"
+                upstreamStatus: "上游 {{status}}"
             },
             empty: "暂无账本流水",
             requestTypes: {
@@ -1422,7 +1500,7 @@ export default {
             streamUsageMissing: "流使用缺失",
             transportError: "传输错误",
             upstreamRequestFailed: "上游请求失败",
-            unknown: "未知（{{value}}）"
+            unknown: "未知"
         },
         snapshot: {
             columns: {
@@ -1464,6 +1542,18 @@ export default {
             refresh: "刷新",
             viewBilling: "查看账单",
             viewRequestLogs: "查看请求日志"
+        },
+        kpi: {
+            avgFirstTokenSpeed: "平均首字速度",
+            avgFirstTokenSpeedDesc: "TTFT（流式精确 / 非流式近似）",
+            rpm: "RPM",
+            rpmDesc: "每分钟请求数",
+            totalRequests: "总请求数",
+            totalRequestsDesc: "所选时间范围",
+            totalTokens: "Token 消耗总量",
+            totalTokensDesc: "输入 + 缓存 + 输出 + 推理",
+            tpm: "TPM",
+            tpmDesc: "每分钟 Token 数"
         },
         cards: {
             activeKeys: {
@@ -1513,9 +1603,32 @@ export default {
         },
         subtitle: {
             allApiKeys: "（所有 API 密钥）",
+            metricsFocus: "关注指标：TPM、RPM、Token 消耗总量、总请求数与首字速度。",
             scopePrefix: "范围：当前租户",
             singleApiKey: "（单个 API 密钥）",
             timeWindow: "，时间窗口："
+        },
+        modelDistribution: {
+            description: "按请求数或 Token 用量查看模型 Top 分布。",
+            empty: "暂无模型分布数据",
+            modeRequests: "按请求数",
+            modeTokens: "按 Token",
+            other: "其他",
+            title: "模型请求分布"
+        },
+        tokenComponents: {
+            cached: "缓存输入",
+            input: "输入",
+            output: "输出",
+            reasoning: "推理"
+        },
+        tokenSummary: {
+            title: "Token 组件汇总"
+        },
+        tokenTrend: {
+            description: "按小时展示 Token 组件趋势，可按组件开关聚焦消耗来源。",
+            empty: "暂无 Token 趋势数据",
+            title: "Token 使用趋势"
         },
         topKeys: {
             description: "基于所选时间范围内的请求量",

@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
 import { auditLogsApi, type AuditLogItem } from '@/api/auditLogs'
+import { localizeRequestLogErrorDisplay } from '@/api/errorI18n'
 import { requestLogsApi, type RequestAuditLogItem } from '@/api/requestLogs'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -217,8 +218,16 @@ export function TenantLogsPage() {
       {
         id: 'errorCode',
         header: t('tenantLogs.request.columns.error', { defaultValue: 'Error' }),
-        accessorFn: (row) => (row.error_code ?? '').toLowerCase(),
-        cell: ({ row }) => <span className="font-mono text-xs">{row.original.error_code ?? '-'}</span>,
+        accessorFn: (row) =>
+          localizeRequestLogErrorDisplay(t, row.error_code, row.status_code).label.toLowerCase(),
+        cell: ({ row }) => {
+          const display = localizeRequestLogErrorDisplay(t, row.original.error_code, row.original.status_code)
+          return (
+            <span className="text-xs" title={display.tooltip}>
+              {display.label}
+            </span>
+          )
+        },
       },
     ],
     [t],

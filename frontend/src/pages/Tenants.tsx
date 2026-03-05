@@ -10,7 +10,8 @@ import {
   type AdminImpersonateResponse,
   type AdminTenantItem,
 } from '@/api/adminTenants'
-import { apiClient, extractApiErrorMessage } from '@/api/client'
+import { apiClient } from '@/api/client'
+import { localizeApiErrorDisplay } from '@/api/errorI18n'
 import { apiKeysApi, type ApiKey, type CreateApiKeyResponse } from '@/api/settings'
 import type { UsageSummaryQueryResponse } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
@@ -158,8 +159,10 @@ export default function Tenants() {
       setCreateForm({ name: '', status: 'active', plan: 'credit', expires_at: '' })
       queryClient.invalidateQueries({ queryKey: ['adminTenants'] })
     },
-    onError: (err) =>
-      setError(extractApiErrorMessage(err) || t('tenants.messages.createFailed', { defaultValue: 'Failed to create tenant' })),
+    onError: (err) => {
+      const fallback = t('tenants.messages.createFailed', { defaultValue: 'Failed to create tenant' })
+      setError(localizeApiErrorDisplay(t, err, fallback).label)
+    },
   })
 
   const patchTenantMutation = useMutation({
@@ -183,8 +186,10 @@ export default function Tenants() {
       )
       queryClient.invalidateQueries({ queryKey: ['adminTenants'] })
     },
-    onError: (err) =>
-      setError(extractApiErrorMessage(err) || t('tenants.messages.updateFailed', { defaultValue: 'Failed to update tenant' })),
+    onError: (err) => {
+      const fallback = t('tenants.messages.updateFailed', { defaultValue: 'Failed to update tenant' })
+      setError(localizeApiErrorDisplay(t, err, fallback).label)
+    },
   })
 
   const rechargeMutation = useMutation({
@@ -207,8 +212,10 @@ export default function Tenants() {
         }),
       )
     },
-    onError: (err) =>
-      setError(extractApiErrorMessage(err) || t('tenants.messages.rechargeFailed', { defaultValue: 'Failed to recharge tenant' })),
+    onError: (err) => {
+      const fallback = t('tenants.messages.rechargeFailed', { defaultValue: 'Failed to recharge tenant' })
+      setError(localizeApiErrorDisplay(t, err, fallback).label)
+    },
   })
 
   const impersonationMutation = useMutation({
@@ -226,8 +233,12 @@ export default function Tenants() {
       setLastImpersonation(response)
       setNotice(t('tenants.messages.impersonationCreated', { defaultValue: 'Impersonation session created (token returned)' }))
     },
-    onError: (err) =>
-      setError(extractApiErrorMessage(err) || t('tenants.messages.impersonationCreateFailed', { defaultValue: 'Failed to create impersonation' })),
+    onError: (err) => {
+      const fallback = t('tenants.messages.impersonationCreateFailed', {
+        defaultValue: 'Failed to create impersonation',
+      })
+      setError(localizeApiErrorDisplay(t, err, fallback).label)
+    },
   })
 
   const revokeImpersonationMutation = useMutation({
@@ -237,8 +248,12 @@ export default function Tenants() {
       setNotice(t('tenants.messages.impersonationRevoked', { defaultValue: 'Impersonation session revoked' }))
       setLastImpersonation(null)
     },
-    onError: (err) =>
-      setError(extractApiErrorMessage(err) || t('tenants.messages.impersonationRevokeFailed', { defaultValue: 'Failed to revoke impersonation' })),
+    onError: (err) => {
+      const fallback = t('tenants.messages.impersonationRevokeFailed', {
+        defaultValue: 'Failed to revoke impersonation',
+      })
+      setError(localizeApiErrorDisplay(t, err, fallback).label)
+    },
   })
 
   const createKeyMutation = useMutation({
@@ -265,8 +280,10 @@ export default function Tenants() {
       setNewKeyName('')
       queryClient.invalidateQueries({ queryKey: ['apiKeys'] })
     },
-    onError: (err) =>
-      setError(extractApiErrorMessage(err) || t('tenants.messages.apiKeyCreateFailed', { defaultValue: 'Failed to create API key' })),
+    onError: (err) => {
+      const fallback = t('tenants.messages.apiKeyCreateFailed', { defaultValue: 'Failed to create API key' })
+      setError(localizeApiErrorDisplay(t, err, fallback).label)
+    },
   })
 
   const toggleKeyMutation = useMutation({
@@ -278,8 +295,12 @@ export default function Tenants() {
       setError(null)
       queryClient.invalidateQueries({ queryKey: ['apiKeys'] })
     },
-    onError: (err) =>
-      setError(extractApiErrorMessage(err) || t('tenants.messages.apiKeyToggleFailed', { defaultValue: 'Failed to update API key status' })),
+    onError: (err) => {
+      const fallback = t('tenants.messages.apiKeyToggleFailed', {
+        defaultValue: 'Failed to update API key status',
+      })
+      setError(localizeApiErrorDisplay(t, err, fallback).label)
+    },
   })
 
   const tenantRows = useMemo(() => {

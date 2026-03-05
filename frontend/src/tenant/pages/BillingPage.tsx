@@ -7,8 +7,10 @@ import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 
 import { billingApi } from '@/api/billing'
+import { localizeApiErrorDisplay, localizeHttpStatusDisplay } from '@/api/errorI18n'
 import { tenantCreditsApi, type TenantCreditLedgerItem } from '@/api/tenantCredits'
 import { notify } from '@/lib/notification'
+import { formatTokenCount } from '@/lib/token-format'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -141,8 +143,9 @@ function asBoolean(value: unknown): boolean | undefined {
 
 function mapCodeToLabel(code: string | undefined, t: TFunction): string | undefined {
   if (!code) return undefined
-  const raw = code.trim()
-  switch (code.trim().toLowerCase()) {
+  const normalized = code.trim()
+  if (!normalized) return undefined
+  switch (normalized.toLowerCase()) {
     case 'token_invalidated':
       return t('tenantBilling.failureReason.tokenInvalidated', { defaultValue: 'Token Invalidated' })
     case 'account_deactivated':
@@ -161,16 +164,16 @@ function mapCodeToLabel(code: string | undefined, t: TFunction): string | undefi
       return t('tenantBilling.failureReason.failoverExhausted', { defaultValue: 'Failover Exhausted' })
     default:
       return t('tenantBilling.failureReason.unknown', {
-        defaultValue: 'Unknown ({{value}})',
-        value: raw || '-',
+        defaultValue: 'Unknown',
       })
   }
 }
 
 function mapReleaseReasonLabel(reason: string | undefined, t: TFunction): string | undefined {
   if (!reason) return undefined
-  const raw = reason.trim()
-  switch (reason.trim().toLowerCase()) {
+  const normalized = reason.trim()
+  if (!normalized) return undefined
+  switch (normalized.toLowerCase()) {
     case 'failover_exhausted':
       return t('tenantBilling.releaseReason.failoverExhausted', { defaultValue: 'Failover Exhausted' })
     case 'no_upstream_account':
@@ -189,16 +192,16 @@ function mapReleaseReasonLabel(reason: string | undefined, t: TFunction): string
       return t('tenantBilling.releaseReason.streamUsageMissing', { defaultValue: 'Stream Usage Missing' })
     default:
       return t('tenantBilling.releaseReason.unknown', {
-        defaultValue: 'Unknown ({{value}})',
-        value: raw || '-',
+        defaultValue: 'Unknown',
       })
   }
 }
 
 function mapFailoverActionLabel(action: string | undefined, t: TFunction): string | undefined {
   if (!action) return undefined
-  const raw = action.trim()
-  switch (action.trim().toLowerCase()) {
+  const normalized = action.trim()
+  if (!normalized) return undefined
+  switch (normalized.toLowerCase()) {
     case 'cross_account_failover':
       return t('tenantBilling.failoverAction.crossAccountFailover', { defaultValue: 'Cross Account Failover' })
     case 'return_failure':
@@ -207,8 +210,7 @@ function mapFailoverActionLabel(action: string | undefined, t: TFunction): strin
       return t('tenantBilling.failoverAction.retrySameAccount', { defaultValue: 'Retry Same Account' })
     default:
       return t('tenantBilling.failoverAction.unknown', {
-        defaultValue: 'Unknown ({{value}})',
-        value: raw || '-',
+        defaultValue: 'Unknown',
       })
   }
 }
@@ -242,6 +244,19 @@ function parseLedgerBillingMeta(item: TenantCreditLedgerItem): LedgerBillingMeta
     recovery_outcome: asString(map.recovery_outcome),
     cross_account_failover_attempted: asBoolean(map.cross_account_failover_attempted),
   }
+}
+
+function buildLedgerFailureTooltip(meta: LedgerBillingMeta | undefined): string | undefined {
+  if (!meta) return undefined
+  const parts: string[] = []
+  if (meta.release_reason) parts.push(`release_reason=${meta.release_reason}`)
+  if (typeof meta.upstream_status_code === 'number') parts.push(`upstream_status_code=${meta.upstream_status_code}`)
+  if (meta.upstream_error_code) parts.push(`upstream_error_code=${meta.upstream_error_code}`)
+  if (meta.failover_action) parts.push(`failover_action=${meta.failover_action}`)
+  if (meta.failover_reason_class) parts.push(`failover_reason_class=${meta.failover_reason_class}`)
+  if (meta.recovery_action) parts.push(`recovery_action=${meta.recovery_action}`)
+  if (meta.recovery_outcome) parts.push(`recovery_outcome=${meta.recovery_outcome}`)
+  return parts.length ? parts.join(' | ') : undefined
 }
 
 function detectLedgerStreamFlag(meta: LedgerBillingMeta | undefined): boolean | undefined {
@@ -327,9 +342,9 @@ function buildLedgerBillingDetailLines(
   ) {
     tokenLineParts.push(t('tenantBilling.ledger.detail.tokenSettle', {
       defaultValue: 'Token Settle',
-      input: billableInputTokens ?? 0,
-      cached: cachedInputTokens ?? 0,
-      output: billableOutputTokens ?? 0,
+      input: formatTokenCount(billableInputTokens ?? 0),
+      cached: formatTokenCount(cachedInputTokens ?? 0),
+      output: formatTokenCount(billableOutputTokens ?? 0),
     }))
   }
 
@@ -402,8 +417,12 @@ function buildLedgerBillingDetailLines(
     const statusPart =
       typeof meta.upstream_status_code === 'number'
         ? t('tenantBilling.ledger.detail.upstreamStatus', {
-            defaultValue: 'Upstream Status',
-            status: meta.upstream_status_code,
+            defaultValue: 'Upstream {{status}}',
+            status: localizeHttpStatusDisplay(
+              t,
+              meta.upstream_status_code,
+              t('errors.common.failed'),
+            ).label,
           })
         : ''
     const errorPart = upstreamErrorLabel ?? ''
@@ -539,9 +558,11 @@ export function TenantBillingPage() {
       notify({
         variant: 'error',
         title: t('tenantBilling.messages.checkinFailed', { defaultValue: 'Checkin Failed' }),
-        description: error instanceof Error
-          ? error.message
-          : t('tenantBilling.messages.retryLater', { defaultValue: 'Retry Later' }),
+        description: localizeApiErrorDisplay(
+          t,
+          error,
+          t('tenantBilling.messages.retryLater', { defaultValue: 'Retry Later' }),
+        ).label,
       })
     },
   })
@@ -670,6 +691,7 @@ export function TenantBillingPage() {
           }
           const primaryLine = lines[0]
           const secondaryLine = lines[1]
+          const failureTooltip = buildLedgerFailureTooltip(meta)
           const secondaryTone = secondaryLine?.includes(t('tenantBilling.ledger.detail.failureKeyword', { defaultValue: 'Failure Keyword' }))
             ? 'text-warning-foreground'
             : 'text-muted-foreground'
@@ -689,7 +711,7 @@ export function TenantBillingPage() {
                         className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 ${tokenSegmentTone(segment.kind)}`}
                       >
                         <span>{segment.label}</span>
-                        <span className="font-mono tabular-nums">{segment.tokens}</span>
+                        <span className="font-mono tabular-nums">{formatTokenCount(segment.tokens)}</span>
                         {typeof segment.priceMicrocredits === 'number' ? (
                           <span className="font-mono tabular-nums opacity-80">
                             @{formatMicrocredits(segment.priceMicrocredits)}/1M
@@ -719,7 +741,7 @@ export function TenantBillingPage() {
               {secondaryLine ? (
                 <div className={`flex items-start gap-1.5 ${secondaryTone}`}>
                   <Coins className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success-foreground" />
-                  <span>{secondaryLine}</span>
+                  <span title={failureTooltip}>{secondaryLine}</span>
                 </div>
               ) : null}
             </div>

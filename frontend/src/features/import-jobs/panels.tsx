@@ -14,7 +14,7 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import { importJobsApi, type OAuthImportItemStatus, type OAuthImportJobItem } from '@/api/importJobs'
-import { extractApiErrorMessage } from '@/api/client'
+import { localizeApiErrorDisplay } from '@/api/errorI18n'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -116,13 +116,21 @@ export function LiveProgressPanel({
   }
 
   if (isError) {
-    const errorMessage =
-      extractApiErrorMessage(summaryQueryError) ?? t('importJobs.messages.unknownError')
+    const errorDisplay = localizeApiErrorDisplay(
+      t,
+      summaryQueryError,
+      t('importJobs.messages.unknownError'),
+    )
     return (
       <Card className="border-border/60 shadow-sm">
         <CardContent className="h-[200px] flex flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
           <div>{t('importJobs.messages.queryFailed', { defaultValue: 'Query Failed' })}</div>
-          <div className="max-w-[520px] text-center text-xs text-destructive">{errorMessage}</div>
+          <div
+            className="max-w-[520px] text-center text-xs text-destructive"
+            title={errorDisplay.tooltip}
+          >
+            {errorDisplay.label}
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -450,13 +458,21 @@ export function JobDetailPanel({
   }
 
   if (summaryError) {
-    const errorMessage =
-      extractApiErrorMessage(summaryQueryError) ?? t('importJobs.messages.unknownError')
+    const errorDisplay = localizeApiErrorDisplay(
+      t,
+      summaryQueryError,
+      t('importJobs.messages.unknownError'),
+    )
     return (
       <Card className="border-border/60 shadow-sm min-h-[360px]">
         <CardContent className="h-full flex flex-col items-center justify-center text-sm text-muted-foreground gap-3">
           <div>{t('importJobs.messages.queryFailed', { defaultValue: 'Query Failed' })}</div>
-          <div className="max-w-[520px] text-center text-xs text-destructive">{errorMessage}</div>
+          <div
+            className="max-w-[520px] text-center text-xs text-destructive"
+            title={errorDisplay.tooltip}
+          >
+            {errorDisplay.label}
+          </div>
           <Button
             variant="outline"
             size="sm"

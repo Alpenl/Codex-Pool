@@ -16,7 +16,7 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import { accountsApi } from '@/api/accounts'
-import { extractApiErrorMessage } from '@/api/client'
+import { localizeApiErrorDisplay } from '@/api/errorI18n'
 import {
   importJobsApi,
   type OAuthImportJobItem,
@@ -124,7 +124,7 @@ export default function ImportJobs() {
       })
     },
     onError: (error: unknown) => {
-      setUploadError(extractApiErrorMessage(error) || t('importJobs.error'))
+      setUploadError(localizeApiErrorDisplay(t, error, t('importJobs.error')).label)
       setUploadNotice(null)
     },
   })
@@ -431,10 +431,16 @@ export default function ImportJobs() {
         jobId,
         summary: query?.data,
         isLoading: query?.isLoading ?? false,
-        errorMessage: query?.error ? extractApiErrorMessage(query.error) : null,
+        errorMessage: query?.error
+          ? localizeApiErrorDisplay(
+              t,
+              query.error,
+              t('importJobs.messages.unknownError', { defaultValue: 'Unknown error' }),
+            ).label
+          : null,
       }
     })
-  }, [recentJobIds, recentJobQueries])
+  }, [recentJobIds, recentJobQueries, t])
 
   const selectedJob = useMemo(
     () => recentJobs.find((item) => item.jobId === effectiveSelectedJobId),

@@ -1,6 +1,7 @@
 import { Globe } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
+import { setAppLanguage } from "@/i18n"
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -31,7 +32,9 @@ export function LanguageToggle() {
                 {languages.map((lng) => (
                     <DropdownMenuItem
                         key={lng.code}
-                        onClick={() => i18n.changeLanguage(lng.code)}
+                        onSelect={() => {
+                            void setAppLanguage(lng.code)
+                        }}
                         className={`min-h-10 cursor-pointer text-sm ${i18n.resolvedLanguage === lng.code ? 'bg-primary/10 font-bold text-primary' : ''}`}
                     >
                         {lng.label}

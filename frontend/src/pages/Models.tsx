@@ -21,7 +21,7 @@ import {
   type ModelPricingItem,
   type ModelSchema,
 } from '@/api/models'
-import { extractApiErrorMessage } from '@/api/client'
+import { localizeApiErrorDisplay } from '@/api/errorI18n'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { AccessibleTabList } from '@/components/ui/accessible-tabs'
@@ -188,6 +188,11 @@ export default function Models() {
     enabled: true,
   })
 
+  const resolveErrorLabel = useCallback(
+    (err: unknown, fallback: string) => localizeApiErrorDisplay(t, err, fallback).label,
+    [t],
+  )
+
   const { data: modelsPayload, isLoading, isFetching } = useQuery({
     queryKey: ['models'],
     queryFn: modelsApi.listModels,
@@ -222,8 +227,10 @@ export default function Models() {
     },
     onError: (err) => {
       setError(
-        extractApiErrorMessage(err) ||
+        resolveErrorLabel(
+          err,
           t('models.errors.probeFailed', { defaultValue: 'Model probing failed.' }),
+        ),
       )
     },
     onSettled: () => {
@@ -263,8 +270,10 @@ export default function Models() {
     },
     onError: (err) => {
       setError(
-        extractApiErrorMessage(err) ||
+        resolveErrorLabel(
+          err,
           t('models.errors.saveModelProfileFailed', { defaultValue: 'Failed to save model profile.' }),
+        ),
       )
     },
   })
@@ -281,8 +290,10 @@ export default function Models() {
     },
     onError: (err) => {
       setError(
-        extractApiErrorMessage(err) ||
+        resolveErrorLabel(
+          err,
           t('models.errors.deleteModelEntityFailed', { defaultValue: 'Failed to delete model entity.' }),
+        ),
       )
     },
   })
@@ -309,8 +320,10 @@ export default function Models() {
     },
     onError: (err) => {
       setError(
-        extractApiErrorMessage(err) ||
+        resolveErrorLabel(
+          err,
           t('models.errors.saveModelPricingFailed', { defaultValue: 'Failed to save model pricing.' }),
+        ),
       )
     },
   })
@@ -325,8 +338,10 @@ export default function Models() {
     },
     onError: (err) => {
       setError(
-        extractApiErrorMessage(err) ||
+        resolveErrorLabel(
+          err,
           t('models.errors.deleteModelPricingFailed', { defaultValue: 'Failed to delete model pricing.' }),
+        ),
       )
     },
   })

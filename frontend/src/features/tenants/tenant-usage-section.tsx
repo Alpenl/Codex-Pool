@@ -1,7 +1,7 @@
 import { Check, ChevronsUpDown, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { extractApiErrorMessage } from '@/api/client'
+import { localizeApiErrorDisplay } from '@/api/errorI18n'
 import { type ApiKey } from '@/api/settings'
 import type { UsageSummaryQueryResponse } from '@/api/types'
 import { Button } from '@/components/ui/button'
@@ -47,6 +47,14 @@ export function TenantUsageSection({
   usageSummaryQuery,
 }: TenantUsageSectionProps) {
   const { t } = useTranslation()
+
+  const usageSummaryErrorDisplay = usageSummaryQuery.isError
+    ? localizeApiErrorDisplay(
+        t,
+        usageSummaryQuery.error,
+        t('tenants.usage.status.error', { defaultValue: 'Failed to load usage data' }),
+      )
+    : null
 
   return (
     <section className={POOL_ELEVATED_SECTION_CLASS_NAME}>
@@ -175,9 +183,8 @@ export function TenantUsageSection({
       ) : null}
 
       {usageSummaryQuery.isError ? (
-        <p className="text-sm text-destructive">
-          {extractApiErrorMessage(usageSummaryQuery.error)
-            || t('tenants.usage.status.error', { defaultValue: 'Failed to load usage data' })}
+        <p className="text-sm text-destructive" title={usageSummaryErrorDisplay?.tooltip}>
+          {usageSummaryErrorDisplay?.label ?? '-'}
         </p>
       ) : null}
 

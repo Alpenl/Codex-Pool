@@ -146,6 +146,14 @@ export default {
             toggleUnsupported: "Current backend does not support account enable/disable. Please upgrade control-plane.",
             refreshTriggered: "Account refresh triggered"
         },
+        rateLimitRefreshJobStatus: {
+            queued: "Queued",
+            running: "Running",
+            completed: "Completed",
+            failed: "Failed",
+            cancelled: "Cancelled",
+            unknown: "Unknown"
+        },
         mode: {
             apiKey: "API Key",
             chatgptSession: "ChatGPT OAuth",
@@ -234,7 +242,7 @@ export default {
                 tokenInvalidated: "Token invalidated",
                 transportError: "Upstream network error",
                 upstreamRequestFailed: "Upstream request failed",
-                unknown: "Unknown ({{value}})"
+                unknown: "Unknown"
             },
             details: {
                 accrued: "Accrued: {{value}} credits",
@@ -253,7 +261,7 @@ export default {
                 crossAccountFailover: "Cross-account failover",
                 retrySameAccount: "Retry same account",
                 returnFailure: "Return failure",
-                unknown: "Unknown ({{value}})"
+                unknown: "Unknown"
             },
             releaseReasons: {
                 billingSettleFailed: "Billing settlement failed",
@@ -264,7 +272,7 @@ export default {
                 streamUsageMissing: "Stream usage missing",
                 transportError: "Upstream network error",
                 upstreamRequestFailed: "Upstream request failed",
-                unknown: "Unknown ({{value}})"
+                unknown: "Unknown"
             },
             showRaw: "Show raw entries",
             subtitle: "Filtered by current tenant.",
@@ -456,12 +464,27 @@ export default {
         },
         kpi: {
             activeApiKeysInRange: "Active API keys (selected range)",
+            accounts: "Accounts",
+            accountsDesc: "Admin-only operational metric",
+            apiKeys: "API keys",
+            apiKeysDesc: "Configured keys in system",
+            avgFirstTokenSpeed: "Average first-token speed",
+            avgFirstTokenSpeedDesc: "TTFT (streaming exact / non-stream approximate)",
             globalScope: "Global scope",
+            rpm: "RPM",
+            rpmDesc: "Requests per minute",
             requests: {
                 apiKey: "Current API key requests (selected range)",
                 global: "Total account requests (selected range)",
                 tenant: "Current tenant API key requests (selected range)"
             },
+            tenants: "Tenants",
+            tenantsDesc: "Admin-only operational metric",
+            totalRequests: "Total requests",
+            totalTokens: "Token consumption total",
+            totalTokensDesc: "Input + cached + output + reasoning",
+            tpm: "TPM",
+            tpmDesc: "Tokens per minute",
             running: "Running",
             totalConfigured: "Total Configured",
             uptime: "Uptime 99.99%",
@@ -475,16 +498,34 @@ export default {
             activeTokensDesc: "+24 new tokens mapped",
             oauthLabel: "OAuth"
         },
+        modelDistribution: {
+            description: "Top models by request count or token usage.",
+            empty: "No model distribution data yet",
+            modeRequests: "By requests",
+            modeTokens: "By tokens",
+            other: "Other",
+            title: "Model request distribution"
+        },
         scope: {
             apiKey: "API Key View",
             global: "Global View",
             tenant: "Tenant View"
         },
-        scopeNotes: "Scope note: account requests are counted by upstream account; tenant API key requests are counted by tenant + API key. Requests not bound to tenant/API key are counted only in account scope.",
         subtitle: "Global gateway proxy metrics.",
         table: {
             apiKey: "API Key",
             requests: "Requests"
+        },
+        tokenComponents: {
+            cached: "Cached",
+            input: "Input",
+            output: "Output",
+            reasoning: "Reasoning"
+        },
+        tokenTrend: {
+            description: "Hourly token trend by component. Toggle components to focus specific consumption.",
+            empty: "No token trend data yet",
+            title: "Token usage trend"
         },
         title: "Overview",
         topApiKeys: {
@@ -1057,7 +1098,7 @@ export default {
         openNavigation: "Open navigation",
         proxies: "Proxies",
         system: "System Status",
-        tenants: "Tenants",
+        tenants: "Tenant Pool",
         usage: "Usage",
         cleanup: "Cleanup",
         closeNavigation: "Close navigation"
@@ -1070,6 +1111,43 @@ export default {
         sessionExpired: {
             title: "Session expired",
             description: "Please sign in again to continue."
+        }
+    },
+    errors: {
+        common: {
+            failed: "Failed",
+            network: "Network error. Please check your connection.",
+            timeout: "Request timed out. Please try again."
+        },
+        api: {
+            unauthorized: "Unauthorized. Please sign in again.",
+            invalidRequest: "Invalid request.",
+            notFound: "Resource not found.",
+            serviceUnavailable: "Service unavailable.",
+            internalError: "Internal server error.",
+            oauthProviderNotConfigured: "OAuth provider is not configured.",
+            oauthCallbackListenerUnavailable: "OAuth callback listener is unavailable.",
+            invalidRefreshToken: "Refresh token is invalid or expired.",
+            refreshTokenReused: "Refresh token has been reused. Obtain the latest refresh token.",
+            refreshTokenRevoked: "Refresh token has been revoked.",
+            oauthMissingClientId: "OAuth provider is misconfigured (missing client_id).",
+            oauthUnauthorizedClient: "OAuth client is unauthorized.",
+            upstreamUnavailable: "Upstream service unavailable.",
+            upstreamNetworkError: "Upstream network error.",
+            oauthExchangeFailed: "OAuth exchange failed."
+        },
+        http: {
+            badRequest: "Bad request",
+            unauthorized: "Unauthorized",
+            forbidden: "Forbidden",
+            notFound: "Not found",
+            conflict: "Conflict",
+            payloadTooLarge: "Payload too large",
+            rateLimited: "Rate limited",
+            internalServerError: "Server error",
+            badGateway: "Bad gateway",
+            serviceUnavailable: "Service unavailable",
+            gatewayTimeout: "Gateway timeout"
         }
     },
     proxies: {
@@ -1349,7 +1427,7 @@ export default {
             crossAccountFailover: "Cross Account Failover",
             retrySameAccount: "Retry Same Account",
             returnFailure: "Return Failure",
-            unknown: "Unknown ({{value}})"
+            unknown: "Unknown"
         },
         failureReason: {
             accountDeactivated: "Account Deactivated",
@@ -1360,7 +1438,7 @@ export default {
             tokenInvalidated: "Token Invalidated",
             transportError: "Transport Error",
             upstreamRequestFailed: "Upstream Request Failed",
-            unknown: "Unknown ({{value}})"
+            unknown: "Unknown"
         },
         filters: {
             day: "Day",
@@ -1396,7 +1474,7 @@ export default {
                     output: "Output",
                     summary: "Summary"
                 },
-                upstreamStatus: "Upstream Status"
+                upstreamStatus: "Upstream {{status}}"
             },
             empty: "No ledger entries yet.",
             requestTypes: {
@@ -1422,7 +1500,7 @@ export default {
             streamUsageMissing: "Stream Usage Missing",
             transportError: "Transport Error",
             upstreamRequestFailed: "Upstream Request Failed",
-            unknown: "Unknown ({{value}})"
+            unknown: "Unknown"
         },
         snapshot: {
             columns: {
@@ -1464,6 +1542,18 @@ export default {
             refresh: "Refresh",
             viewBilling: "View billing",
             viewRequestLogs: "View request logs"
+        },
+        kpi: {
+            avgFirstTokenSpeed: "Average first-token speed",
+            avgFirstTokenSpeedDesc: "TTFT (streaming exact / non-stream approximate)",
+            rpm: "RPM",
+            rpmDesc: "Requests per minute",
+            totalRequests: "Total requests",
+            totalRequestsDesc: "Selected time range",
+            totalTokens: "Token consumption total",
+            totalTokensDesc: "Input + cached + output + reasoning",
+            tpm: "TPM",
+            tpmDesc: "Tokens per minute"
         },
         cards: {
             activeKeys: {
@@ -1513,9 +1603,32 @@ export default {
         },
         subtitle: {
             allApiKeys: "(all API keys)",
+            metricsFocus: "Focus metrics: TPM, RPM, total token consumption, total requests, and first-token speed.",
             scopePrefix: "Scope: current tenant ",
             singleApiKey: "(single API key)",
             timeWindow: ", time window: "
+        },
+        modelDistribution: {
+            description: "Top models by request count or token usage.",
+            empty: "No model distribution data yet",
+            modeRequests: "By requests",
+            modeTokens: "By tokens",
+            other: "Other",
+            title: "Model request distribution"
+        },
+        tokenComponents: {
+            cached: "Cached",
+            input: "Input",
+            output: "Output",
+            reasoning: "Reasoning"
+        },
+        tokenSummary: {
+            title: "Token component summary"
+        },
+        tokenTrend: {
+            description: "Hourly token trend by component. Toggle components to focus specific consumption.",
+            empty: "No token trend data yet",
+            title: "Token usage trend"
         },
         topKeys: {
             description: "Based on request volume in selected period",

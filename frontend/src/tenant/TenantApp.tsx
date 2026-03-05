@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
@@ -24,11 +24,32 @@ import {
   extractTenantApiErrorMessage,
 } from '@/api/tenantClient'
 import { clearTenantAccessToken, setTenantAccessToken } from '@/lib/tenant-session'
-import { TenantDashboardPage } from '@/tenant/pages/DashboardPage'
-import { TenantUsagePage } from '@/tenant/pages/UsagePage'
-import { TenantBillingPage } from '@/tenant/pages/BillingPage'
-import { TenantLogsPage } from '@/tenant/pages/LogsPage'
-import { TenantApiKeysPage } from '@/tenant/pages/ApiKeysPage'
+
+const TenantDashboardPage = lazy(() =>
+  import('@/tenant/pages/DashboardPage').then((module) => ({
+    default: module.TenantDashboardPage,
+  })),
+)
+const TenantUsagePage = lazy(() =>
+  import('@/tenant/pages/UsagePage').then((module) => ({
+    default: module.TenantUsagePage,
+  })),
+)
+const TenantBillingPage = lazy(() =>
+  import('@/tenant/pages/BillingPage').then((module) => ({
+    default: module.TenantBillingPage,
+  })),
+)
+const TenantLogsPage = lazy(() =>
+  import('@/tenant/pages/LogsPage').then((module) => ({
+    default: module.TenantLogsPage,
+  })),
+)
+const TenantApiKeysPage = lazy(() =>
+  import('@/tenant/pages/ApiKeysPage').then((module) => ({
+    default: module.TenantApiKeysPage,
+  })),
+)
 
 type AuthMode = 'login' | 'register'
 type AuthScreen = 'auth' | 'verify' | 'forgot'
@@ -812,6 +833,12 @@ export function TenantApp() {
     )
   }
 
+  const routeFallback = (
+    <div className="p-8 text-sm text-slate-500 dark:text-slate-300">
+      {t('common.loading')}
+    </div>
+  )
+
   return (
     <BrowserRouter basename="/tenant">
       <Routes>
@@ -826,11 +853,46 @@ export function TenantApp() {
           }
         >
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<TenantDashboardPage />} />
-          <Route path="/usage" element={<TenantUsagePage />} />
-          <Route path="/billing" element={<TenantBillingPage />} />
-          <Route path="/logs" element={<TenantLogsPage />} />
-          <Route path="/api-keys" element={<TenantApiKeysPage />} />
+          <Route
+            path="/dashboard"
+            element={(
+              <Suspense fallback={routeFallback}>
+                <TenantDashboardPage />
+              </Suspense>
+            )}
+          />
+          <Route
+            path="/usage"
+            element={(
+              <Suspense fallback={routeFallback}>
+                <TenantUsagePage />
+              </Suspense>
+            )}
+          />
+          <Route
+            path="/billing"
+            element={(
+              <Suspense fallback={routeFallback}>
+                <TenantBillingPage />
+              </Suspense>
+            )}
+          />
+          <Route
+            path="/logs"
+            element={(
+              <Suspense fallback={routeFallback}>
+                <TenantLogsPage />
+              </Suspense>
+            )}
+          />
+          <Route
+            path="/api-keys"
+            element={(
+              <Suspense fallback={routeFallback}>
+                <TenantApiKeysPage />
+              </Suspense>
+            )}
+          />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Routes>

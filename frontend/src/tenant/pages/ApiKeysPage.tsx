@@ -4,6 +4,7 @@ import { type ColumnDef } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
 
 import { tenantKeysApi, type TenantApiKeyRecord } from '@/api/tenantKeys'
+import { localizeApiErrorDisplay } from '@/api/errorI18n'
 import { notify } from '@/lib/notification'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -51,9 +52,11 @@ export function TenantApiKeysPage() {
       notify({
         variant: 'error',
         title: t('tenantApiKeys.messages.createFailed', { defaultValue: 'Create Failed' }),
-        description: error instanceof Error
-          ? error.message
-          : t('tenantApiKeys.messages.retryLater', { defaultValue: 'Retry Later' }),
+        description: localizeApiErrorDisplay(
+          t,
+          error,
+          t('tenantApiKeys.messages.retryLater', { defaultValue: 'Retry Later' }),
+        ).label,
       })
     },
   })

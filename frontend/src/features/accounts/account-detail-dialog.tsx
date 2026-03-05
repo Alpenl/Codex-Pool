@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 
 import type { OAuthAccountStatusResponse, UpstreamAccount } from '@/api/accounts'
+import { localizeOAuthErrorCodeDisplay } from '@/api/errorI18n'
 import {
   Dialog,
   DialogContent,
@@ -302,16 +303,24 @@ export function AccountDetailDialog({
                       <label className="text-xs font-medium text-muted-foreground">
                         {fieldLabel('lastRefreshErrorCode', 'Last Refresh Error Code')}
                       </label>
-                      <div className="rounded border px-3 py-2 font-mono text-xs break-all">
-                        {oauthStatus.last_refresh_error_code ?? '-'}
+                      <div
+                        className="rounded border px-3 py-2 text-xs break-all"
+                        title={localizeOAuthErrorCodeDisplay(t, oauthStatus.last_refresh_error_code).tooltip}
+                      >
+                        {localizeOAuthErrorCodeDisplay(t, oauthStatus.last_refresh_error_code).label}
                       </div>
                     </div>
                     <div className="space-y-1.5 md:col-span-2">
                       <label className="text-xs font-medium text-muted-foreground">
                         {fieldLabel('lastRefreshError', 'Last Refresh Error')}
                       </label>
-                      <div className="rounded border px-3 py-2 text-sm break-all">
-                        {oauthStatus.last_refresh_error ?? '-'}
+                      <div
+                        className="rounded border px-3 py-2 text-sm break-all"
+                        title={import.meta.env.DEV ? oauthStatus.last_refresh_error ?? undefined : undefined}
+                      >
+                        {oauthStatus.last_refresh_error
+                          ? localizeOAuthErrorCodeDisplay(t, oauthStatus.last_refresh_error_code).label
+                          : '-'}
                       </div>
                     </div>
                     <div className="space-y-1.5">
@@ -334,16 +343,24 @@ export function AccountDetailDialog({
                       <label className="text-xs font-medium text-muted-foreground">
                         {fieldLabel('rateLimitsLastErrorCode', 'Rate Limits Last Error Code')}
                       </label>
-                      <div className="rounded border px-3 py-2 font-mono text-xs break-all">
-                        {oauthStatus.rate_limits_last_error_code ?? '-'}
+                      <div
+                        className="rounded border px-3 py-2 text-xs break-all"
+                        title={localizeOAuthErrorCodeDisplay(t, oauthStatus.rate_limits_last_error_code).tooltip}
+                      >
+                        {localizeOAuthErrorCodeDisplay(t, oauthStatus.rate_limits_last_error_code).label}
                       </div>
                     </div>
                     <div className="space-y-1.5 md:col-span-2">
                       <label className="text-xs font-medium text-muted-foreground">
                         {fieldLabel('rateLimitsLastError', 'Rate Limits Last Error')}
                       </label>
-                      <div className="rounded border px-3 py-2 text-sm break-all">
-                        {oauthStatus.rate_limits_last_error ?? '-'}
+                      <div
+                        className="rounded border px-3 py-2 text-sm break-all"
+                        title={import.meta.env.DEV ? oauthStatus.rate_limits_last_error ?? undefined : undefined}
+                      >
+                        {oauthStatus.rate_limits_last_error
+                          ? localizeOAuthErrorCodeDisplay(t, oauthStatus.rate_limits_last_error_code).label
+                          : '-'}
                       </div>
                     </div>
                   </div>

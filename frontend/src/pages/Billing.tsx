@@ -10,8 +10,10 @@ import {
   adminTenantsApi,
   type AdminTenantCreditLedgerItem,
 } from '@/api/adminTenants'
+import { localizeApiErrorDisplay, localizeHttpStatusDisplay } from '@/api/errorI18n'
 import { formatDateTime as formatI18nDateTime, formatNumber } from '@/lib/i18n-format'
 import { notify } from '@/lib/notification'
+import { formatTokenCount } from '@/lib/token-format'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -150,8 +152,9 @@ function asBoolean(value: unknown): boolean | undefined {
 
 function mapCodeToLabel(code: string | undefined, t: TFunction): string | undefined {
   if (!code) return undefined
-  const raw = code.trim()
-  switch (code.trim().toLowerCase()) {
+  const normalized = code.trim()
+  if (!normalized) return undefined
+  switch (normalized.toLowerCase()) {
     case 'token_invalidated':
       return t('billing.ledger.codeLabels.tokenInvalidated', { defaultValue: 'Token invalidated' })
     case 'account_deactivated':
@@ -172,16 +175,16 @@ function mapCodeToLabel(code: string | undefined, t: TFunction): string | undefi
       return t('billing.ledger.codeLabels.failoverExhausted', { defaultValue: 'Retry/failover exhausted' })
     default:
       return t('billing.ledger.codeLabels.unknown', {
-        defaultValue: 'Unknown ({{value}})',
-        value: raw || '-',
+        defaultValue: 'Unknown',
       })
   }
 }
 
 function mapReleaseReasonLabel(reason: string | undefined, t: TFunction): string | undefined {
   if (!reason) return undefined
-  const raw = reason.trim()
-  switch (reason.trim().toLowerCase()) {
+  const normalized = reason.trim()
+  if (!normalized) return undefined
+  switch (normalized.toLowerCase()) {
     case 'failover_exhausted':
       return t('billing.ledger.releaseReasons.failoverExhausted', {
         defaultValue: 'Retry/failover exhausted',
@@ -206,16 +209,16 @@ function mapReleaseReasonLabel(reason: string | undefined, t: TFunction): string
       return t('billing.ledger.releaseReasons.streamUsageMissing', { defaultValue: 'Stream usage missing' })
     default:
       return t('billing.ledger.releaseReasons.unknown', {
-        defaultValue: 'Unknown ({{value}})',
-        value: raw || '-',
+        defaultValue: 'Unknown',
       })
   }
 }
 
 function mapFailoverActionLabel(action: string | undefined, t: TFunction): string | undefined {
   if (!action) return undefined
-  const raw = action.trim()
-  switch (action.trim().toLowerCase()) {
+  const normalized = action.trim()
+  if (!normalized) return undefined
+  switch (normalized.toLowerCase()) {
     case 'cross_account_failover':
       return t('billing.ledger.failoverActions.crossAccountFailover', {
         defaultValue: 'Cross-account failover',
@@ -226,8 +229,7 @@ function mapFailoverActionLabel(action: string | undefined, t: TFunction): strin
       return t('billing.ledger.failoverActions.retrySameAccount', { defaultValue: 'Retry same account' })
     default:
       return t('billing.ledger.failoverActions.unknown', {
-        defaultValue: 'Unknown ({{value}})',
-        value: raw || '-',
+        defaultValue: 'Unknown',
       })
   }
 }
@@ -261,6 +263,19 @@ function parseLedgerBillingMeta(item: AdminTenantCreditLedgerItem): LedgerBillin
     recovery_outcome: asString(map.recovery_outcome),
     cross_account_failover_attempted: asBoolean(map.cross_account_failover_attempted),
   }
+}
+
+function buildLedgerFailureTooltip(meta: LedgerBillingMeta | undefined): string | undefined {
+  if (!meta) return undefined
+  const parts: string[] = []
+  if (meta.release_reason) parts.push(`release_reason=${meta.release_reason}`)
+  if (typeof meta.upstream_status_code === 'number') parts.push(`upstream_status_code=${meta.upstream_status_code}`)
+  if (meta.upstream_error_code) parts.push(`upstream_error_code=${meta.upstream_error_code}`)
+  if (meta.failover_action) parts.push(`failover_action=${meta.failover_action}`)
+  if (meta.failover_reason_class) parts.push(`failover_reason_class=${meta.failover_reason_class}`)
+  if (meta.recovery_action) parts.push(`recovery_action=${meta.recovery_action}`)
+  if (meta.recovery_outcome) parts.push(`recovery_outcome=${meta.recovery_outcome}`)
+  return parts.length ? parts.join(' | ') : undefined
 }
 
 function detectLedgerStreamFlag(meta: LedgerBillingMeta | undefined): boolean | undefined {
@@ -351,9 +366,9 @@ function buildLedgerBillingDetailLines(
     tokenLineParts.push(
       t('billing.ledger.details.tokenSettlement', {
         defaultValue: 'Token settlement: input {{input}} + cached {{cached}} + output {{output}}',
-        input: billableInputTokens ?? 0,
-        cached: cachedInputTokens ?? 0,
-        output: billableOutputTokens ?? 0,
+        input: formatTokenCount(billableInputTokens ?? 0),
+        cached: formatTokenCount(cachedInputTokens ?? 0),
+        output: formatTokenCount(billableOutputTokens ?? 0),
       }),
     )
   }
@@ -438,7 +453,11 @@ function buildLedgerBillingDetailLines(
       typeof meta.upstream_status_code === 'number'
         ? t('billing.ledger.details.upstreamStatus', {
             defaultValue: 'Upstream {{status}}',
-            status: meta.upstream_status_code,
+            status: localizeHttpStatusDisplay(
+              t,
+              meta.upstream_status_code,
+              t('errors.common.failed'),
+            ).label,
           })
         : ''
     const errorPart = upstreamErrorLabel ?? ''
@@ -621,9 +640,11 @@ export default function Billing() {
       notify({
         variant: 'error',
         title: t('billing.messages.rechargeFailedTitle', { defaultValue: 'Recharge failed' }),
-        description: error instanceof Error
-          ? error.message
-          : t('billing.messages.retryLater', { defaultValue: 'Please try again later' }),
+        description: localizeApiErrorDisplay(
+          t,
+          error,
+          t('billing.messages.retryLater', { defaultValue: 'Please try again later' }),
+        ).label,
       })
     },
   })
@@ -779,6 +800,7 @@ export default function Billing() {
           const primaryLine = lines[0]
           const secondaryLine = lines[1]
           const failurePrefix = t('billing.ledger.details.failurePrefix', { defaultValue: 'Failure:' })
+          const failureTooltip = buildLedgerFailureTooltip(meta)
           const secondaryTone = secondaryLine?.includes(failurePrefix)
             ? 'text-warning-foreground'
             : 'text-muted-foreground'
@@ -798,7 +820,7 @@ export default function Billing() {
                         className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 ${tokenSegmentTone(segment.kind)}`}
                       >
                         <span>{segment.label}</span>
-                        <span className="font-mono tabular-nums">{segment.tokens}</span>
+                        <span className="font-mono tabular-nums">{formatTokenCount(segment.tokens)}</span>
                         {typeof segment.priceMicrocredits === 'number' ? (
                           <span className="font-mono tabular-nums opacity-80">
                             @{formatMicrocredits(segment.priceMicrocredits, locale)}/1M
@@ -825,7 +847,7 @@ export default function Billing() {
               {secondaryLine ? (
                 <div className={`flex items-start gap-1.5 ${secondaryTone}`}>
                   <Coins className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success-foreground" />
-                  <span>{secondaryLine}</span>
+                  <span title={failureTooltip}>{secondaryLine}</span>
                 </div>
               ) : null}
             </div>
