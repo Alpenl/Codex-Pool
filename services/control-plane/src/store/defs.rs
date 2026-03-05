@@ -21,7 +21,7 @@ use codex_pool_core::model::{
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
+use sqlx_postgres::PgPool;
 use uuid::Uuid;
 
 use crate::crypto::CredentialCipher;

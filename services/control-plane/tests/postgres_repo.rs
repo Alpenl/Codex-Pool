@@ -18,7 +18,9 @@ use control_plane::oauth::{
 use control_plane::store::postgres::PostgresStore;
 use control_plane::store::ControlPlaneStore;
 use control_plane::tenant::{AdminImpersonateRequest, TenantAuthService};
-use sqlx::Executor;
+use sqlx_core::executor::Executor;
+use sqlx_core::query::query;
+use sqlx_core::query_scalar::query_scalar;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -291,7 +293,7 @@ async fn postgres_repo_stores_hashed_api_key_token() {
         .await
         .unwrap();
     let stored_token: String =
-        sqlx::query_scalar("SELECT token FROM api_key_tokens WHERE api_key_id = $1")
+        query_scalar("SELECT token FROM api_key_tokens WHERE api_key_id = $1")
             .bind(created.record.id)
             .fetch_one(&repo.clone_pool())
             .await
@@ -326,13 +328,13 @@ async fn postgres_repo_upgrades_legacy_plaintext_api_key_token_hash_on_validate(
         .await
         .unwrap();
 
-    sqlx::query("UPDATE api_key_tokens SET token = $1 WHERE api_key_id = $2")
+    query("UPDATE api_key_tokens SET token = $1 WHERE api_key_id = $2")
         .bind(&created.plaintext_key)
         .bind(created.record.id)
         .execute(&repo.clone_pool())
         .await
         .unwrap();
-    sqlx::query("UPDATE api_keys SET key_hash = $1 WHERE id = $2")
+    query("UPDATE api_keys SET key_hash = $1 WHERE id = $2")
         .bind(format!("plaintext:{}", created.plaintext_key))
         .bind(created.record.id)
         .execute(&repo.clone_pool())
@@ -347,17 +349,16 @@ async fn postgres_repo_upgrades_legacy_plaintext_api_key_token_hash_on_validate(
     assert_eq!(principal.api_key_id, created.record.id);
 
     let migrated_token: String =
-        sqlx::query_scalar("SELECT token FROM api_key_tokens WHERE api_key_id = $1")
+        query_scalar("SELECT token FROM api_key_tokens WHERE api_key_id = $1")
             .bind(created.record.id)
             .fetch_one(&repo.clone_pool())
             .await
             .unwrap();
-    let migrated_key_hash: String =
-        sqlx::query_scalar("SELECT key_hash FROM api_keys WHERE id = $1")
-            .bind(created.record.id)
-            .fetch_one(&repo.clone_pool())
-            .await
-            .unwrap();
+    let migrated_key_hash: String = query_scalar("SELECT key_hash FROM api_keys WHERE id = $1")
+        .bind(created.record.id)
+        .fetch_one(&repo.clone_pool())
+        .await
+        .unwrap();
 
     assert!(migrated_token.starts_with("hmac-sha256:"));
     assert!(migrated_key_hash.starts_with("hmac-sha256:"));
@@ -427,12 +428,12 @@ async fn postgres_import_store_recovers_running_processing_items() {
     import_store.create_job(summary, vec![item]).await.unwrap();
 
     pool.execute(
-        sqlx::query("UPDATE oauth_import_jobs SET status = 'running' WHERE id = $1").bind(job_id),
+        query("UPDATE oauth_import_jobs SET status = 'running' WHERE id = $1").bind(job_id),
     )
     .await
     .unwrap();
     pool.execute(
-        sqlx::query(
+        query(
             "UPDATE oauth_import_job_items SET status = 'processing' WHERE job_id = $1 AND item_id = 1",
         )
         .bind(job_id),
@@ -466,7 +467,7 @@ async fn postgres_impersonation_revoke_invalidates_principal_immediately() {
         .unwrap();
     let admin_user_id = Uuid::new_v4();
     let now = chrono::Utc::now();
-    sqlx::query(
+    query(
         r#"
         INSERT INTO admin_users (id, username, password_hash, enabled, created_at, updated_at)
         VALUES ($1, $2, $3, true, $4, $4)

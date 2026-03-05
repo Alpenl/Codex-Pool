@@ -6,6 +6,7 @@ use chrono::Utc;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
+use sqlx_postgres::PgPool;
 use uuid::Uuid;
 
 use codex_pool_core::api::{AdminLoginRequest, AdminLoginResponse, AdminMeResponse};
@@ -26,7 +27,7 @@ enum AdminCredentialBackend {
         password_hash: String,
     },
     Postgres {
-        pool: sqlx::PgPool,
+        pool: PgPool,
     },
 }
 
@@ -66,7 +67,7 @@ impl AdminAuthService {
         })
     }
 
-    pub fn from_env_with_postgres(pool: sqlx::PgPool) -> Result<Self> {
+    pub fn from_env_with_postgres(pool: PgPool) -> Result<Self> {
         let settings = load_admin_settings_from_env()?;
         Ok(Self {
             credential_backend: AdminCredentialBackend::Postgres { pool },

@@ -15,7 +15,8 @@ use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{Row, Transaction};
+use sqlx_postgres::{PgPool, Postgres};
 use uuid::Uuid;
 
 use codex_pool_core::api::CreateApiKeyResponse;

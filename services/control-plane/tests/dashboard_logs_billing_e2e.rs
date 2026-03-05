@@ -18,6 +18,7 @@ use control_plane::store::ControlPlaneStore;
 use control_plane::usage::clickhouse_repo::UsageQueryRepository;
 use control_plane::usage::{RequestLogQuery, RequestLogRow};
 use serde_json::{json, Value};
+use sqlx_core::query_scalar::query_scalar;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -396,7 +397,7 @@ async fn admin_dashboard_logs_billing_flow_records_audit_and_enforces_rbac() {
         .unwrap();
     assert_eq!(admin_on_tenant_response.status(), StatusCode::UNAUTHORIZED);
 
-    let audit_count: i64 = sqlx::query_scalar(
+    let audit_count: i64 = query_scalar(
         r#"
         SELECT COUNT(*)::BIGINT
         FROM audit_logs
@@ -470,7 +471,7 @@ async fn tenant_dashboard_logs_billing_flow_records_audit() {
         assert_eq!(response.status(), expected_status);
     }
 
-    let audit_count: i64 = sqlx::query_scalar(
+    let audit_count: i64 = query_scalar(
         r#"
         SELECT COUNT(*)::BIGINT
         FROM audit_logs

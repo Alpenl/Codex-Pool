@@ -834,7 +834,7 @@ fn sha256_hex(raw: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-fn parse_tenant_api_key_row(row: sqlx::postgres::PgRow) -> Result<TenantApiKeyRecord> {
+fn parse_tenant_api_key_row(row: sqlx_postgres::PgRow) -> Result<TenantApiKeyRecord> {
     let ip_allowlist = row
         .try_get::<serde_json::Value, _>("ip_allowlist")?
         .as_array()

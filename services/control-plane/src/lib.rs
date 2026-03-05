@@ -1,3 +1,11 @@
+extern crate self as sqlx;
+
+pub(crate) use sqlx_core::query::query;
+pub(crate) use sqlx_core::query_scalar::query_scalar;
+pub(crate) use sqlx_core::row::Row;
+pub(crate) use sqlx_core::transaction::Transaction;
+pub(crate) use sqlx_postgres::PgConnection;
+
 pub mod admin_auth;
 pub mod app;
 pub mod config;

@@ -17,8 +17,8 @@ use codex_pool_core::model::{
 };
 use futures_util::StreamExt;
 use sha2::{Digest, Sha256};
-use sqlx::postgres::PgPoolOptions;
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{Row, Transaction};
+use sqlx_postgres::{PgPool, PgPoolOptions, Postgres};
 use uuid::Uuid;
 
 use super::UpsertOneTimeSessionAccountRequest;

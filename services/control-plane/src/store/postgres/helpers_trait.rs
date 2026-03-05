@@ -269,7 +269,7 @@ fn parse_routing_strategy(raw: &str) -> Result<RoutingStrategy> {
     }
 }
 
-fn parse_routing_policy_row(row: &sqlx::postgres::PgRow) -> Result<RoutingPolicy> {
+fn parse_routing_policy_row(row: &sqlx_postgres::PgRow) -> Result<RoutingPolicy> {
     let max_retries_i64 = row.try_get::<i64, _>("max_retries")?;
     let stream_max_retries_i64 = row.try_get::<i64, _>("stream_max_retries")?;
     Ok(RoutingPolicy {

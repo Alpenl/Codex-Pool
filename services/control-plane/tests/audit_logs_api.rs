@@ -10,6 +10,8 @@ use control_plane::store::postgres::PostgresStore;
 use control_plane::store::ControlPlaneStore;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sqlx_core::query::query;
+use sqlx_postgres::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -146,14 +148,14 @@ async fn register_verified_tenant_token(app: &axum::Router) -> (Uuid, String) {
 }
 
 async fn insert_audit_log(
-    pool: &sqlx::PgPool,
+    pool: &PgPool,
     tenant_id: Option<Uuid>,
     actor_type: &str,
     actor_id: Option<Uuid>,
     action: &str,
     reason: Option<&str>,
 ) {
-    sqlx::query(
+    query(
         r#"
         INSERT INTO audit_logs (
             id, actor_type, actor_id, tenant_id, action, reason, request_ip, user_agent,
