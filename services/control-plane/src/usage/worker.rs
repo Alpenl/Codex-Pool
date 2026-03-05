@@ -594,11 +594,13 @@ where
         for message in messages {
             let resolved_tenant_id = message.tenant_id.or(message.event.tenant_id);
             let resolved_api_key_id = message.api_key_id.or(message.event.api_key_id);
-            usage_events.push(UsageAggregationEvent::from_request_log_event(
-                &message.event,
-                resolved_tenant_id,
-                resolved_api_key_id,
-            ));
+            if message.event.billing_phase.as_deref() != Some("streaming_open") {
+                usage_events.push(UsageAggregationEvent::from_request_log_event(
+                    &message.event,
+                    resolved_tenant_id,
+                    resolved_api_key_id,
+                ));
+            }
             request_log_rows.push(RequestLogRow {
                 id: message.event.id,
                 account_id: message.event.account_id,
@@ -609,7 +611,10 @@ where
                 method: message.event.method.clone(),
                 model: message.event.model.clone(),
                 input_tokens: message.event.input_tokens,
+                cached_input_tokens: message.event.cached_input_tokens,
                 output_tokens: message.event.output_tokens,
+                reasoning_tokens: message.event.reasoning_tokens,
+                first_token_latency_ms: message.event.first_token_latency_ms,
                 status_code: message.event.status_code,
                 latency_ms: message.event.latency_ms,
                 is_stream: message.event.is_stream,

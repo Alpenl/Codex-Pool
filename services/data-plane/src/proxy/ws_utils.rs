@@ -119,12 +119,8 @@ async fn proxy_websocket_streams(
 
     let (downstream_to_upstream_result, upstream_to_downstream_result) =
         tokio::join!(downstream_to_upstream, upstream_to_downstream);
-    if let Err(err) = downstream_to_upstream_result {
-        return Err(err);
-    }
-    if let Err(err) = upstream_to_downstream_result {
-        return Err(err);
-    }
+    downstream_to_upstream_result?;
+    upstream_to_downstream_result?;
 
     Ok(())
 }

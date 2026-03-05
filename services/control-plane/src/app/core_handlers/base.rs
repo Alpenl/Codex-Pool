@@ -134,7 +134,13 @@ struct RequestLogItemResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     input_tokens: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    cached_input_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     output_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    first_token_latency_ms: Option<u64>,
     status_code: u16,
     latency_ms: u64,
     is_stream: bool,

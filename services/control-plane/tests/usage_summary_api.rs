@@ -210,6 +210,7 @@ async fn usage_summary_endpoint_returns_summary_when_usage_repo_available() {
         tenant_api_key_total_requests: 7,
         unique_account_count: 3,
         unique_tenant_api_key_count: 5,
+        dashboard_metrics: None,
     };
     let usage_repo = FakeUsageRepo {
         summary: summary.clone(),
@@ -253,6 +254,7 @@ async fn usage_summary_endpoint_forwards_filters_to_repo() {
         tenant_api_key_total_requests: 7,
         unique_account_count: 3,
         unique_tenant_api_key_count: 5,
+        dashboard_metrics: None,
     };
     let usage_repo = FakeUsageRepo {
         summary,

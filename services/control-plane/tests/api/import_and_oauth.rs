@@ -1,5 +1,5 @@
-static OAUTH_LOGIN_ENV_LOCK: std::sync::LazyLock<std::sync::Mutex<()>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(()));
+static OAUTH_LOGIN_ENV_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
+    std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 fn set_env(key: &str, value: Option<&str>) -> Option<String> {
     let previous = std::env::var(key).ok();
@@ -103,9 +103,7 @@ async fn spawn_codex_oauth_token_server(
 
 #[tokio::test]
 async fn codex_oauth_login_session_callback_imports_account() {
-    let _guard = OAUTH_LOGIN_ENV_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = OAUTH_LOGIN_ENV_LOCK.lock().await;
     let (token_url, mock_handle) = spawn_codex_oauth_token_server(false).await;
     let old_token_url = set_env("OPENAI_OAUTH_TOKEN_URL", Some(&token_url));
     let old_client_id = set_env("OPENAI_OAUTH_CLIENT_ID", Some("client_test_codex"));
@@ -245,9 +243,7 @@ async fn codex_oauth_login_session_callback_imports_account() {
 
 #[tokio::test]
 async fn codex_oauth_login_session_supports_manual_callback_submit() {
-    let _guard = OAUTH_LOGIN_ENV_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = OAUTH_LOGIN_ENV_LOCK.lock().await;
     let (token_url, mock_handle) = spawn_codex_oauth_token_server(false).await;
     let old_token_url = set_env("OPENAI_OAUTH_TOKEN_URL", Some(&token_url));
     let old_client_id = set_env("OPENAI_OAUTH_CLIENT_ID", Some("client_test_codex"));
@@ -333,9 +329,7 @@ async fn codex_oauth_login_session_supports_manual_callback_submit() {
 
 #[tokio::test]
 async fn codex_oauth_login_session_marks_failed_when_exchange_endpoint_errors() {
-    let _guard = OAUTH_LOGIN_ENV_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = OAUTH_LOGIN_ENV_LOCK.lock().await;
     let (token_url, mock_handle) = spawn_codex_oauth_token_server(true).await;
     let old_token_url = set_env("OPENAI_OAUTH_TOKEN_URL", Some(&token_url));
     let old_client_id = set_env("OPENAI_OAUTH_CLIENT_ID", Some("client_test_codex"));

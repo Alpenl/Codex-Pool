@@ -16,9 +16,12 @@ struct RequestCorrelationResponse {
     audit_logs_available: bool,
 }
 
+type RequestCorrelationWindow = (i64, i64, u32, Option<Uuid>);
+type ApiHandlerError = (StatusCode, Json<ErrorEnvelope>);
+
 fn resolve_request_correlation_window(
     query: RequestCorrelationQuery,
-) -> Result<(i64, i64, u32, Option<Uuid>), (StatusCode, Json<ErrorEnvelope>)> {
+) -> Result<RequestCorrelationWindow, ApiHandlerError> {
     let end_ts = query.end_ts.unwrap_or_else(|| Utc::now().timestamp());
     let start_ts = query
         .start_ts
@@ -446,7 +449,7 @@ async fn get_usage_hourly_trends(
         .as_ref()
         .ok_or_else(usage_repo_unavailable_error)?;
 
-    let (account_totals, tenant_api_key_totals) = tokio::try_join!(
+    let (account_totals, tenant_api_key_totals, summary) = tokio::try_join!(
         usage_repo.query_hourly_account_totals(
             usage.start_ts,
             usage.end_ts,
@@ -460,6 +463,13 @@ async fn get_usage_hourly_trends(
             query.tenant_id,
             query.api_key_id,
         ),
+        usage_repo.query_summary(
+            usage.start_ts,
+            usage.end_ts,
+            query.tenant_id,
+            query.account_id,
+            query.api_key_id,
+        ),
     )
     .map_err(internal_error)?;
 
@@ -468,6 +478,7 @@ async fn get_usage_hourly_trends(
         end_ts: usage.end_ts,
         account_totals,
         tenant_api_key_totals,
+        dashboard_metrics: summary.dashboard_metrics,
     }))
 }
 
@@ -484,7 +495,7 @@ async fn get_tenant_usage_hourly_trends(
         .as_ref()
         .ok_or_else(usage_repo_unavailable_error)?;
 
-    let (account_totals, tenant_api_key_totals) = tokio::try_join!(
+    let (account_totals, tenant_api_key_totals, summary) = tokio::try_join!(
         usage_repo.query_hourly_account_totals(
             usage.start_ts,
             usage.end_ts,
@@ -498,6 +509,13 @@ async fn get_tenant_usage_hourly_trends(
             Some(principal.tenant_id),
             query.api_key_id,
         ),
+        usage_repo.query_summary(
+            usage.start_ts,
+            usage.end_ts,
+            Some(principal.tenant_id),
+            query.account_id,
+            query.api_key_id,
+        ),
     )
     .map_err(internal_error)?;
     let response = UsageHourlyTrendsResponse {
@@ -505,6 +523,7 @@ async fn get_tenant_usage_hourly_trends(
         end_ts: usage.end_ts,
         account_totals: account_totals.clone(),
         tenant_api_key_totals: tenant_api_key_totals.clone(),
+        dashboard_metrics: summary.dashboard_metrics,
     };
     write_audit_log_best_effort(
         &state,
@@ -598,7 +617,7 @@ async fn get_admin_usage_hourly_trends(
         .as_ref()
         .ok_or_else(usage_repo_unavailable_error)?;
 
-    let (account_totals, tenant_api_key_totals) = tokio::try_join!(
+    let (account_totals, tenant_api_key_totals, summary) = tokio::try_join!(
         usage_repo.query_hourly_account_totals(
             usage.start_ts,
             usage.end_ts,
@@ -612,6 +631,13 @@ async fn get_admin_usage_hourly_trends(
             query.tenant_id,
             query.api_key_id,
         ),
+        usage_repo.query_summary(
+            usage.start_ts,
+            usage.end_ts,
+            query.tenant_id,
+            query.account_id,
+            query.api_key_id,
+        ),
     )
     .map_err(internal_error)?;
     let response = UsageHourlyTrendsResponse {
@@ -619,6 +645,7 @@ async fn get_admin_usage_hourly_trends(
         end_ts: usage.end_ts,
         account_totals: account_totals.clone(),
         tenant_api_key_totals: tenant_api_key_totals.clone(),
+        dashboard_metrics: summary.dashboard_metrics,
     };
     write_audit_log_best_effort(
         &state,

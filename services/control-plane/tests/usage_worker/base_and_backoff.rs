@@ -365,28 +365,31 @@ impl UsageAggregationRepository for RecordingRepo {
 }
 
 fn sample_event(account_id: Uuid, created_at: DateTime<Utc>) -> RequestLogEvent {
-    RequestLogEvent {
-        id: Uuid::new_v4(),
-        account_id,
-        tenant_id: None,
-        api_key_id: None,
-        event_version: 2,
-        path: "/v1/responses".to_string(),
-        method: "POST".to_string(),
-        status_code: 200,
-        latency_ms: 120,
-        is_stream: false,
-        error_code: None,
-        request_id: Some("req-worker-test".to_string()),
-        model: Some("gpt-5.3-codex".to_string()),
-        input_tokens: None,
-        output_tokens: None,
-        billing_phase: None,
-        authorization_id: None,
-        capture_status: None,
-        created_at,
-    }
-}
+	    RequestLogEvent {
+	        id: Uuid::new_v4(),
+	        account_id,
+	        tenant_id: None,
+	        api_key_id: None,
+	        event_version: 2,
+	        path: "/v1/responses".to_string(),
+	        method: "POST".to_string(),
+	        status_code: 200,
+	        latency_ms: 120,
+	        is_stream: false,
+	        error_code: None,
+	        request_id: Some("req-worker-test".to_string()),
+	        model: Some("gpt-5.3-codex".to_string()),
+	        input_tokens: None,
+	        cached_input_tokens: None,
+	        output_tokens: None,
+	        reasoning_tokens: None,
+	        first_token_latency_ms: None,
+	        billing_phase: None,
+	        authorization_id: None,
+	        capture_status: None,
+	        created_at,
+	    }
+	}
 
 #[tokio::test]
 async fn worker_persists_raw_request_log_rows_before_ack() {
@@ -398,27 +401,30 @@ async fn worker_persists_raw_request_log_rows_before_ack() {
         vec![],
         vec![StreamMessage {
             message_id: "m-1".to_string(),
-            event: RequestLogEvent {
-                id: Uuid::new_v4(),
-                account_id,
-                tenant_id: Some(tenant_id),
-                api_key_id: Some(api_key_id),
-                event_version: 2,
-                path: "/v1/responses".to_string(),
-                method: "POST".to_string(),
-                status_code: 429,
-                latency_ms: 88,
-                is_stream: false,
-                error_code: Some("429".to_string()),
-                request_id: Some("req-red-green".to_string()),
-                model: Some("gpt-5.3-codex".to_string()),
-                input_tokens: Some(321),
-                output_tokens: Some(654),
-                billing_phase: Some("captured".to_string()),
-                authorization_id: Some(Uuid::new_v4()),
-                capture_status: Some("captured".to_string()),
-                created_at,
-            },
+	            event: RequestLogEvent {
+	                id: Uuid::new_v4(),
+	                account_id,
+	                tenant_id: Some(tenant_id),
+	                api_key_id: Some(api_key_id),
+	                event_version: 2,
+	                path: "/v1/responses".to_string(),
+	                method: "POST".to_string(),
+	                status_code: 429,
+	                latency_ms: 88,
+	                is_stream: false,
+	                error_code: Some("429".to_string()),
+	                request_id: Some("req-red-green".to_string()),
+	                model: Some("gpt-5.3-codex".to_string()),
+	                input_tokens: Some(321),
+	                cached_input_tokens: None,
+	                output_tokens: Some(654),
+	                reasoning_tokens: None,
+	                first_token_latency_ms: None,
+	                billing_phase: Some("captured".to_string()),
+	                authorization_id: Some(Uuid::new_v4()),
+	                capture_status: Some("captured".to_string()),
+	                created_at,
+	            },
             tenant_id: Some(tenant_id),
             api_key_id: Some(api_key_id),
         }],
@@ -681,4 +687,3 @@ fn error_backoff_resets_after_successful_round() {
         Duration::from_millis(1000)
     );
 }
-

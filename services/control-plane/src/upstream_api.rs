@@ -23,7 +23,10 @@ pub fn build_upstream_models_url(base_url: &str, mode: &UpstreamMode) -> anyhow:
 
     url.set_path(&target_path);
 
-    if matches!(mode, UpstreamMode::ChatGptSession | UpstreamMode::CodexOauth) {
+    if matches!(
+        mode,
+        UpstreamMode::ChatGptSession | UpstreamMode::CodexOauth
+    ) {
         url.query_pairs_mut()
             .append_pair("client_version", env!("CARGO_PKG_VERSION"));
     }
@@ -31,10 +34,7 @@ pub fn build_upstream_models_url(base_url: &str, mode: &UpstreamMode) -> anyhow:
     Ok(url.to_string())
 }
 
-pub fn build_upstream_responses_url(
-    base_url: &str,
-    mode: &UpstreamMode,
-) -> anyhow::Result<String> {
+pub fn build_upstream_responses_url(base_url: &str, mode: &UpstreamMode) -> anyhow::Result<String> {
     let mut url = reqwest::Url::parse(base_url)?;
     let base_path = url.path().trim_end_matches('/').to_string();
 

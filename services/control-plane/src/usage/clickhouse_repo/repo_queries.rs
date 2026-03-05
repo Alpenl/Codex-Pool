@@ -223,6 +223,159 @@ impl ClickHouseUsageRepo {
             .collect()
     }
 
+    async fn fetch_dashboard_summary_row(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        tenant_id: Option<Uuid>,
+        account_id: Option<Uuid>,
+        api_key_id: Option<Uuid>,
+    ) -> Result<ClickHouseDashboardSummaryRow> {
+        let mut sql = format!(
+            "SELECT toUInt64(count()) AS total_requests, toUInt64(ifNull(sum(ifNull(input_tokens, 0)), 0)) AS input_tokens, toUInt64(ifNull(sum(ifNull(cached_input_tokens, 0)), 0)) AS cached_input_tokens, toUInt64(ifNull(sum(ifNull(output_tokens, 0)), 0)) AS output_tokens, toUInt64(ifNull(sum(ifNull(reasoning_tokens, 0)), 0)) AS reasoning_tokens, if(countIf(first_token_latency_ms IS NOT NULL) = 0, NULL, toUInt64(round(avgIf(toFloat64(first_token_latency_ms), first_token_latency_ms IS NOT NULL), 0))) AS avg_first_token_latency_ms FROM {} WHERE created_at >= ? AND created_at <= ? AND (billing_phase IS NULL OR billing_phase != 'streaming_open')",
+            self.request_log_table
+        );
+        if tenant_id.is_some() {
+            sql.push_str(" AND tenant_id = ?");
+        }
+        if account_id.is_some() {
+            sql.push_str(" AND account_id = ?");
+        }
+        if api_key_id.is_some() {
+            sql.push_str(" AND api_key_id = ?");
+        }
+
+        let mut query = self.ch_client.query(&sql).bind(start_ts).bind(end_ts);
+        if let Some(tenant_id) = tenant_id {
+            query = query.bind(tenant_id.to_string());
+        }
+        if let Some(account_id) = account_id {
+            query = query.bind(account_id.to_string());
+        }
+        if let Some(api_key_id) = api_key_id {
+            query = query.bind(api_key_id.to_string());
+        }
+
+        query
+            .fetch_one::<ClickHouseDashboardSummaryRow>()
+            .await
+            .context("failed to query clickhouse dashboard summary")
+    }
+
+    async fn fetch_dashboard_token_trends(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        tenant_id: Option<Uuid>,
+        account_id: Option<Uuid>,
+        api_key_id: Option<Uuid>,
+    ) -> Result<Vec<UsageDashboardTokenTrendPoint>> {
+        let mut sql = format!(
+            "SELECT intDiv(created_at, 3600) * 3600 AS hour_start, toUInt64(count()) AS request_count, toUInt64(ifNull(sum(ifNull(input_tokens, 0)), 0)) AS input_tokens, toUInt64(ifNull(sum(ifNull(cached_input_tokens, 0)), 0)) AS cached_input_tokens, toUInt64(ifNull(sum(ifNull(output_tokens, 0)), 0)) AS output_tokens, toUInt64(ifNull(sum(ifNull(reasoning_tokens, 0)), 0)) AS reasoning_tokens FROM {} WHERE created_at >= ? AND created_at <= ? AND (billing_phase IS NULL OR billing_phase != 'streaming_open')",
+            self.request_log_table
+        );
+        if tenant_id.is_some() {
+            sql.push_str(" AND tenant_id = ?");
+        }
+        if account_id.is_some() {
+            sql.push_str(" AND account_id = ?");
+        }
+        if api_key_id.is_some() {
+            sql.push_str(" AND api_key_id = ?");
+        }
+        sql.push_str(" GROUP BY hour_start ORDER BY hour_start ASC LIMIT ?");
+
+        let point_limit = ((end_ts.saturating_sub(start_ts) / 3600) + 2).clamp(1, 10_000) as u64;
+        let mut query = self.ch_client.query(&sql).bind(start_ts).bind(end_ts);
+        if let Some(tenant_id) = tenant_id {
+            query = query.bind(tenant_id.to_string());
+        }
+        if let Some(account_id) = account_id {
+            query = query.bind(account_id.to_string());
+        }
+        if let Some(api_key_id) = api_key_id {
+            query = query.bind(api_key_id.to_string());
+        }
+
+        let rows = query
+            .bind(point_limit)
+            .fetch_all::<ClickHouseDashboardTokenTrendRow>()
+            .await
+            .context("failed to query clickhouse dashboard token trends")?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| UsageDashboardTokenTrendPoint {
+                hour_start: row.hour_start,
+                request_count: row.request_count,
+                input_tokens: row.input_tokens,
+                cached_input_tokens: row.cached_input_tokens,
+                output_tokens: row.output_tokens,
+                reasoning_tokens: row.reasoning_tokens,
+                total_tokens: row
+                    .input_tokens
+                    .saturating_add(row.cached_input_tokens)
+                    .saturating_add(row.output_tokens)
+                    .saturating_add(row.reasoning_tokens),
+            })
+            .collect())
+    }
+
+    async fn fetch_dashboard_model_distribution(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        tenant_id: Option<Uuid>,
+        account_id: Option<Uuid>,
+        api_key_id: Option<Uuid>,
+        order_by_tokens: bool,
+    ) -> Result<Vec<UsageDashboardModelDistributionItem>> {
+        let mut sql = format!(
+            "SELECT ifNull(nullIf(model, ''), 'unknown') AS model, toUInt64(count()) AS request_count, toUInt64(ifNull(sum(ifNull(input_tokens, 0) + ifNull(cached_input_tokens, 0) + ifNull(output_tokens, 0) + ifNull(reasoning_tokens, 0)), 0)) AS total_tokens FROM {} WHERE created_at >= ? AND created_at <= ? AND (billing_phase IS NULL OR billing_phase != 'streaming_open')",
+            self.request_log_table
+        );
+        if tenant_id.is_some() {
+            sql.push_str(" AND tenant_id = ?");
+        }
+        if account_id.is_some() {
+            sql.push_str(" AND account_id = ?");
+        }
+        if api_key_id.is_some() {
+            sql.push_str(" AND api_key_id = ?");
+        }
+        sql.push_str(" GROUP BY model");
+        if order_by_tokens {
+            sql.push_str(" ORDER BY total_tokens DESC, request_count DESC, model ASC LIMIT 50");
+        } else {
+            sql.push_str(" ORDER BY request_count DESC, total_tokens DESC, model ASC LIMIT 50");
+        }
+
+        let mut query = self.ch_client.query(&sql).bind(start_ts).bind(end_ts);
+        if let Some(tenant_id) = tenant_id {
+            query = query.bind(tenant_id.to_string());
+        }
+        if let Some(account_id) = account_id {
+            query = query.bind(account_id.to_string());
+        }
+        if let Some(api_key_id) = api_key_id {
+            query = query.bind(api_key_id.to_string());
+        }
+
+        let rows = query
+            .fetch_all::<ClickHouseDashboardModelDistributionRow>()
+            .await
+            .context("failed to query clickhouse dashboard model distribution")?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| UsageDashboardModelDistributionItem {
+                model: row.model,
+                request_count: row.request_count,
+                total_tokens: row.total_tokens,
+            })
+            .collect())
+    }
+
     async fn fetch_summary(
         &self,
         start_ts: i64,
@@ -288,6 +441,67 @@ impl ClickHouseUsageRepo {
             .await
             .context("failed to query clickhouse tenant api-key usage summary")?;
 
+        let dashboard_metrics = match tokio::try_join!(
+            self.fetch_dashboard_summary_row(start_ts, end_ts, tenant_id, account_id, api_key_id),
+            self.fetch_dashboard_token_trends(start_ts, end_ts, tenant_id, account_id, api_key_id),
+            self.fetch_dashboard_model_distribution(
+                start_ts,
+                end_ts,
+                tenant_id,
+                account_id,
+                api_key_id,
+                false
+            ),
+            self.fetch_dashboard_model_distribution(
+                start_ts,
+                end_ts,
+                tenant_id,
+                account_id,
+                api_key_id,
+                true
+            ),
+        ) {
+            Ok((
+                dashboard_summary,
+                token_trends,
+                model_request_distribution,
+                model_token_distribution,
+            )) => {
+                let token_breakdown = UsageDashboardTokenBreakdown {
+                    input_tokens: dashboard_summary.input_tokens,
+                    cached_input_tokens: dashboard_summary.cached_input_tokens,
+                    output_tokens: dashboard_summary.output_tokens,
+                    reasoning_tokens: dashboard_summary.reasoning_tokens,
+                    total_tokens: dashboard_summary
+                        .input_tokens
+                        .saturating_add(dashboard_summary.cached_input_tokens)
+                        .saturating_add(dashboard_summary.output_tokens)
+                        .saturating_add(dashboard_summary.reasoning_tokens),
+                };
+
+                Some(UsageDashboardMetrics {
+                    total_requests: dashboard_summary.total_requests,
+                    token_breakdown,
+                    avg_first_token_latency_ms: dashboard_summary.avg_first_token_latency_ms,
+                    token_trends,
+                    model_request_distribution,
+                    model_token_distribution,
+                })
+            }
+            Err(err) => {
+                tracing::warn!(
+                    error = ?err,
+                    ?tenant_id,
+                    ?account_id,
+                    ?api_key_id,
+                    start_ts,
+                    end_ts,
+                    "dashboard metrics query failed; falling back to summary-only response"
+                );
+                None
+            }
+        };
+
         Ok(UsageSummaryQueryResponse {
             start_ts,
             end_ts,
@@ -295,6 +509,7 @@ impl ClickHouseUsageRepo {
             tenant_api_key_total_requests: tenant_api_key_summary.tenant_api_key_total_requests,
             unique_account_count: account_summary.unique_account_count,
             unique_tenant_api_key_count: tenant_api_key_summary.unique_tenant_api_key_count,
+            dashboard_metrics,
         })
     }
 

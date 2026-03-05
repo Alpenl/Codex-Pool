@@ -70,9 +70,10 @@ async fn build_test_app_with_allowed_keys(allowed_keys: Vec<String>) -> (Router,
         enable_internal_debug_routes: false,
     };
 
-    let app = build_app_with_event_sink_and_allowed_keys(cfg, Arc::new(NoopEventSink), allowed_keys)
-        .await
-        .expect("app should build");
+    let app =
+        build_app_with_event_sink_and_allowed_keys(cfg, Arc::new(NoopEventSink), allowed_keys)
+            .await
+            .expect("app should build");
     (app, upstream)
 }
 

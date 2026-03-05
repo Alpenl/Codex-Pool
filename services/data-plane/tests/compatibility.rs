@@ -128,6 +128,7 @@ async fn test_app_with_failover_wait_and_control_plane_with_preauth(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn test_app_with_failover_wait_and_control_plane_with_preauth_limits(
     accounts: Vec<UpstreamAccount>,
     request_failover_wait_ms: u64,

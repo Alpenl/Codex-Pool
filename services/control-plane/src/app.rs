@@ -40,9 +40,7 @@ use crate::import_jobs::{
     CreateOAuthImportJobOptions, ImportUploadFile, InMemoryOAuthImportJobStore,
     OAuthImportJobManager, OAuthImportJobStore,
 };
-use crate::store::{
-    ControlPlaneStore, InMemoryStore, UpstreamProbeStatus, UpstreamProbeWrite,
-};
+use crate::store::{ControlPlaneStore, InMemoryStore};
 use crate::tenant::TenantAuthService;
 use crate::usage::clickhouse_repo::UsageQueryRepository;
 
@@ -966,8 +964,6 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
 
     #[cfg(not(test))]
     spawn_model_probe_loop(state.clone());
-    #[cfg(not(test))]
-    spawn_upstream_probe_loop(state.clone());
 
     Router::new()
         .route("/health", get(health))

@@ -627,6 +627,7 @@ impl TenantAuthService {
         Ok(stats)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn reconcile_adjust_captured_amount(
         &self,
         tenant_id: Uuid,

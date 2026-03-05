@@ -1,12 +1,11 @@
-use std::sync::{LazyLock, Mutex, Once};
+use std::sync::{LazyLock, Once};
 
 const TEST_INTERNAL_AUTH_TOKEN: &str = "cp-internal-test-token";
 
-static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+static ENV_LOCK: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(|| tokio::sync::Mutex::new(()));
 static INIT: Once = Once::new();
 
-pub fn ensure_test_security_env() {
-    let _guard = ENV_LOCK.lock().expect("lock env");
+fn ensure_test_security_env_locked() {
     // Tests must not depend on ambient dev shell env. In particular, snapshot polling is enabled
     // via process-level env vars and can introduce cross-test flakiness when tests run in parallel.
     std::env::remove_var("CONTROL_PLANE_BASE_URL");
@@ -21,6 +20,13 @@ pub fn ensure_test_security_env() {
     });
 }
 
-pub fn lock_env() -> std::sync::MutexGuard<'static, ()> {
-    ENV_LOCK.lock().expect("lock env")
+pub fn ensure_test_security_env() {
+    let _guard = ENV_LOCK.blocking_lock();
+    ensure_test_security_env_locked();
+}
+
+pub async fn lock_env() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = ENV_LOCK.lock().await;
+    ensure_test_security_env_locked();
+    guard
 }

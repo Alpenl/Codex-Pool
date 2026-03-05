@@ -270,11 +270,54 @@ pub struct HourlyTenantUsageTotalPoint {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UsageDashboardTokenBreakdown {
+    pub input_tokens: u64,
+    pub cached_input_tokens: u64,
+    pub output_tokens: u64,
+    pub reasoning_tokens: u64,
+    pub total_tokens: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UsageDashboardTokenTrendPoint {
+    pub hour_start: i64,
+    pub request_count: u64,
+    pub input_tokens: u64,
+    pub cached_input_tokens: u64,
+    pub output_tokens: u64,
+    pub reasoning_tokens: u64,
+    pub total_tokens: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UsageDashboardModelDistributionItem {
+    pub model: String,
+    pub request_count: u64,
+    pub total_tokens: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UsageDashboardMetrics {
+    pub total_requests: u64,
+    pub token_breakdown: UsageDashboardTokenBreakdown,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avg_first_token_latency_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub token_trends: Vec<UsageDashboardTokenTrendPoint>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub model_request_distribution: Vec<UsageDashboardModelDistributionItem>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub model_token_distribution: Vec<UsageDashboardModelDistributionItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UsageHourlyTrendsResponse {
     pub start_ts: i64,
     pub end_ts: i64,
     pub account_totals: Vec<HourlyUsageTotalPoint>,
     pub tenant_api_key_totals: Vec<HourlyUsageTotalPoint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dashboard_metrics: Option<UsageDashboardMetrics>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -312,6 +355,8 @@ pub struct UsageSummaryQueryResponse {
     pub tenant_api_key_total_requests: u64,
     pub unique_account_count: u64,
     pub unique_tenant_api_key_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dashboard_metrics: Option<UsageDashboardMetrics>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

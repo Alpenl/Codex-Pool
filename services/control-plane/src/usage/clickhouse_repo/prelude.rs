@@ -4,7 +4,8 @@ use clickhouse::{Client, Row};
 use codex_pool_core::api::{
     AccountUsageLeaderboardItem, ApiKeyUsageLeaderboardItem, HourlyAccountUsagePoint,
     HourlyTenantApiKeyUsagePoint, HourlyTenantUsageTotalPoint, HourlyUsageTotalPoint,
-    TenantUsageLeaderboardItem, UsageSummaryQueryResponse,
+    TenantUsageLeaderboardItem, UsageDashboardMetrics, UsageDashboardModelDistributionItem,
+    UsageDashboardTokenBreakdown, UsageDashboardTokenTrendPoint, UsageSummaryQueryResponse,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -170,6 +171,33 @@ struct ClickHouseTenantApiKeyUsageSummaryRow {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Row)]
+struct ClickHouseDashboardSummaryRow {
+    total_requests: u64,
+    input_tokens: u64,
+    cached_input_tokens: u64,
+    output_tokens: u64,
+    reasoning_tokens: u64,
+    avg_first_token_latency_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
+struct ClickHouseDashboardTokenTrendRow {
+    hour_start: i64,
+    request_count: u64,
+    input_tokens: u64,
+    cached_input_tokens: u64,
+    output_tokens: u64,
+    reasoning_tokens: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
+struct ClickHouseDashboardModelDistributionRow {
+    model: String,
+    request_count: u64,
+    total_tokens: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Row)]
 struct ClickHouseTenantUsageLeaderboardRow {
     tenant_id: String,
     total_requests: u64,
@@ -205,7 +233,10 @@ struct ClickHouseRequestLogInsertRow {
     method: String,
     model: Option<String>,
     input_tokens: Option<i64>,
+    cached_input_tokens: Option<i64>,
     output_tokens: Option<i64>,
+    reasoning_tokens: Option<i64>,
+    first_token_latency_ms: Option<u64>,
     status_code: u16,
     latency_ms: u64,
     is_stream: u8,
@@ -228,7 +259,10 @@ struct ClickHouseRequestLogQueryRow {
     method: String,
     model: Option<String>,
     input_tokens: Option<i64>,
+    cached_input_tokens: Option<i64>,
     output_tokens: Option<i64>,
+    reasoning_tokens: Option<i64>,
+    first_token_latency_ms: Option<u64>,
     status_code: u16,
     latency_ms: u64,
     is_stream: u8,
@@ -332,7 +366,10 @@ impl From<RequestLogRow> for ClickHouseRequestLogInsertRow {
             method: row.method,
             model: row.model,
             input_tokens: row.input_tokens,
+            cached_input_tokens: row.cached_input_tokens,
             output_tokens: row.output_tokens,
+            reasoning_tokens: row.reasoning_tokens,
+            first_token_latency_ms: row.first_token_latency_ms,
             status_code: row.status_code,
             latency_ms: row.latency_ms,
             is_stream: if row.is_stream { 1 } else { 0 },
@@ -397,7 +434,10 @@ impl TryFrom<ClickHouseRequestLogQueryRow> for RequestLogRow {
             method: row.method,
             model: row.model,
             input_tokens: row.input_tokens,
+            cached_input_tokens: row.cached_input_tokens,
             output_tokens: row.output_tokens,
+            reasoning_tokens: row.reasoning_tokens,
+            first_token_latency_ms: row.first_token_latency_ms,
             status_code: row.status_code,
             latency_ms: row.latency_ms,
             is_stream: row.is_stream > 0,
@@ -467,4 +507,3 @@ impl TryFrom<ClickHouseBillingReconcileFactRow> for BillingReconcileFact {
         })
     }
 }
-

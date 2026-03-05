@@ -63,6 +63,9 @@ const MAX_INVALID_REQUEST_GUARD_BLOCK_SEC: u64 = 3_600;
 const DEFAULT_ROUTING_CACHE_REDIS_PREFIX: &str = "codex_pool:data_plane:routing";
 const REQUEST_ID_HEADER: &str = "x-request-id";
 
+type InvalidRequestGuardEntry = (VecDeque<Instant>, Option<Instant>);
+type InvalidRequestGuardState = HashMap<String, InvalidRequestGuardEntry>;
+
 #[derive(Debug, Clone)]
 pub struct CachedBillingPricing {
     pub input_price_microcredits: i64,
@@ -152,7 +155,7 @@ pub struct AppState {
     pub invalid_request_guard_window: Duration,
     pub invalid_request_guard_threshold: usize,
     pub invalid_request_guard_block_ttl: Duration,
-    pub invalid_request_guard: RwLock<HashMap<String, (VecDeque<Instant>, Option<Instant>)>>,
+    pub invalid_request_guard: RwLock<InvalidRequestGuardState>,
     pub invalid_request_guard_block_total: AtomicU64,
 }
 

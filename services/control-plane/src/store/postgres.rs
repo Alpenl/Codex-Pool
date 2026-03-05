@@ -22,10 +22,7 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use super::UpsertOneTimeSessionAccountRequest;
-use super::{
-    ClaimedProbeAccount, ControlPlaneStore, OAuthUpsertResult, UpstreamProbeStatus,
-    UpstreamProbeWrite, ValidatedPrincipal,
-};
+use super::{ControlPlaneStore, OAuthUpsertResult, ValidatedPrincipal};
 use crate::crypto::CredentialCipher;
 use crate::oauth::{OAuthTokenClient, OAuthTokenInfo, OpenAiOAuthClient};
 
@@ -35,7 +32,6 @@ const AUTH_PROVIDER_LEGACY_BEARER: &str = "legacy_bearer";
 const AUTH_PROVIDER_OAUTH_REFRESH_TOKEN: &str = "oauth_refresh_token";
 const OAUTH_MANAGED_BEARER_SENTINEL: &str = "__managed_oauth__";
 const POOL_STATE_ACTIVE: &str = "active";
-const UPSTREAM_OP_TYPE_PROBE: &str = "probe";
 const OUTBOX_EVENT_ACCOUNT_UPSERT: &str = "account_upsert";
 const OUTBOX_EVENT_ACCOUNT_DELETE: &str = "account_delete";
 const OAUTH_REFRESH_WINDOW_SEC: i64 = 300;

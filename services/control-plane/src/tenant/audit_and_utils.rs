@@ -431,7 +431,7 @@ impl TenantAuthService {
                 billing_default_output_price_microcredits(),
             ) {
                 let cached_input = billing_default_cached_input_price_microcredits()
-                    .unwrap_or_else(|| input / 10);
+                    .unwrap_or(input / 10);
                 return Ok(BillingPricingResolved {
                     input_price_microcredits: input,
                     cached_input_price_microcredits: cached_input.max(0),

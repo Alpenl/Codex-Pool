@@ -132,6 +132,7 @@ struct BillingSession {
     request_id: String,
     model: String,
     is_stream: bool,
+    first_token_latency_ms: Option<u64>,
     estimated_input_tokens: i64,
     authorization_id: Uuid,
     reserved_microcredits: i64,
@@ -145,6 +146,19 @@ struct BillingSettleResult {
     cached_input_tokens: i64,
     output_tokens: i64,
     reasoning_tokens: i64,
+}
+
+#[derive(Debug, Clone)]
+struct StreamRequestLogContext {
+    account_id: Uuid,
+    tenant_id: Option<Uuid>,
+    api_key_id: Option<Uuid>,
+    request_path: String,
+    request_method: String,
+    request_started: Instant,
+    request_id: Option<String>,
+    model: Option<String>,
+    estimated_input_tokens: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -718,6 +732,17 @@ pub async fn proxy_handler(
                     &response_headers,
                     upstream_response,
                     billing_session.clone(),
+                    Some(StreamRequestLogContext {
+                        account_id: account.id,
+                        tenant_id: principal.as_ref().and_then(|item| item.tenant_id),
+                        api_key_id: principal.as_ref().and_then(|item| item.api_key_id),
+                        request_path: path.clone(),
+                        request_method: method.to_string(),
+                        request_started: started,
+                        request_id: parsed_policy_context.request_id.clone(),
+                        model: parsed_policy_context.model.clone(),
+                        estimated_input_tokens: parsed_policy_context.estimated_input_tokens,
+                    }),
                 )
                 .await
                 {
@@ -734,28 +759,6 @@ pub async fn proxy_handler(
                                 .stream_protocol_header_missing_total
                                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         }
-                        emit_request_log_event_with_billing(
-                            &state,
-                            account.id,
-                            principal.as_ref(),
-                            &path,
-                            method.as_str(),
-                            status,
-                            started,
-                            true,
-                            parsed_policy_context.request_id.as_deref(),
-                            parsed_policy_context.model.as_deref(),
-                            billing_session.as_ref().map(|_| "streaming_open"),
-                            billing_session
-                                .as_ref()
-                                .map(|session| session.authorization_id),
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                        )
-                        .await;
                         record_failover_success_if_needed(&state, did_cross_account_failover);
                         return response;
                     }
@@ -923,7 +926,6 @@ pub async fn proxy_handler(
                                 cross_account_failover_attempted: Some(
                                     did_cross_account_failover,
                                 ),
-                                ..Default::default()
                             }),
                         )
                         .await;
@@ -934,6 +936,8 @@ pub async fn proxy_handler(
 
             let mut non_stream_billing_settle: Option<BillingSettleResult> = None;
             let mut non_stream_billing_deferred: Option<(Uuid, UsageTokens)> = None;
+            let mut non_stream_observed_usage: Option<UsageTokens> = None;
+            let mut non_stream_estimated_usage: Option<UsageTokens> = None;
 
             let (response, upstream_error_context, is_503_overloaded) =
                 if status == StatusCode::SERVICE_UNAVAILABLE {
@@ -945,6 +949,20 @@ pub async fn proxy_handler(
             } else {
                 let (mut response, error_context, body) =
                     buffered_response(status, &response_headers, upstream_response).await;
+                non_stream_observed_usage = extract_usage_tokens(&body);
+                if non_stream_observed_usage.is_none() {
+                    let estimated_input_tokens =
+                        parsed_policy_context.estimated_input_tokens.unwrap_or(0).max(0);
+                    let estimated_output_tokens = estimate_response_output_tokens(&body).unwrap_or(0).max(0);
+                    if estimated_input_tokens > 0 || estimated_output_tokens > 0 {
+                        non_stream_estimated_usage = Some(UsageTokens {
+                            input_tokens: estimated_input_tokens,
+                            cached_input_tokens: 0,
+                            output_tokens: estimated_output_tokens,
+                            reasoning_tokens: 0,
+                        });
+                    }
+                }
                 let mut models_cached: Option<CachedModelsResponse> = None;
                 if is_models_request && status.is_success() {
                     let cached = cache_models_response(state.as_ref(), &response_headers, &body);
@@ -1048,6 +1066,26 @@ pub async fn proxy_handler(
                             Some(usage.output_tokens),
                             Some(usage.reasoning_tokens),
                         )
+                    } else if let Some(usage) = non_stream_observed_usage {
+                        (
+                            None,
+                            None,
+                            None,
+                            Some(usage.input_tokens),
+                            Some(usage.cached_input_tokens),
+                            Some(usage.output_tokens),
+                            Some(usage.reasoning_tokens),
+                        )
+                    } else if let Some(usage) = non_stream_estimated_usage {
+                        (
+                            None,
+                            None,
+                            None,
+                            Some(usage.input_tokens),
+                            Some(usage.cached_input_tokens),
+                            Some(usage.output_tokens),
+                            Some(usage.reasoning_tokens),
+                        )
                     } else {
                         (None, None, None, None, None, None, None)
                     };
@@ -1069,6 +1107,7 @@ pub async fn proxy_handler(
                     cached_input_tokens,
                     output_tokens,
                     reasoning_tokens,
+                    (!is_stream).then_some(started.elapsed().as_millis() as u64),
                 )
                 .await;
                 if let Some(seen_ok_reporter) = state.seen_ok_reporter.clone() {

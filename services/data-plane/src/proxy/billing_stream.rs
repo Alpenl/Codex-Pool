@@ -323,6 +323,7 @@ async fn authorize_billing_session(
                 request_id: pending.request_id.clone(),
                 model: pending.model.clone(),
                 is_stream,
+                first_token_latency_ms: None,
                 estimated_input_tokens: pending.estimated_input_tokens,
                 authorization_id: authorize.authorization_id,
                 reserved_microcredits: authorize.reserved_microcredits,
@@ -716,6 +717,7 @@ async fn stream_response_with_first_chunk(
     headers: &HeaderMap,
     upstream_response: reqwest::Response,
     billing_session: Option<BillingSession>,
+    stream_log_context: Option<StreamRequestLogContext>,
 ) -> Result<Response, StreamPreludeError> {
     let mut upstream_stream: UpstreamByteStream = Box::pin(upstream_response.bytes_stream());
     let first_chunk = loop {
@@ -731,6 +733,12 @@ async fn stream_response_with_first_chunk(
         parse_stream_prelude_error_context(status, headers, first_chunk.as_ref())
     {
         return Err(StreamPreludeError::UpstreamErrorResponse(error_context));
+    }
+
+    let first_token_latency_ms = started_first_token_latency_ms(&billing_session, &stream_log_context);
+    let mut billing_session = billing_session;
+    if let Some(session) = billing_session.as_mut() {
+        session.first_token_latency_ms = first_token_latency_ms;
     }
 
     let (tx, rx) =
@@ -768,13 +776,86 @@ async fn stream_response_with_first_chunk(
         }
         drop(tx);
 
+        let observation = tracker.finish_usage();
         if let Some(billing_session) = billing_session {
-            finalize_stream_billing(state_for_task, billing_session, tracker.finish_usage()).await;
+            finalize_stream_billing(state_for_task, billing_session, observation).await;
+        } else if let Some(stream_log_context) = stream_log_context {
+            emit_stream_usage_request_log_event(
+                state_for_task.as_ref(),
+                stream_log_context,
+                first_token_latency_ms,
+                observation,
+            )
+            .await;
         }
     });
 
     let body = Body::from_stream(ReceiverStream::new(rx));
     Ok(response_with_body(status, headers, body))
+}
+
+fn started_first_token_latency_ms(
+    billing_session: &Option<BillingSession>,
+    stream_log_context: &Option<StreamRequestLogContext>,
+) -> Option<u64> {
+    if let Some(session) = billing_session.as_ref() {
+        return Some(session.request_started.elapsed().as_millis() as u64);
+    }
+    stream_log_context
+        .as_ref()
+        .map(|context| context.request_started.elapsed().as_millis() as u64)
+}
+
+async fn emit_stream_usage_request_log_event(
+    state: &AppState,
+    stream_log_context: StreamRequestLogContext,
+    first_token_latency_ms: Option<u64>,
+    observation: StreamUsageObservation,
+) {
+    let usage = observation.usage.or_else(|| {
+        let estimated_output_tokens = observation.estimated_output_tokens.unwrap_or(0).max(0);
+        let estimated_input_tokens = stream_log_context
+            .estimated_input_tokens
+            .unwrap_or(0)
+            .max(0);
+        if estimated_input_tokens == 0 && estimated_output_tokens == 0 {
+            return None;
+        }
+        Some(UsageTokens {
+            input_tokens: estimated_input_tokens,
+            cached_input_tokens: 0,
+            output_tokens: estimated_output_tokens,
+            reasoning_tokens: 0,
+        })
+    });
+
+    state
+        .event_sink
+        .emit_request_log(RequestLogEvent {
+            id: Uuid::new_v4(),
+            account_id: stream_log_context.account_id,
+            tenant_id: stream_log_context.tenant_id,
+            api_key_id: stream_log_context.api_key_id,
+            event_version: 2,
+            path: stream_log_context.request_path,
+            method: stream_log_context.request_method,
+            status_code: StatusCode::OK.as_u16(),
+            latency_ms: stream_log_context.request_started.elapsed().as_millis() as u64,
+            is_stream: true,
+            error_code: None,
+            request_id: stream_log_context.request_id,
+            model: stream_log_context.model,
+            input_tokens: usage.as_ref().map(|item| item.input_tokens),
+            cached_input_tokens: usage.as_ref().map(|item| item.cached_input_tokens),
+            output_tokens: usage.as_ref().map(|item| item.output_tokens),
+            reasoning_tokens: usage.as_ref().map(|item| item.reasoning_tokens),
+            first_token_latency_ms,
+            billing_phase: Some("stream_observed".to_string()),
+            authorization_id: None,
+            capture_status: None,
+            created_at: chrono::Utc::now(),
+        })
+        .await;
 }
 
 fn parse_stream_prelude_error_context(
@@ -906,6 +987,17 @@ async fn finalize_stream_billing(
     }
 
     let Some(usage_tokens) = usage else {
+        emit_stream_request_log_event(
+            state.as_ref(),
+            &billing_session,
+            "released_missing_usage",
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await;
         state
             .stream_usage_missing_total
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -925,30 +1017,17 @@ async fn finalize_stream_billing(
 
     match settle_authorized_billing(state.as_ref(), &billing_session, usage_tokens).await {
         Ok(settle_result) => {
-            state
-                .event_sink
-                .emit_request_log(RequestLogEvent {
-                    id: Uuid::new_v4(),
-                    account_id: billing_session.account_id,
-                    tenant_id: Some(billing_session.tenant_id),
-                    api_key_id: Some(billing_session.api_key_id),
-                    event_version: 2,
-                    path: billing_session.request_path.clone(),
-                    method: billing_session.request_method.clone(),
-                    status_code: StatusCode::OK.as_u16(),
-                    latency_ms: billing_session.request_started.elapsed().as_millis() as u64,
-                    is_stream: true,
-                    error_code: None,
-                    request_id: Some(billing_session.request_id.clone()),
-                    model: Some(billing_session.model.clone()),
-                    input_tokens: Some(settle_result.input_tokens),
-                    output_tokens: Some(settle_result.output_tokens),
-                    billing_phase: Some("released".to_string()),
-                    authorization_id: Some(settle_result.authorization_id),
-                    capture_status: Some(settle_result.capture_status),
-                    created_at: chrono::Utc::now(),
-                })
-                .await;
+            emit_stream_request_log_event(
+                state.as_ref(),
+                &billing_session,
+                "released",
+                Some(settle_result.capture_status.as_str()),
+                Some(settle_result.input_tokens),
+                Some(settle_result.cached_input_tokens),
+                Some(settle_result.output_tokens),
+                Some(settle_result.reasoning_tokens),
+            )
+            .await;
         }
         Err(err) => {
             warn!(
@@ -958,8 +1037,59 @@ async fn finalize_stream_billing(
                 reserved_microcredits = billing_session.reserved_microcredits,
                 "stream billing finalize failed"
             );
+            emit_stream_request_log_event(
+                state.as_ref(),
+                &billing_session,
+                "released_failed",
+                None,
+                Some(usage_tokens.input_tokens),
+                Some(usage_tokens.cached_input_tokens),
+                Some(usage_tokens.output_tokens),
+                Some(usage_tokens.reasoning_tokens),
+            )
+            .await;
         }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn emit_stream_request_log_event(
+    state: &AppState,
+    billing_session: &BillingSession,
+    billing_phase: &str,
+    capture_status: Option<&str>,
+    input_tokens: Option<i64>,
+    cached_input_tokens: Option<i64>,
+    output_tokens: Option<i64>,
+    reasoning_tokens: Option<i64>,
+) {
+    state
+        .event_sink
+        .emit_request_log(RequestLogEvent {
+            id: Uuid::new_v4(),
+            account_id: billing_session.account_id,
+            tenant_id: Some(billing_session.tenant_id),
+            api_key_id: Some(billing_session.api_key_id),
+            event_version: 2,
+            path: billing_session.request_path.clone(),
+            method: billing_session.request_method.clone(),
+            status_code: StatusCode::OK.as_u16(),
+            latency_ms: billing_session.request_started.elapsed().as_millis() as u64,
+            is_stream: true,
+            error_code: None,
+            request_id: Some(billing_session.request_id.clone()),
+            model: Some(billing_session.model.clone()),
+            input_tokens,
+            cached_input_tokens,
+            output_tokens,
+            reasoning_tokens,
+            first_token_latency_ms: billing_session.first_token_latency_ms,
+            billing_phase: Some(billing_phase.to_string()),
+            authorization_id: Some(billing_session.authorization_id),
+            capture_status: capture_status.map(ToString::to_string),
+            created_at: chrono::Utc::now(),
+        })
+        .await;
 }
 
 impl SseUsageTracker {

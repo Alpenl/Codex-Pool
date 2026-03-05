@@ -484,6 +484,7 @@ fn log_failover_decision(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn emit_request_log_event(
     state: &AppState,
     account_id: Uuid,
@@ -498,7 +499,7 @@ async fn emit_request_log_event(
 ) {
     emit_request_log_event_with_billing(
         state, account_id, principal, path, method, status, started, is_stream, request_id, model,
-        None, None, None, None, None, None, None,
+        None, None, None, None, None, None, None, None,
     )
     .await;
 }
@@ -519,9 +520,10 @@ async fn emit_request_log_event_with_billing(
     authorization_id: Option<Uuid>,
     capture_status: Option<&str>,
     input_tokens: Option<i64>,
-    _cached_input_tokens: Option<i64>,
+    cached_input_tokens: Option<i64>,
     output_tokens: Option<i64>,
-    _reasoning_tokens: Option<i64>,
+    reasoning_tokens: Option<i64>,
+    first_token_latency_ms: Option<u64>,
 ) {
     state
         .event_sink
@@ -540,7 +542,10 @@ async fn emit_request_log_event_with_billing(
             request_id: request_id.map(ToString::to_string),
             model: model.map(ToString::to_string),
             input_tokens,
+            cached_input_tokens,
             output_tokens,
+            reasoning_tokens,
+            first_token_latency_ms,
             billing_phase: billing_phase.map(ToString::to_string),
             authorization_id,
             capture_status: capture_status.map(ToString::to_string),
@@ -615,17 +620,13 @@ fn recovery_action_for_upstream_error_code(code: Option<&str>) -> Option<ProxyRe
 fn recovery_action_for_error_context(
     error_context: Option<&UpstreamErrorContext>,
 ) -> Option<ProxyRecoveryAction> {
-    let Some(context) = error_context else {
-        return None;
-    };
-    recovery_action_for_upstream_error_code(context.error_code.as_deref()).or_else(|| {
-        match context.class {
-            UpstreamErrorClass::TokenInvalidated | UpstreamErrorClass::AuthExpired => {
-                Some(ProxyRecoveryAction::RotateRefreshToken)
-            }
-            UpstreamErrorClass::AccountDeactivated => Some(ProxyRecoveryAction::DisableAccount),
-            _ => None,
+    let context = error_context?;
+    recovery_action_for_upstream_error_code(context.error_code.as_deref()).or(match context.class {
+        UpstreamErrorClass::TokenInvalidated | UpstreamErrorClass::AuthExpired => {
+            Some(ProxyRecoveryAction::RotateRefreshToken)
         }
+        UpstreamErrorClass::AccountDeactivated => Some(ProxyRecoveryAction::DisableAccount),
+        _ => None,
     })
 }
 
@@ -830,8 +831,7 @@ fn extract_retry_after(headers: &HeaderMap) -> Option<Duration> {
 fn auth_expired_ejection_ttl(base_ttl: Duration) -> Duration {
     let seconds = auth_error_ejection_ttl(base_ttl)
         .as_secs()
-        .max(AUTH_EXPIRED_EJECTION_MIN_SEC)
-        .min(AUTH_EXPIRED_EJECTION_MAX_SEC);
+        .clamp(AUTH_EXPIRED_EJECTION_MIN_SEC, AUTH_EXPIRED_EJECTION_MAX_SEC);
     Duration::from_secs(seconds)
 }
 
@@ -840,8 +840,7 @@ fn quota_exhausted_ejection_ttl(error_context: &UpstreamErrorContext) -> Duratio
         .retry_after
         .map(|value| value.as_secs())
         .unwrap_or(QUOTA_EXHAUSTED_EJECTION_MIN_SEC)
-        .max(QUOTA_EXHAUSTED_EJECTION_MIN_SEC)
-        .min(QUOTA_EXHAUSTED_EJECTION_MAX_SEC);
+        .clamp(QUOTA_EXHAUSTED_EJECTION_MIN_SEC, QUOTA_EXHAUSTED_EJECTION_MAX_SEC);
     Duration::from_secs(seconds)
 }
 
@@ -983,6 +982,7 @@ fn compose_upstream_path(base_path: &str, path: &str) -> String {
     format!("{base_path}/{}", normalized_path.trim_start_matches('/'))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_upstream_websocket_request(
     base_url: &str,
     mode: &UpstreamMode,

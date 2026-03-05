@@ -35,7 +35,7 @@ impl ClickHouseUsageRepo {
             self.tenant_account_table
         );
         let request_log_ddl = format!(
-            "CREATE TABLE IF NOT EXISTS {} (id String, account_id String, tenant_id Nullable(String), api_key_id Nullable(String), request_id Nullable(String), path String, method String, model Nullable(String), input_tokens Nullable(Int64), output_tokens Nullable(Int64), status_code UInt16, latency_ms UInt64, is_stream UInt8, error_code Nullable(String), billing_phase Nullable(String), authorization_id Nullable(String), capture_status Nullable(String), created_at Int64, event_version UInt16) ENGINE = ReplacingMergeTree ORDER BY (created_at, id)",
+            "CREATE TABLE IF NOT EXISTS {} (id String, account_id String, tenant_id Nullable(String), api_key_id Nullable(String), request_id Nullable(String), path String, method String, model Nullable(String), input_tokens Nullable(Int64), cached_input_tokens Nullable(Int64), output_tokens Nullable(Int64), reasoning_tokens Nullable(Int64), first_token_latency_ms Nullable(UInt64), status_code UInt16, latency_ms UInt64, is_stream UInt8, error_code Nullable(String), billing_phase Nullable(String), authorization_id Nullable(String), capture_status Nullable(String), created_at Int64, event_version UInt16) ENGINE = ReplacingMergeTree ORDER BY (created_at, id)",
             self.request_log_table
         );
 
@@ -74,6 +74,18 @@ impl ClickHouseUsageRepo {
             ),
             format!(
                 "ALTER TABLE {} ADD COLUMN IF NOT EXISTS output_tokens Nullable(Int64)",
+                self.request_log_table
+            ),
+            format!(
+                "ALTER TABLE {} ADD COLUMN IF NOT EXISTS cached_input_tokens Nullable(Int64)",
+                self.request_log_table
+            ),
+            format!(
+                "ALTER TABLE {} ADD COLUMN IF NOT EXISTS reasoning_tokens Nullable(Int64)",
+                self.request_log_table
+            ),
+            format!(
+                "ALTER TABLE {} ADD COLUMN IF NOT EXISTS first_token_latency_ms Nullable(UInt64)",
                 self.request_log_table
             ),
             format!(
@@ -199,7 +211,7 @@ impl ClickHouseUsageRepo {
 
     async fn fetch_request_logs(&self, query: RequestLogQuery) -> Result<Vec<RequestLogRow>> {
         let mut sql = format!(
-            "SELECT id, account_id, tenant_id, api_key_id, request_id, path, method, model, input_tokens, output_tokens, status_code, latency_ms, is_stream, error_code, billing_phase, authorization_id, capture_status, created_at, event_version FROM {} WHERE created_at >= ? AND created_at <= ?",
+            "SELECT id, account_id, tenant_id, api_key_id, request_id, path, method, model, input_tokens, cached_input_tokens, output_tokens, reasoning_tokens, first_token_latency_ms, status_code, latency_ms, is_stream, error_code, billing_phase, authorization_id, capture_status, created_at, event_version FROM {} WHERE created_at >= ? AND created_at <= ?",
             self.request_log_table
         );
 

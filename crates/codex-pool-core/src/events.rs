@@ -23,7 +23,13 @@ pub struct RequestLogEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_tokens: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_input_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_token_latency_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub billing_phase: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -69,7 +75,10 @@ mod tests {
             request_id: Some("req-1".to_string()),
             model: Some("gpt-5.3-codex".to_string()),
             input_tokens: Some(123),
+            cached_input_tokens: Some(0),
             output_tokens: Some(456),
+            reasoning_tokens: Some(12),
+            first_token_latency_ms: Some(28),
             billing_phase: Some("captured".to_string()),
             authorization_id: Some(Uuid::new_v4()),
             capture_status: Some("captured".to_string()),

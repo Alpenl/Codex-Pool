@@ -245,8 +245,7 @@ async fn send_proxy_request(app: &Router) -> Value {
 
 #[tokio::test(flavor = "current_thread")]
 async fn data_plane_refreshes_snapshot_then_routes_to_new_account() {
-    support::ensure_test_security_env();
-    let _env_guard = support::lock_env();
+    let _env_guard = support::lock_env().await;
     let upstream_a = MockServer::start().await;
     let upstream_b = MockServer::start().await;
 
@@ -326,8 +325,7 @@ async fn data_plane_refreshes_snapshot_then_routes_to_new_account() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn data_plane_fallbacks_to_full_snapshot_when_events_cursor_is_gone() {
-    support::ensure_test_security_env();
-    let _env_guard = support::lock_env();
+    let _env_guard = support::lock_env().await;
     let upstream_a = MockServer::start().await;
     let upstream_b = MockServer::start().await;
 
