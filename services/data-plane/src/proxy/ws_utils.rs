@@ -62,7 +62,10 @@ struct WsLogicalUsageConnectionContext {
     principal: Option<ApiPrincipal>,
     request_headers: HeaderMap,
     request_path: String,
+    request_query: Option<String>,
     request_method: String,
+    requested_subprotocol: Option<String>,
+    sticky_key: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -357,6 +360,10 @@ impl WsLogicalResponseTracker {
         self.pending_billing_actions.clear();
         sessions
     }
+
+    fn has_unfinished_requests(&self) -> bool {
+        !self.pending_requests.is_empty() || !self.active_by_response_id.is_empty()
+    }
 }
 
 impl std::fmt::Display for ProxyWebSocketStreamError {
@@ -375,189 +382,201 @@ async fn proxy_websocket_streams(
     downstream_socket: WebSocket,
     upstream_socket: UpstreamWebSocket,
     state: Arc<AppState>,
-    ws_usage_context: WsLogicalUsageConnectionContext,
+    mut ws_usage_context: WsLogicalUsageConnectionContext,
 ) -> Result<(), ProxyWebSocketStreamError> {
-    let (downstream_sender, mut downstream_receiver) = downstream_socket.split();
+    let (mut downstream_sender, mut downstream_receiver) = downstream_socket.split();
     let (mut upstream_sender, mut upstream_receiver) = upstream_socket.split();
-    let downstream_sender = Arc::new(tokio::sync::Mutex::new(downstream_sender));
-    let tracker = std::sync::Arc::new(std::sync::Mutex::new(WsLogicalResponseTracker::default()));
-    let downstream_tracker = tracker.clone();
-    let upstream_tracker = tracker.clone();
-    let downstream_state = state.clone();
-    let upstream_state = state.clone();
-    let downstream_sender_for_errors = downstream_sender.clone();
-    let downstream_sender_for_upstream = downstream_sender.clone();
+    let mut tracker = WsLogicalResponseTracker::default();
 
-    let downstream_to_upstream = async {
-        while let Some(message) = downstream_receiver.next().await {
-            let Ok(message) = message else {
-                break;
-            };
+    let release_reason = loop {
+        tokio::select! {
+            maybe_downstream = downstream_receiver.next() => {
+                let Some(message) = maybe_downstream else {
+                    let _ = upstream_sender.close().await;
+                    break WS_RELEASE_REASON_CONNECTION_CLOSED;
+                };
+                let Ok(message) = message else {
+                    let _ = upstream_sender.close().await;
+                    break WS_RELEASE_REASON_CONNECTION_CLOSED;
+                };
 
-            if let AxumWsMessage::Text(text) = &message {
-                if let Some(value) = parse_ws_json_text(text.as_ref()) {
-                    if let Some(seed) = extract_ws_logical_request_seed(&value) {
-                        let parsed_policy_context =
-                            parse_ws_request_policy_context(&ws_usage_context.request_headers, &value);
-                        if let Err(error_response) = enforce_principal_request_policy(
-                            ws_usage_context.principal.as_ref(),
-                            &ws_usage_context.request_headers,
-                            &parsed_policy_context,
-                        ) {
-                            let ws_error = ws_error_message_from_response(*error_response).await;
-                            let send_result = {
-                                let mut sender = downstream_sender_for_errors.lock().await;
-                                sender.send(ws_error).await
-                            };
-                            if send_result.is_err() {
-                                break;
-                            }
-                            continue;
-                        }
-
-                        let pending_billing_session = match build_pending_billing_session(
-                            downstream_state.as_ref(),
-                            ws_usage_context.principal.as_ref(),
-                            &ws_usage_context.request_headers,
-                            &parsed_policy_context,
-                            &ws_usage_context.request_path,
-                            WS_LOGICAL_REQUEST_METHOD,
-                        )
-                        .await
-                        {
-                            Ok(value) => value,
-                            Err(error_response) => {
+                if let AxumWsMessage::Text(text) = &message {
+                    if let Some(value) = parse_ws_json_text(text.as_ref()) {
+                        if let Some(seed) = extract_ws_logical_request_seed(&value) {
+                            let parsed_policy_context =
+                                parse_ws_request_policy_context(&ws_usage_context.request_headers, &value);
+                            if let Err(error_response) = enforce_principal_request_policy(
+                                ws_usage_context.principal.as_ref(),
+                                &ws_usage_context.request_headers,
+                                &parsed_policy_context,
+                            ) {
                                 let ws_error = ws_error_message_from_response(*error_response).await;
-                                let send_result = {
-                                    let mut sender = downstream_sender_for_errors.lock().await;
-                                    sender.send(ws_error).await
-                                };
-                                if send_result.is_err() {
-                                    break;
+                                if downstream_sender.send(ws_error).await.is_err() {
+                                    break WS_RELEASE_REASON_CONNECTION_CLOSED;
                                 }
                                 continue;
                             }
-                        };
 
-                        let billing_session = if let Some(pending_session) =
-                            pending_billing_session.as_ref()
-                        {
-                            match authorize_billing_session(
-                                downstream_state.as_ref(),
-                                pending_session,
-                                ws_usage_context.account_id,
+                            let pending_billing_session = match build_pending_billing_session(
+                                state.as_ref(),
+                                ws_usage_context.principal.as_ref(),
+                                &ws_usage_context.request_headers,
+                                &parsed_policy_context,
                                 &ws_usage_context.request_path,
                                 WS_LOGICAL_REQUEST_METHOD,
-                                seed.started_at,
-                                true,
                             )
                             .await
                             {
-                                Ok(session) => Some(session),
+                                Ok(value) => value,
                                 Err(error_response) => {
-                                    let ws_error =
-                                        ws_error_message_from_response(*error_response).await;
-                                    let send_result = {
-                                        let mut sender = downstream_sender_for_errors.lock().await;
-                                        sender.send(ws_error).await
-                                    };
-                                    if send_result.is_err() {
-                                        break;
+                                    let ws_error = ws_error_message_from_response(*error_response).await;
+                                    if downstream_sender.send(ws_error).await.is_err() {
+                                        break WS_RELEASE_REASON_CONNECTION_CLOSED;
                                     }
                                     continue;
                                 }
-                            }
-                        } else {
-                            None
-                        };
+                            };
 
-                        if let Ok(mut tracker) = downstream_tracker.lock() {
+                            let billing_session = if let Some(pending_session) =
+                                pending_billing_session.as_ref()
+                            {
+                                match authorize_billing_session(
+                                    state.as_ref(),
+                                    pending_session,
+                                    ws_usage_context.account_id,
+                                    &ws_usage_context.request_path,
+                                    WS_LOGICAL_REQUEST_METHOD,
+                                    seed.started_at,
+                                    true,
+                                )
+                                .await
+                                {
+                                    Ok(session) => Some(session),
+                                    Err(error_response) => {
+                                        let ws_error = ws_error_message_from_response(*error_response).await;
+                                        if downstream_sender.send(ws_error).await.is_err() {
+                                            break WS_RELEASE_REASON_CONNECTION_CLOSED;
+                                        }
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                None
+                            };
+
                             tracker.register_logical_request(seed, billing_session);
                         }
                     }
                 }
-            }
 
-            let should_close = matches!(message, AxumWsMessage::Close(_));
-            if upstream_sender
-                .send(axum_message_to_tungstenite(message))
-                .await
-                .is_err()
-            {
-                break;
-            }
-            if should_close {
-                break;
-            }
-        }
-        let _ = upstream_sender.close().await;
-        Ok::<(), ProxyWebSocketStreamError>(())
-    };
-
-    let upstream_to_downstream = async {
-        let mut upstream_close: Option<UpstreamWebSocketClose> = None;
-        while let Some(message) = upstream_receiver.next().await {
-            let Ok(message) = message else {
-                break;
-            };
-            let (pending_events, pending_billing_actions) =
-                if let Ok(mut tracker) = upstream_tracker.lock() {
-                    let events = tracker.observe_upstream_message(&message, &ws_usage_context);
-                    let billing_actions = tracker.drain_pending_billing_actions();
-                    (events, billing_actions)
-                } else {
-                    (Vec::new(), Vec::new())
-                };
-            for event in pending_events {
-                upstream_state.event_sink.emit_request_log(event).await;
-            }
-            process_ws_pending_billing_actions(upstream_state.clone(), pending_billing_actions).await;
-            let should_close = matches!(message, TungsteniteMessage::Close(_));
-            if let TungsteniteMessage::Close(frame) = &message {
-                let close = frame
-                    .as_ref()
-                    .map(|frame| UpstreamWebSocketClose {
-                        code: u16::from(frame.code),
-                        reason: frame.reason.to_string(),
-                    })
-                    .unwrap_or_else(|| UpstreamWebSocketClose {
-                        code: 1000,
-                        reason: String::new(),
-                    });
-                upstream_close = Some(close);
-            }
-            if let Some(mapped) = tungstenite_message_to_axum(message) {
-                let send_result = {
-                    let mut sender = downstream_sender.lock().await;
-                    sender.send(mapped).await
-                };
-                if send_result.is_err() {
-                    break;
+                let should_close = matches!(message, AxumWsMessage::Close(_));
+                if upstream_sender
+                    .send(axum_message_to_tungstenite(message))
+                    .await
+                    .is_err()
+                {
+                    break WS_RELEASE_REASON_UPSTREAM_CLOSED;
+                }
+                if should_close {
+                    let _ = upstream_sender.close().await;
+                    break WS_RELEASE_REASON_CONNECTION_CLOSED;
                 }
             }
-            if should_close {
-                break;
+            maybe_upstream = upstream_receiver.next() => {
+                let Some(message) = maybe_upstream else {
+                    break WS_RELEASE_REASON_UPSTREAM_CLOSED;
+                };
+                let Ok(message) = message else {
+                    break WS_RELEASE_REASON_UPSTREAM_CLOSED;
+                };
+
+                let mut failover_error_context: Option<UpstreamErrorContext> = None;
+                if let TungsteniteMessage::Text(text) = &message {
+                    if let Some(value) = parse_ws_json_text(text.as_ref()) {
+                        failover_error_context = build_ws_failover_error_context(&value);
+                    }
+                }
+
+                let pending_events = tracker.observe_upstream_message(&message, &ws_usage_context);
+                let pending_billing_actions = tracker.drain_pending_billing_actions();
+                for event in pending_events {
+                    state.event_sink.emit_request_log(event).await;
+                }
+                process_ws_pending_billing_actions(state.clone(), pending_billing_actions).await;
+
+                let upstream_close = if let TungsteniteMessage::Close(frame) = &message {
+                    Some(frame
+                        .as_ref()
+                        .map(|frame| UpstreamWebSocketClose {
+                            code: u16::from(frame.code),
+                            reason: frame.reason.to_string(),
+                        })
+                        .unwrap_or_else(|| UpstreamWebSocketClose {
+                            code: 1000,
+                            reason: String::new(),
+                        }))
+                } else {
+                    None
+                };
+
+                if let Some(mapped) = tungstenite_message_to_axum(message) {
+                    if downstream_sender.send(mapped).await.is_err() {
+                        break WS_RELEASE_REASON_CONNECTION_CLOSED;
+                    }
+                }
+
+                if let Some(error_context) = failover_error_context.as_ref() {
+                    if should_rotate_ws_session_on_error(error_context) && !tracker.has_unfinished_requests() {
+                        let recovery_outcome = apply_recovery_action(
+                            state.as_ref(),
+                            ws_usage_context.account_id,
+                            Some(error_context),
+                        )
+                        .await;
+                        let ejection_ttl = ejection_ttl_for_response(
+                            error_context.status,
+                            state.account_ejection_ttl,
+                            false,
+                            Some(error_context),
+                            recovery_outcome,
+                        )
+                        .unwrap_or(state.account_ejection_ttl);
+                        mark_account_unhealthy_and_clear_sticky(
+                            &state,
+                            ws_usage_context.account_id,
+                            ws_usage_context.sticky_key.as_deref(),
+                            ejection_ttl,
+                        )
+                        .await;
+
+                        let mut excluded_account_ids = HashSet::new();
+                        excluded_account_ids.insert(ws_usage_context.account_id);
+                        if let Some((next_account, next_socket)) = connect_failover_upstream_for_ws_session(
+                            &state,
+                            &ws_usage_context,
+                            &excluded_account_ids,
+                        )
+                        .await
+                        {
+                            let _ = upstream_sender.close().await;
+                            let (new_upstream_sender, new_upstream_receiver) = next_socket.split();
+                            upstream_sender = new_upstream_sender;
+                            upstream_receiver = new_upstream_receiver;
+                            ws_usage_context.account_id = next_account.id;
+                            continue;
+                        }
+                    }
+                }
+
+                if let Some(close) = upstream_close {
+                    let _ = downstream_sender.close().await;
+                    return Err(ProxyWebSocketStreamError::UpstreamClosed(close));
+                }
             }
         }
-        let _ = downstream_sender_for_upstream.lock().await.close().await;
-        if let Some(close) = upstream_close {
-            return Err(ProxyWebSocketStreamError::UpstreamClosed(close));
-        }
-        Ok::<(), ProxyWebSocketStreamError>(())
     };
 
-    let (downstream_to_upstream_result, upstream_to_downstream_result) =
-        tokio::join!(downstream_to_upstream, upstream_to_downstream);
-
-    let release_reason = match &upstream_to_downstream_result {
-        Err(ProxyWebSocketStreamError::UpstreamClosed(_)) => WS_RELEASE_REASON_UPSTREAM_CLOSED,
-        _ => WS_RELEASE_REASON_CONNECTION_CLOSED,
-    };
-    let lingering_billing_sessions = if let Ok(mut tracker) = tracker.lock() {
-        tracker.take_unfinished_billing_sessions()
-    } else {
-        Vec::new()
-    };
+    let lingering_billing_sessions = tracker.take_unfinished_billing_sessions();
     for billing_session in lingering_billing_sessions {
         release_ws_billing_session(
             state.clone(),
@@ -568,14 +587,141 @@ async fn proxy_websocket_streams(
         .await;
     }
 
-    downstream_to_upstream_result?;
-    upstream_to_downstream_result?;
-
     Ok(())
 }
 
 fn parse_ws_json_text(text: &str) -> Option<Value> {
     serde_json::from_str::<Value>(text).ok()
+}
+
+fn build_ws_failover_error_context(value: &Value) -> Option<UpstreamErrorContext> {
+    if !is_ws_error_event(value) {
+        return None;
+    }
+    let body = serde_json::to_vec(value).ok()?;
+    build_upstream_error_context(StatusCode::BAD_REQUEST, &HeaderMap::new(), &body)
+}
+
+fn should_rotate_ws_session_on_error(error_context: &UpstreamErrorContext) -> bool {
+    matches!(
+        error_context.class,
+        UpstreamErrorClass::QuotaExhausted
+            | UpstreamErrorClass::RateLimited
+            | UpstreamErrorClass::TokenInvalidated
+            | UpstreamErrorClass::AuthExpired
+            | UpstreamErrorClass::AccountDeactivated
+    )
+}
+
+async fn connect_failover_upstream_for_ws_session(
+    state: &Arc<AppState>,
+    ws_usage_context: &WsLogicalUsageConnectionContext,
+    excluded_account_ids: &HashSet<Uuid>,
+) -> Option<(UpstreamAccount, UpstreamWebSocket)> {
+    let mut excluded_account_ids = excluded_account_ids.clone();
+
+    loop {
+        let account = state.router.pick_with_policy(
+            ws_usage_context.sticky_key.as_deref(),
+            &excluded_account_ids,
+            state.sticky_prefer_non_conflicting,
+        )?;
+
+        if state.shared_routing_cache_enabled {
+            if let Ok(true) = state.routing_cache.is_unhealthy(account.id).await {
+                state.router.mark_unhealthy(
+                    account.id,
+                    state.retry_poll_interval.max(Duration::from_millis(1)),
+                );
+                excluded_account_ids.insert(account.id);
+                continue;
+            }
+        }
+
+        let upstream_request = match build_upstream_websocket_request(
+            &account.base_url,
+            &account.mode,
+            &account.bearer_token,
+            account.chatgpt_account_id.as_deref(),
+            &ws_usage_context.request_path,
+            ws_usage_context.request_query.as_deref(),
+            &ws_usage_context.request_headers,
+            ws_usage_context.requested_subprotocol.is_some(),
+        ) {
+            Ok(request) => request,
+            Err(err) => {
+                warn!(
+                    error = %err,
+                    account_id = %account.id,
+                    "failed to build failover upstream websocket request"
+                );
+                mark_account_unhealthy_and_clear_sticky(
+                    state,
+                    account.id,
+                    ws_usage_context.sticky_key.as_deref(),
+                    state.account_ejection_ttl,
+                )
+                .await;
+                excluded_account_ids.insert(account.id);
+                continue;
+            }
+        };
+
+        let connect_result = connect_async(upstream_request).await;
+        match connect_result {
+            Ok((upstream_socket, _)) => {
+                if let Some(sticky_key) = ws_usage_context.sticky_key.as_deref() {
+                    let _ = state.router.bind_sticky(sticky_key, account.id);
+                    let _ = state
+                        .routing_cache
+                        .set_sticky_account_id(
+                            sticky_key,
+                            account.id,
+                            Duration::from_secs(ROUTING_CACHE_STICKY_TTL_SEC),
+                        )
+                        .await;
+                }
+                return Some((account, upstream_socket));
+            }
+            Err(err) => {
+                let (status, error_context, is_http_handshake_error) = match &err {
+                    TungsteniteError::Http(upstream_response) => {
+                        let status = upstream_response.status();
+                        let upstream_body = upstream_response.body().clone().unwrap_or_default();
+                        let error_context = build_upstream_error_context(
+                            status,
+                            upstream_response.headers(),
+                            &upstream_body,
+                        );
+                        (status, error_context, true)
+                    }
+                    _ => (StatusCode::BAD_GATEWAY, None, false),
+                };
+                let recovery_outcome =
+                    apply_recovery_action(state.as_ref(), account.id, error_context.as_ref()).await;
+                let ejection_ttl = if is_http_handshake_error {
+                    ejection_ttl_for_response(
+                        status,
+                        state.account_ejection_ttl,
+                        false,
+                        error_context.as_ref(),
+                        recovery_outcome,
+                    )
+                } else {
+                    Some(state.account_ejection_ttl)
+                }
+                .unwrap_or(state.account_ejection_ttl);
+                mark_account_unhealthy_and_clear_sticky(
+                    state,
+                    account.id,
+                    ws_usage_context.sticky_key.as_deref(),
+                    ejection_ttl,
+                )
+                .await;
+                excluded_account_ids.insert(account.id);
+            }
+        }
+    }
 }
 
 fn parse_ws_request_policy_context(
@@ -1147,7 +1293,10 @@ mod tests {
             principal: None,
             request_headers: HeaderMap::new(),
             request_path: "/v1/responses".to_string(),
+            request_query: None,
             request_method: "GET".to_string(),
+            requested_subprotocol: None,
+            sticky_key: None,
         }
     }
 

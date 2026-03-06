@@ -1777,7 +1777,10 @@ pub async fn proxy_websocket_handler(
                 principal: principal.clone(),
                 request_headers: parts.headers.clone(),
                 request_path: path.clone(),
+                request_query: query.clone(),
                 request_method: request_method.clone(),
+                requested_subprotocol: requested_subprotocol.clone(),
+                sticky_key: sticky_key.clone(),
             };
             if let Some(seen_ok_reporter) = state.seen_ok_reporter.clone() {
                 let account_id = account.id;
