@@ -957,10 +957,14 @@ export default {
             createModel: "创建模型",
             deleteModel: "删除模型",
             deletePricing: "删除定价",
+            deleteBillingRule: "删除规则",
+            editBillingRule: "编辑规则",
             editModel: "编辑模型",
             probeNow: "手动测试",
             saveModelProfile: "保存模型配置文件",
             savePricing: "保存价格",
+            saveBillingRule: "保存规则",
+            newBillingRule: "新建规则",
             search: "搜索模型 ID…",
             sync: "状态同步"
         },
@@ -1009,8 +1013,10 @@ export default {
         errors: {
             deleteModelEntityFailed: "删除模型实体失败。",
             deleteModelPricingFailed: "无法删除模型定价。",
+            deleteBillingRuleFailed: "删除分段计价规则失败。",
             modelIdRequired: "模型 ID 不能为空。",
             probeFailed: "模型探测失败。",
+            saveBillingRuleFailed: "保存分段计价规则失败。",
             saveModelPricingFailed: "无法保存模型定价。",
             saveModelProfileFailed: "无法保存模型配置文件。"
         },
@@ -1041,7 +1047,9 @@ export default {
         notice: {
             modelEntityDeleted: "模型实体已删除。",
             modelPricingDeleted: "模型定价记录已删除。",
+            billingRuleDeleted: "分段计价规则已删除。",
             modelPricingSaved: "已保存模型定价：{{model}}",
+            billingRuleSaved: "分段计价规则已保存：{{model}}",
             modelProfileSaved: "模型资料已保存：{{model}}",
             probeCompleted: "模型探测完成。最新模型池已同步。"
         },
@@ -1056,6 +1064,33 @@ export default {
             outputPrice: "产出价格",
             perMillionTokensMicrocredits: "每 100 万 token，单位微积分",
             sectionTitle: "模型定价"
+        },
+        rules: {
+            cachedInputMultiplierPpm: "缓存输入倍率（ppm)",
+            empty: "当前模型还没有配置分段计价规则。",
+            enableRule: "启用规则",
+            inputMultiplierPpm: "输入倍率（ppm）",
+            noThreshold: "无",
+            outputMultiplierPpm: "输出倍率（ppm）",
+            priorityLabel: "优先级",
+            requestKind: "请求类型",
+            requestKinds: {
+                any: "任意",
+                chat: "Chat",
+                compact: "Compact",
+                response: "Responses",
+                unknown: "未知"
+            },
+            ruleSummary: "阈值 {{threshold}} · 输入 ×{{inputMultiplier}} · 缓存 ×{{cachedMultiplier}} · 输出 ×{{outputMultiplier}}",
+            scope: "作用域",
+            scopes: {
+                request: "单次请求",
+                session: "会话",
+                unknown: "未知"
+            },
+            sectionDescription: "为长上下文或特殊计费 band 配置按请求/会话生效的倍率规则。",
+            sectionTitle: "分段计价规则",
+            thresholdInputTokens: "输入 Token 阈值"
         },
         probeSourceUnknown: "未知账号",
         probeSummary: "探测缓存：{{stale}}，最近 {{checkedAt}}，缓存时长 {{ttlHours}} 小时，来源 {{source}}",

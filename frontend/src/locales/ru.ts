@@ -957,10 +957,14 @@ export default {
             createModel: "Создать модель",
             deleteModel: "Удалить модель",
             deletePricing: "Удалить цены",
+            deleteBillingRule: "Delete rule",
+            editBillingRule: "Edit rule",
             editModel: "Редактировать модель",
             probeNow: "Проверить вручную",
             saveModelProfile: "Сохранить профиль модели",
             savePricing: "Сохранить цену",
+            saveBillingRule: "Save rule",
+            newBillingRule: "New rule",
             search: "Поиск ID моделей…",
             sync: "Синхронизировать"
         },
@@ -1009,8 +1013,10 @@ export default {
         errors: {
             deleteModelEntityFailed: "Не удалось удалить объект модели.",
             deleteModelPricingFailed: "Не удалось удалить цены на модели.",
+            deleteBillingRuleFailed: "Failed to delete tiered pricing rule.",
             modelIdRequired: "Идентификатор модели не может быть пустым.",
             probeFailed: "Проверка модели не удалась.",
+            saveBillingRuleFailed: "Failed to save tiered pricing rule.",
             saveModelPricingFailed: "Не удалось сохранить цену модели.",
             saveModelProfileFailed: "Не удалось сохранить профиль модели."
         },
@@ -1041,7 +1047,9 @@ export default {
         notice: {
             modelEntityDeleted: "Объект модели удален.",
             modelPricingDeleted: "Запись о ценах на модели удалена.",
+            billingRuleDeleted: "Tiered pricing rule deleted.",
             modelPricingSaved: "Сохранена цена модели: {{model}}.",
+            billingRuleSaved: "Tiered pricing rule saved: {{model}}",
             modelProfileSaved: "Профиль модели сохранен: {{model}}",
             probeCompleted: "Исследование модели завершено. Последний пул моделей синхронизирован."
         },
@@ -1056,6 +1064,33 @@ export default {
             outputPrice: "Выходная цена",
             perMillionTokensMicrocredits: "За 1М токенов, в микрокредитах",
             sectionTitle: "Цены на модели"
+        },
+        rules: {
+            cachedInputMultiplierPpm: "Cached input multiplier (ppm)",
+            empty: "No tiered pricing rules are configured for this model yet.",
+            enableRule: "Enable rule",
+            inputMultiplierPpm: "Input multiplier (ppm)",
+            noThreshold: "none",
+            outputMultiplierPpm: "Output multiplier (ppm)",
+            priorityLabel: "Priority",
+            requestKind: "Request kind",
+            requestKinds: {
+                any: "Any",
+                chat: "Chat",
+                compact: "Compact",
+                response: "Responses",
+                unknown: "Unknown"
+            },
+            ruleSummary: "Threshold {{threshold}} · input ×{{inputMultiplier}} · cached ×{{cachedMultiplier}} · output ×{{outputMultiplier}}",
+            scope: "Scope",
+            scopes: {
+                request: "Request",
+                session: "Session",
+                unknown: "Unknown"
+            },
+            sectionDescription: "Configure request/session-based multipliers for long-context or special billing bands.",
+            sectionTitle: "Tiered pricing rules",
+            thresholdInputTokens: "Threshold input tokens"
         },
         probeSourceUnknown: "неизвестный аккаунт",
         probeSummary: "Кэш проверки: {{stale}}, проверено {{checkedAt}}, TTL {{ttlHours}} ч, источник {{source}}",

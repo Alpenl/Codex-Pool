@@ -1113,6 +1113,14 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
             delete(delete_admin_model_pricing),
         )
         .route(
+            "/api/v1/admin/billing-pricing-rules",
+            get(list_admin_billing_pricing_rules).post(upsert_admin_billing_pricing_rule),
+        )
+        .route(
+            "/api/v1/admin/billing-pricing-rules/{rule_id}",
+            delete(delete_admin_billing_pricing_rule),
+        )
+        .route(
             "/api/v1/admin/model-entities",
             get(list_admin_model_entities).post(upsert_admin_model_entity),
         )

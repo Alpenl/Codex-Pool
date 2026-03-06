@@ -957,10 +957,14 @@ export default {
             createModel: "創建模型",
             deleteModel: "刪除模型",
             deletePricing: "刪除定價",
+            deleteBillingRule: "刪除規則",
+            editBillingRule: "編輯規則",
             editModel: "編輯模型",
             probeNow: "手動測試",
             saveModelProfile: "儲存模型設定檔",
             savePricing: "儲存價格",
+            saveBillingRule: "儲存規則",
+            newBillingRule: "新增規則",
             search: "搜尋模型 ID…",
             sync: "狀態同步"
         },
@@ -1009,8 +1013,10 @@ export default {
         errors: {
             deleteModelEntityFailed: "刪除模型實體失敗。",
             deleteModelPricingFailed: "無法刪除模型定價。",
+            deleteBillingRuleFailed: "刪除分段計價規則失敗。",
             modelIdRequired: "模型 ID 不能為空。",
             probeFailed: "模型探測失敗。",
+            saveBillingRuleFailed: "儲存分段計價規則失敗。",
             saveModelPricingFailed: "無法儲存模型定價。",
             saveModelProfileFailed: "無法儲存模型設定檔。"
         },
@@ -1041,7 +1047,9 @@ export default {
         notice: {
             modelEntityDeleted: "模型實體已刪除。",
             modelPricingDeleted: "模型定價記錄已刪除。",
+            billingRuleDeleted: "分段計價規則已刪除。",
             modelPricingSaved: "已儲存模型定價：{{model}}",
+            billingRuleSaved: "分段計價規則已儲存：{{model}}",
             modelProfileSaved: "模型資料已儲存：{{model}}",
             probeCompleted: "模型探測完成。最新模型池已同步。"
         },
@@ -1056,6 +1064,33 @@ export default {
             outputPrice: "產出價格",
             perMillionTokensMicrocredits: "每 100 萬 token，單位微積分",
             sectionTitle: "模型定價"
+        },
+        rules: {
+            cachedInputMultiplierPpm: "快取輸入倍率（ppm）",
+            empty: "目前模型尚未設定分段計價規則。",
+            enableRule: "啟用規則",
+            inputMultiplierPpm: "輸入倍率（ppm）",
+            noThreshold: "無",
+            outputMultiplierPpm: "輸出倍率（ppm）",
+            priorityLabel: "優先級",
+            requestKind: "請求類型",
+            requestKinds: {
+                any: "任意",
+                chat: "Chat",
+                compact: "Compact",
+                response: "Responses",
+                unknown: "未知"
+            },
+            ruleSummary: "閾值 {{threshold}} · 輸入 ×{{inputMultiplier}} · 快取 ×{{cachedMultiplier}} · 輸出 ×{{outputMultiplier}}",
+            scope: "作用範圍",
+            scopes: {
+                request: "單次請求",
+                session: "會話",
+                unknown: "未知"
+            },
+            sectionDescription: "為長上下文或特殊計費 band 設定按請求/會話生效的倍率規則。",
+            sectionTitle: "分段計價規則",
+            thresholdInputTokens: "輸入 Token 閾值"
         },
         probeSourceUnknown: "未知帳號",
         probeSummary: "探測快取：{{stale}}，最近 {{checkedAt}}，快取時長 {{ttlHours}} 小時，來源 {{source}}",

@@ -957,10 +957,14 @@ export default {
             createModel: "Create model",
             deleteModel: "Delete model",
             deletePricing: "Delete pricing",
+            deleteBillingRule: "Delete rule",
+            editBillingRule: "Edit rule",
             editModel: "Edit model",
             probeNow: "Probe Now",
             saveModelProfile: "Save model profile",
             savePricing: "Save pricing",
+            saveBillingRule: "Save rule",
+            newBillingRule: "New rule",
             search: "Search model IDs…",
             sync: "Sync Status"
         },
@@ -1009,8 +1013,10 @@ export default {
         errors: {
             deleteModelEntityFailed: "Failed to delete model entity.",
             deleteModelPricingFailed: "Failed to delete model pricing.",
+            deleteBillingRuleFailed: "Failed to delete tiered pricing rule.",
             modelIdRequired: "Model ID cannot be empty.",
             probeFailed: "Model probing failed.",
+            saveBillingRuleFailed: "Failed to save tiered pricing rule.",
             saveModelPricingFailed: "Failed to save model pricing.",
             saveModelProfileFailed: "Failed to save model profile."
         },
@@ -1041,7 +1047,9 @@ export default {
         notice: {
             modelEntityDeleted: "Model entity deleted.",
             modelPricingDeleted: "Model pricing record deleted.",
+            billingRuleDeleted: "Tiered pricing rule deleted.",
             modelPricingSaved: "Model pricing saved: {{model}}",
+            billingRuleSaved: "Tiered pricing rule saved: {{model}}",
             modelProfileSaved: "Model profile saved: {{model}}",
             probeCompleted: "Model probing completed. The latest model pool has been synced."
         },
@@ -1056,6 +1064,33 @@ export default {
             outputPrice: "Output price",
             perMillionTokensMicrocredits: "Per 1M tokens, in microcredits",
             sectionTitle: "Model pricing"
+        },
+        rules: {
+            cachedInputMultiplierPpm: "Cached input multiplier (ppm)",
+            empty: "No tiered pricing rules are configured for this model yet.",
+            enableRule: "Enable rule",
+            inputMultiplierPpm: "Input multiplier (ppm)",
+            noThreshold: "none",
+            outputMultiplierPpm: "Output multiplier (ppm)",
+            priorityLabel: "Priority",
+            requestKind: "Request kind",
+            requestKinds: {
+                any: "Any",
+                chat: "Chat",
+                compact: "Compact",
+                response: "Responses",
+                unknown: "Unknown"
+            },
+            ruleSummary: "Threshold {{threshold}} · input ×{{inputMultiplier}} · cached ×{{cachedMultiplier}} · output ×{{outputMultiplier}}",
+            scope: "Scope",
+            scopes: {
+                request: "Request",
+                session: "Session",
+                unknown: "Unknown"
+            },
+            sectionDescription: "Configure request/session-based multipliers for long-context or special billing bands.",
+            sectionTitle: "Tiered pricing rules",
+            thresholdInputTokens: "Threshold input tokens"
         },
         probeSourceUnknown: "unknown account",
         probeSummary: "Probe cache: {{stale}}, checked {{checkedAt}}, ttl {{ttlHours}}h, source {{source}}",

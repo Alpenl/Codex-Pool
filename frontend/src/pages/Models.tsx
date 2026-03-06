@@ -17,6 +17,7 @@ import { useNavigate } from 'react-router-dom'
 
 import {
   modelsApi,
+  type BillingPricingRuleItem,
   type ModelEntityItem,
   type ModelPricingItem,
   type ModelSchema,
@@ -56,6 +57,84 @@ interface ModelPoolRow extends ModelSchema {
   source: 'upstream' | 'entity_only' | 'pricing_only'
   entity?: ModelEntityItem
   pricing?: ModelPricingItem
+}
+
+
+interface BillingPricingRuleFormState {
+  id: string | null
+  request_kind: string
+  scope: string
+  threshold_input_tokens: string
+  input_multiplier_ppm: string
+  cached_input_multiplier_ppm: string
+  output_multiplier_ppm: string
+  priority: string
+  enabled: boolean
+}
+
+function defaultBillingPricingRuleForm(): BillingPricingRuleFormState {
+  return {
+    id: null,
+    request_kind: 'any',
+    scope: 'session',
+    threshold_input_tokens: '',
+    input_multiplier_ppm: '1000000',
+    cached_input_multiplier_ppm: '1000000',
+    output_multiplier_ppm: '1000000',
+    priority: '0',
+    enabled: true,
+  }
+}
+
+function billingRuleFormFromItem(item: BillingPricingRuleItem): BillingPricingRuleFormState {
+  const requestKind =
+    item.request_kind === 'response' ||
+    item.request_kind === 'compact' ||
+    item.request_kind === 'chat'
+      ? item.request_kind
+      : 'any'
+  const scope = item.scope === 'session' ? 'session' : 'request'
+  return {
+    id: item.id,
+    request_kind: requestKind,
+    scope,
+    threshold_input_tokens:
+      typeof item.threshold_input_tokens === 'number' ? String(item.threshold_input_tokens) : '',
+    input_multiplier_ppm: String(item.input_multiplier_ppm),
+    cached_input_multiplier_ppm: String(item.cached_input_multiplier_ppm),
+    output_multiplier_ppm: String(item.output_multiplier_ppm),
+    priority: String(item.priority),
+    enabled: item.enabled,
+  }
+}
+
+function billingRuleRequestKindLabel(
+  requestKind: string,
+  t: ReturnType<typeof useTranslation>['t'],
+) {
+  if (requestKind === 'response') {
+    return t('models.rules.requestKinds.response', { defaultValue: 'Responses' })
+  }
+  if (requestKind === 'compact') {
+    return t('models.rules.requestKinds.compact', { defaultValue: 'Compact' })
+  }
+  if (requestKind === 'chat') {
+    return t('models.rules.requestKinds.chat', { defaultValue: 'Chat' })
+  }
+  if (requestKind === 'any') {
+    return t('models.rules.requestKinds.any', { defaultValue: 'Any' })
+  }
+  return t('models.rules.requestKinds.unknown', { defaultValue: 'Unknown' })
+}
+
+function billingRuleScopeLabel(scope: string, t: ReturnType<typeof useTranslation>['t']) {
+  if (scope === 'session') {
+    return t('models.rules.scopes.session', { defaultValue: 'Session' })
+  }
+  if (scope === 'request') {
+    return t('models.rules.scopes.request', { defaultValue: 'Request' })
+  }
+  return t('models.rules.scopes.unknown', { defaultValue: 'Unknown' })
 }
 
 function formatMicrocredits(value: number) {
@@ -187,6 +266,9 @@ export default function Models() {
     output_price_microcredits: '0',
     enabled: true,
   })
+  const [billingRuleForm, setBillingRuleForm] = useState<BillingPricingRuleFormState>(
+    defaultBillingPricingRuleForm(),
+  )
 
   const resolveErrorLabel = useCallback(
     (err: unknown, fallback: string) => localizeApiErrorDisplay(t, err, fallback).label,
@@ -206,13 +288,23 @@ export default function Models() {
     staleTime: 60000,
   })
 
+  const billingRulesQuery = useQuery({
+    queryKey: ['adminBillingPricingRules'],
+    queryFn: modelsApi.listBillingPricingRules,
+    staleTime: 60000,
+  })
+
   const modelEntitiesQuery = useQuery({
     queryKey: ['adminModelEntities'],
     queryFn: modelsApi.listModelEntities,
     staleTime: 60000,
   })
 
-  const isSyncingPools = isFetching || pricingQuery.isFetching || modelEntitiesQuery.isFetching
+  const isSyncingPools =
+    isFetching ||
+    pricingQuery.isFetching ||
+    billingRulesQuery.isFetching ||
+    modelEntitiesQuery.isFetching
 
   const probeMutation = useMutation({
     mutationFn: () => modelsApi.probeModels({ force: true }),
@@ -346,9 +438,74 @@ export default function Models() {
     },
   })
 
+
+  const upsertBillingRuleMutation = useMutation({
+    mutationFn: async () =>
+      modelsApi.upsertBillingPricingRule({
+        id: billingRuleForm.id ?? undefined,
+        model_pattern: modelForm.model.trim(),
+        request_kind: billingRuleForm.request_kind.trim() || 'any',
+        scope: billingRuleForm.scope.trim() || 'request',
+        threshold_input_tokens: billingRuleForm.threshold_input_tokens.trim()
+          ? Number(billingRuleForm.threshold_input_tokens)
+          : null,
+        input_multiplier_ppm: Number(billingRuleForm.input_multiplier_ppm),
+        cached_input_multiplier_ppm: Number(billingRuleForm.cached_input_multiplier_ppm),
+        output_multiplier_ppm: Number(billingRuleForm.output_multiplier_ppm),
+        priority: Number(billingRuleForm.priority),
+        enabled: billingRuleForm.enabled,
+      }),
+    onSuccess: (item) => {
+      setError(null)
+      setNotice(
+        t('models.notice.billingRuleSaved', {
+          defaultValue: 'Tiered pricing rule saved: {{model}}',
+          model: item.model_pattern,
+        }),
+      )
+      queryClient.invalidateQueries({ queryKey: ['adminBillingPricingRules'] })
+      setBillingRuleForm(billingRuleFormFromItem(item))
+    },
+    onError: (err) => {
+      setError(
+        resolveErrorLabel(
+          err,
+          t('models.errors.saveBillingRuleFailed', {
+            defaultValue: 'Failed to save tiered pricing rule.',
+          }),
+        ),
+      )
+    },
+  })
+
+  const deleteBillingRuleMutation = useMutation({
+    mutationFn: async (ruleId: string) => modelsApi.deleteBillingPricingRule(ruleId),
+    onSuccess: () => {
+      setError(null)
+      setNotice(
+        t('models.notice.billingRuleDeleted', {
+          defaultValue: 'Tiered pricing rule deleted.',
+        }),
+      )
+      queryClient.invalidateQueries({ queryKey: ['adminBillingPricingRules'] })
+      setBillingRuleForm(defaultBillingPricingRuleForm())
+    },
+    onError: (err) => {
+      setError(
+        resolveErrorLabel(
+          err,
+          t('models.errors.deleteBillingRuleFailed', {
+            defaultValue: 'Failed to delete tiered pricing rule.',
+          }),
+        ),
+      )
+    },
+  })
+
   const models = useMemo(() => modelsPayload?.data ?? [], [modelsPayload])
   const modelsMeta = modelsPayload?.meta
   const pricingRows = useMemo(() => pricingQuery.data ?? [], [pricingQuery.data])
+  const billingRuleRows = useMemo(() => billingRulesQuery.data ?? [], [billingRulesQuery.data])
   const modelEntities = useMemo(() => modelEntitiesQuery.data ?? [], [modelEntitiesQuery.data])
 
   const pricingByModel = useMemo(() => {
@@ -459,6 +616,7 @@ export default function Models() {
 
   const openEditor = useCallback((row: ModelPoolRow) => {
     const inputPrice = row.pricing?.input_price_microcredits ?? 0
+    const firstRule = billingRuleRows.find((rule) => rule.model_pattern === row.id) ?? null
     setEditingModel(row)
     setModelForm({
       model: row.id,
@@ -473,9 +631,10 @@ export default function Models() {
       output_price_microcredits: String(row.pricing?.output_price_microcredits ?? 0),
       enabled: row.pricing?.enabled ?? true,
     })
+    setBillingRuleForm(firstRule ? billingRuleFormFromItem(firstRule) : defaultBillingPricingRuleForm())
     setEditorTab('profile')
     setEditorOpen(true)
-  }, [])
+  }, [billingRuleRows])
 
   const openCreateModel = useCallback(() => {
     setEditingModel(null)
@@ -490,6 +649,7 @@ export default function Models() {
       output_price_microcredits: '0',
       enabled: true,
     })
+    setBillingRuleForm(defaultBillingPricingRuleForm())
     setEditorTab('profile')
     setEditorOpen(true)
   }, [])
@@ -729,6 +889,13 @@ export default function Models() {
   const catalogErrorText = modelsMeta?.catalog_last_error ?? null
 
   const currentModel = editingModel
+  const currentBillingRules = useMemo(
+    () =>
+      billingRuleRows.filter(
+        (rule) => rule.model_pattern === (modelForm.model.trim() || currentModel?.id || ''),
+      ),
+    [billingRuleRows, currentModel?.id, modelForm.model],
+  )
 
   const canDeleteCurrentModelEntity = Boolean(currentModel?.entity_id)
   const canDeleteCurrentPricing = Boolean(currentModel?.pricing?.id)
@@ -772,6 +939,7 @@ export default function Models() {
             onClick={() => {
               queryClient.invalidateQueries({ queryKey: ['models'] })
               queryClient.invalidateQueries({ queryKey: ['adminModelPricing'] })
+              queryClient.invalidateQueries({ queryKey: ['adminBillingPricingRules'] })
               queryClient.invalidateQueries({ queryKey: ['adminModelEntities'] })
             }}
             disabled={isSyncingPools || isProbing}
@@ -791,7 +959,12 @@ export default function Models() {
 
       <div className="relative min-h-0 flex-1">
         <LoadingOverlay
-          show={isLoading || pricingQuery.isLoading || modelEntitiesQuery.isLoading}
+          show={
+            isLoading ||
+            pricingQuery.isLoading ||
+            billingRulesQuery.isLoading ||
+            modelEntitiesQuery.isLoading
+          }
           title={t('models.syncing')}
           description={t('models.loadingHint', {
             defaultValue: 'Checking catalog and availability status. The latest model list will appear automatically.',
@@ -845,6 +1018,7 @@ export default function Models() {
           if (!open) {
             setEditingModel(null)
             setEditorTab('profile')
+            setBillingRuleForm(defaultBillingPricingRuleForm())
           }
         }}
       >
@@ -1165,6 +1339,291 @@ export default function Models() {
                     })}
                   </p>
                 ) : null}
+
+                <div className="space-y-4 rounded-lg border border-border/70 p-4">
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-medium">
+                      {t('models.rules.sectionTitle', { defaultValue: 'Tiered pricing rules' })}
+                    </h4>
+                    <p className="text-xs text-muted-foreground">
+                      {t('models.rules.sectionDescription', {
+                        defaultValue:
+                          'Configure request/session-based multipliers for long-context or special billing bands.',
+                      })}
+                    </p>
+                  </div>
+
+                  {currentBillingRules.length > 0 ? (
+                    <div className="space-y-2">
+                      {currentBillingRules.map((rule) => (
+                        <div
+                          key={rule.id}
+                          className="flex flex-col gap-2 rounded-md border border-border/60 px-3 py-2 md:flex-row md:items-center md:justify-between"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge variant="info">
+                                {billingRuleRequestKindLabel(rule.request_kind, t)}
+                              </Badge>
+                              <Badge variant="secondary">
+                                {billingRuleScopeLabel(rule.scope, t)}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground">
+                                {t('models.rules.priorityLabel', { defaultValue: 'Priority' })}: {rule.priority}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {rule.enabled
+                                  ? t('models.pricing.enabled', { defaultValue: 'Enabled' })
+                                  : t('models.pricing.disabled', { defaultValue: 'Disabled' })}
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {t('models.rules.ruleSummary', {
+                                defaultValue:
+                                  'Threshold {{threshold}} · input ×{{inputMultiplier}} · cached ×{{cachedMultiplier}} · output ×{{outputMultiplier}}',
+                                threshold:
+                                  typeof rule.threshold_input_tokens === 'number'
+                                    ? String(rule.threshold_input_tokens)
+                                    : t('models.rules.noThreshold', { defaultValue: 'none' }),
+                                inputMultiplier: String(rule.input_multiplier_ppm),
+                                cachedMultiplier: String(rule.cached_input_multiplier_ppm),
+                                outputMultiplier: String(rule.output_multiplier_ppm),
+                              })}
+                            </p>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setBillingRuleForm(billingRuleFormFromItem(rule))}
+                            >
+                              <SquarePen className="mr-2 h-4 w-4" />
+                              {t('models.actions.editBillingRule', { defaultValue: 'Edit rule' })}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => deleteBillingRuleMutation.mutate(rule.id)}
+                              disabled={deleteBillingRuleMutation.isPending}
+                            >
+                              {deleteBillingRuleMutation.isPending ? (
+                                <RotateCw className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="mr-2 h-4 w-4" />
+                              )}
+                              {t('models.actions.deleteBillingRule', { defaultValue: 'Delete rule' })}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      {t('models.rules.empty', {
+                        defaultValue: 'No tiered pricing rules are configured for this model yet.',
+                      })}
+                    </p>
+                  )}
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        {t('models.rules.requestKind', { defaultValue: 'Request kind' })}
+                      </label>
+                      <Select
+                        value={billingRuleForm.request_kind}
+                        onValueChange={(value) =>
+                          setBillingRuleForm((prev) => ({ ...prev, request_kind: value }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="any">
+                            {t('models.rules.requestKinds.any', { defaultValue: 'Any' })}
+                          </SelectItem>
+                          <SelectItem value="response">
+                            {t('models.rules.requestKinds.response', { defaultValue: 'Responses' })}
+                          </SelectItem>
+                          <SelectItem value="compact">
+                            {t('models.rules.requestKinds.compact', { defaultValue: 'Compact' })}
+                          </SelectItem>
+                          <SelectItem value="chat">
+                            {t('models.rules.requestKinds.chat', { defaultValue: 'Chat' })}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        {t('models.rules.scope', { defaultValue: 'Scope' })}
+                      </label>
+                      <Select
+                        value={billingRuleForm.scope}
+                        onValueChange={(value) =>
+                          setBillingRuleForm((prev) => ({ ...prev, scope: value }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="request">
+                            {t('models.rules.scopes.request', { defaultValue: 'Request' })}
+                          </SelectItem>
+                          <SelectItem value="session">
+                            {t('models.rules.scopes.session', { defaultValue: 'Session' })}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label htmlFor="model-rule-threshold" className="text-xs font-medium text-muted-foreground">
+                        {t('models.rules.thresholdInputTokens', {
+                          defaultValue: 'Threshold input tokens',
+                        })}
+                      </label>
+                      <Input
+                        id="model-rule-threshold"
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        value={billingRuleForm.threshold_input_tokens}
+                        onChange={(event) =>
+                          setBillingRuleForm((prev) => ({
+                            ...prev,
+                            threshold_input_tokens: event.target.value,
+                          }))
+                        }
+                        placeholder={t('models.rules.noThreshold', { defaultValue: 'none' })}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label htmlFor="model-rule-priority" className="text-xs font-medium text-muted-foreground">
+                        {t('models.rules.priorityLabel', { defaultValue: 'Priority' })}
+                      </label>
+                      <Input
+                        id="model-rule-priority"
+                        type="number"
+                        inputMode="numeric"
+                        value={billingRuleForm.priority}
+                        onChange={(event) =>
+                          setBillingRuleForm((prev) => ({ ...prev, priority: event.target.value }))
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label htmlFor="model-rule-input-multiplier" className="text-xs font-medium text-muted-foreground">
+                        {t('models.rules.inputMultiplierPpm', {
+                          defaultValue: 'Input multiplier (ppm)',
+                        })}
+                      </label>
+                      <Input
+                        id="model-rule-input-multiplier"
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        value={billingRuleForm.input_multiplier_ppm}
+                        onChange={(event) =>
+                          setBillingRuleForm((prev) => ({
+                            ...prev,
+                            input_multiplier_ppm: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label htmlFor="model-rule-cached-multiplier" className="text-xs font-medium text-muted-foreground">
+                        {t('models.rules.cachedInputMultiplierPpm', {
+                          defaultValue: 'Cached input multiplier (ppm)',
+                        })}
+                      </label>
+                      <Input
+                        id="model-rule-cached-multiplier"
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        value={billingRuleForm.cached_input_multiplier_ppm}
+                        onChange={(event) =>
+                          setBillingRuleForm((prev) => ({
+                            ...prev,
+                            cached_input_multiplier_ppm: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label htmlFor="model-rule-output-multiplier" className="text-xs font-medium text-muted-foreground">
+                        {t('models.rules.outputMultiplierPpm', {
+                          defaultValue: 'Output multiplier (ppm)',
+                        })}
+                      </label>
+                      <Input
+                        id="model-rule-output-multiplier"
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        value={billingRuleForm.output_multiplier_ppm}
+                        onChange={(event) =>
+                          setBillingRuleForm((prev) => ({
+                            ...prev,
+                            output_multiplier_ppm: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <label htmlFor="model-rule-enabled" className="flex items-center gap-2 text-sm text-muted-foreground md:pt-7">
+                      <Checkbox
+                        id="model-rule-enabled"
+                        checked={billingRuleForm.enabled}
+                        onCheckedChange={(checked) =>
+                          setBillingRuleForm((prev) => ({ ...prev, enabled: Boolean(checked) }))
+                        }
+                      />
+                      {t('models.rules.enableRule', { defaultValue: 'Enable rule' })}
+                    </label>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        if (!modelForm.model.trim()) {
+                          setError(
+                            t('models.errors.modelIdRequired', { defaultValue: 'Model ID cannot be empty.' }),
+                          )
+                          return
+                        }
+                        upsertBillingRuleMutation.mutate()
+                      }}
+                      disabled={upsertBillingRuleMutation.isPending}
+                    >
+                      {upsertBillingRuleMutation.isPending ? (
+                        <RotateCw className="mr-2 h-4 w-4 animate-spin" />
+                      ) : null}
+                      {t('models.actions.saveBillingRule', { defaultValue: 'Save rule' })}
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setBillingRuleForm(defaultBillingPricingRuleForm())}
+                    >
+                      {t('models.actions.newBillingRule', { defaultValue: 'New rule' })}
+                    </Button>
+                  </div>
+                </div>
               </section>
             ) : null}
           </div>

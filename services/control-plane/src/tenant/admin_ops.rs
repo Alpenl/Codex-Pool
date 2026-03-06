@@ -342,6 +342,169 @@ impl TenantAuthService {
         Ok(())
     }
 
+    pub async fn admin_list_billing_pricing_rules(&self) -> Result<Vec<BillingPricingRuleItem>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                id,
+                model_pattern,
+                request_kind,
+                scope,
+                threshold_input_tokens,
+                input_multiplier_ppm,
+                cached_input_multiplier_ppm,
+                output_multiplier_ppm,
+                priority,
+                enabled,
+                created_at,
+                updated_at
+            FROM billing_pricing_rules
+            ORDER BY model_pattern ASC, priority DESC, threshold_input_tokens DESC NULLS LAST, created_at ASC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("failed to list billing pricing rules")?;
+        rows.into_iter()
+            .map(|row| -> Result<BillingPricingRuleItem> {
+                Ok(BillingPricingRuleItem {
+                    id: row.try_get("id")?,
+                    model_pattern: row.try_get("model_pattern")?,
+                    request_kind: row.try_get("request_kind")?,
+                    scope: row.try_get("scope")?,
+                    threshold_input_tokens: row.try_get("threshold_input_tokens")?,
+                    input_multiplier_ppm: row.try_get("input_multiplier_ppm")?,
+                    cached_input_multiplier_ppm: row.try_get("cached_input_multiplier_ppm")?,
+                    output_multiplier_ppm: row.try_get("output_multiplier_ppm")?,
+                    priority: row.try_get("priority")?,
+                    enabled: row.try_get("enabled")?,
+                    created_at: row.try_get("created_at")?,
+                    updated_at: row.try_get("updated_at")?,
+                })
+            })
+            .collect()
+    }
+
+    pub async fn admin_upsert_billing_pricing_rule(
+        &self,
+        req: BillingPricingRuleUpsertRequest,
+    ) -> Result<BillingPricingRuleItem> {
+        let model_pattern = req.model_pattern.trim();
+        if model_pattern.is_empty() {
+            return Err(anyhow!("model_pattern must not be empty"));
+        }
+        let request_kind = req.request_kind.trim().to_ascii_lowercase();
+        if request_kind.is_empty() {
+            return Err(anyhow!("request_kind must not be empty"));
+        }
+        let scope = req.scope.trim().to_ascii_lowercase();
+        if scope != "request" && scope != "session" {
+            return Err(anyhow!("scope must be request or session"));
+        }
+        let threshold_input_tokens = req.threshold_input_tokens.map(|value| value.max(0));
+        if req.input_multiplier_ppm < 0
+            || req.cached_input_multiplier_ppm < 0
+            || req.output_multiplier_ppm < 0
+        {
+            return Err(anyhow!("pricing multipliers must be >= 0"));
+        }
+
+        let now = Utc::now();
+        let rule_id = req.id.unwrap_or_else(Uuid::new_v4);
+        let row = sqlx::query(
+            r#"
+            INSERT INTO billing_pricing_rules (
+                id,
+                model_pattern,
+                request_kind,
+                scope,
+                threshold_input_tokens,
+                input_multiplier_ppm,
+                cached_input_multiplier_ppm,
+                output_multiplier_ppm,
+                priority,
+                enabled,
+                created_at,
+                updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+            ON CONFLICT (id)
+            DO UPDATE SET
+                model_pattern = EXCLUDED.model_pattern,
+                request_kind = EXCLUDED.request_kind,
+                scope = EXCLUDED.scope,
+                threshold_input_tokens = EXCLUDED.threshold_input_tokens,
+                input_multiplier_ppm = EXCLUDED.input_multiplier_ppm,
+                cached_input_multiplier_ppm = EXCLUDED.cached_input_multiplier_ppm,
+                output_multiplier_ppm = EXCLUDED.output_multiplier_ppm,
+                priority = EXCLUDED.priority,
+                enabled = EXCLUDED.enabled,
+                updated_at = EXCLUDED.updated_at
+            RETURNING
+                id,
+                model_pattern,
+                request_kind,
+                scope,
+                threshold_input_tokens,
+                input_multiplier_ppm,
+                cached_input_multiplier_ppm,
+                output_multiplier_ppm,
+                priority,
+                enabled,
+                created_at,
+                updated_at
+            "#,
+        )
+        .bind(rule_id)
+        .bind(model_pattern)
+        .bind(request_kind)
+        .bind(scope)
+        .bind(threshold_input_tokens)
+        .bind(req.input_multiplier_ppm)
+        .bind(req.cached_input_multiplier_ppm)
+        .bind(req.output_multiplier_ppm)
+        .bind(req.priority)
+        .bind(req.enabled)
+        .bind(now)
+        .fetch_one(&self.pool)
+        .await
+        .context("failed to upsert billing pricing rule")?;
+
+        Ok(BillingPricingRuleItem {
+            id: row.try_get("id")?,
+            model_pattern: row.try_get("model_pattern")?,
+            request_kind: row.try_get("request_kind")?,
+            scope: row.try_get("scope")?,
+            threshold_input_tokens: row.try_get("threshold_input_tokens")?,
+            input_multiplier_ppm: row.try_get("input_multiplier_ppm")?,
+            cached_input_multiplier_ppm: row.try_get("cached_input_multiplier_ppm")?,
+            output_multiplier_ppm: row.try_get("output_multiplier_ppm")?,
+            priority: row.try_get("priority")?,
+            enabled: row.try_get("enabled")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    }
+
+    pub async fn admin_delete_billing_pricing_rule(&self, rule_id: Uuid) -> Result<()> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM billing_pricing_rules
+            WHERE id = $1
+            "#,
+        )
+        .bind(rule_id)
+        .execute(&self.pool)
+        .await
+        .context("failed to delete billing pricing rule")?;
+
+        if result.rows_affected() == 0 {
+            return Err(anyhow!("billing pricing rule not found"));
+        }
+
+        Ok(())
+    }
+
     pub async fn admin_list_model_entities(&self) -> Result<Vec<AdminModelEntityItem>> {
         let rows = sqlx::query(
             r#"

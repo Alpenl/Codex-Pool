@@ -54,6 +54,35 @@ export interface ModelPricingUpsertRequest {
   enabled: boolean
 }
 
+
+export interface BillingPricingRuleItem {
+  id: string
+  model_pattern: string
+  request_kind: string
+  scope: string
+  threshold_input_tokens?: number | null
+  input_multiplier_ppm: number
+  cached_input_multiplier_ppm: number
+  output_multiplier_ppm: number
+  priority: number
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface BillingPricingRuleUpsertRequest {
+  id?: string
+  model_pattern: string
+  request_kind: string
+  scope: string
+  threshold_input_tokens?: number | null
+  input_multiplier_ppm: number
+  cached_input_multiplier_ppm: number
+  output_multiplier_ppm: number
+  priority: number
+  enabled: boolean
+}
+
 export interface ModelEntityItem {
   id: string
   model: string
@@ -81,6 +110,12 @@ export const modelsApi = {
     apiClient.post<ModelPricingItem>('/admin/model-pricing', payload),
   deleteModelPricing: (pricingId: string) =>
     apiClient.delete<void>(`/admin/model-pricing/${pricingId}`),
+  listBillingPricingRules: () =>
+    apiClient.get<BillingPricingRuleItem[]>('/admin/billing-pricing-rules'),
+  upsertBillingPricingRule: (payload: BillingPricingRuleUpsertRequest) =>
+    apiClient.post<BillingPricingRuleItem>('/admin/billing-pricing-rules', payload),
+  deleteBillingPricingRule: (ruleId: string) =>
+    apiClient.delete<void>(`/admin/billing-pricing-rules/${ruleId}`),
   listModelEntities: () => apiClient.get<ModelEntityItem[]>('/admin/model-entities'),
   upsertModelEntity: (payload: ModelEntityUpsertRequest) =>
     apiClient.post<ModelEntityItem>('/admin/model-entities', payload),

@@ -957,10 +957,14 @@ export default {
             createModel: "モデルの作成",
             deleteModel: "モデルの削除",
             deletePricing: "価格設定の削除",
+            deleteBillingRule: "Delete rule",
+            editBillingRule: "Edit rule",
             editModel: "モデルの編集",
             probeNow: "手動テスト",
             saveModelProfile: "モデルプロファイルの保存",
             savePricing: "価格を節約する",
+            saveBillingRule: "Save rule",
+            newBillingRule: "New rule",
             search: "モデル ID を検索…",
             sync: "状態同期"
         },
@@ -1009,8 +1013,10 @@ export default {
         errors: {
             deleteModelEntityFailed: "モデル エンティティの削除に失敗しました。",
             deleteModelPricingFailed: "モデル価格の削除に失敗しました。",
+            deleteBillingRuleFailed: "Failed to delete tiered pricing rule.",
             modelIdRequired: "モデル ID を空にすることはできません。",
             probeFailed: "モデルの調査に失敗しました。",
+            saveBillingRuleFailed: "Failed to save tiered pricing rule.",
             saveModelPricingFailed: "モデル価格を保存できませんでした。",
             saveModelProfileFailed: "モデルプロファイルの保存に失敗しました。"
         },
@@ -1041,7 +1047,9 @@ export default {
         notice: {
             modelEntityDeleted: "モデル エンティティが削除されました。",
             modelPricingDeleted: "モデル価格レコードが削除されました。",
+            billingRuleDeleted: "Tiered pricing rule deleted.",
             modelPricingSaved: "保存されたモデル価格: {{model}}",
+            billingRuleSaved: "Tiered pricing rule saved: {{model}}",
             modelProfileSaved: "モデル プロファイルが保存されました: {{model}}",
             probeCompleted: "モデルのプローブが完了しました。最新モデルのプールが同期されました。"
         },
@@ -1056,6 +1064,33 @@ export default {
             outputPrice: "出力価格",
             perMillionTokensMicrocredits: "100万トークンあたり、マイクロクレジット単位",
             sectionTitle: "モデルの価格設定"
+        },
+        rules: {
+            cachedInputMultiplierPpm: "Cached input multiplier (ppm)",
+            empty: "No tiered pricing rules are configured for this model yet.",
+            enableRule: "Enable rule",
+            inputMultiplierPpm: "Input multiplier (ppm)",
+            noThreshold: "none",
+            outputMultiplierPpm: "Output multiplier (ppm)",
+            priorityLabel: "Priority",
+            requestKind: "Request kind",
+            requestKinds: {
+                any: "Any",
+                chat: "Chat",
+                compact: "Compact",
+                response: "Responses",
+                unknown: "Unknown"
+            },
+            ruleSummary: "Threshold {{threshold}} · input ×{{inputMultiplier}} · cached ×{{cachedMultiplier}} · output ×{{outputMultiplier}}",
+            scope: "Scope",
+            scopes: {
+                request: "Request",
+                session: "Session",
+                unknown: "Unknown"
+            },
+            sectionDescription: "Configure request/session-based multipliers for long-context or special billing bands.",
+            sectionTitle: "Tiered pricing rules",
+            thresholdInputTokens: "Threshold input tokens"
         },
         probeSourceUnknown: "不明なアカウント",
         probeSummary: "プローブキャッシュ：{{stale}}、最終 {{checkedAt}}、保持 {{ttlHours}} 時間、ソース {{source}}",

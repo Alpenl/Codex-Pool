@@ -374,6 +374,92 @@ async fn delete_admin_model_pricing(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn list_admin_billing_pricing_rules(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<crate::tenant::BillingPricingRuleItem>>, (StatusCode, Json<ErrorEnvelope>)> {
+    let _principal = require_admin_principal(&state, &headers)?;
+    let tenant_auth = require_tenant_auth_service(&state)?;
+    tenant_auth
+        .admin_list_billing_pricing_rules()
+        .await
+        .map(Json)
+        .map_err(map_tenant_error)
+}
+
+async fn upsert_admin_billing_pricing_rule(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<crate::tenant::BillingPricingRuleUpsertRequest>,
+) -> Result<Json<crate::tenant::BillingPricingRuleItem>, (StatusCode, Json<ErrorEnvelope>)> {
+    let principal = require_admin_principal(&state, &headers)?;
+    let tenant_auth = require_tenant_auth_service(&state)?;
+    let request_model_pattern = req.model_pattern.clone();
+    let response = tenant_auth
+        .admin_upsert_billing_pricing_rule(req)
+        .await
+        .map_err(map_tenant_error)?;
+    write_audit_log_best_effort(
+        &state,
+        crate::tenant::AuditLogWriteRequest {
+            actor_type: "admin_user".to_string(),
+            actor_id: Some(principal.user_id),
+            tenant_id: None,
+            action: "admin.billing_pricing_rule.upsert".to_string(),
+            reason: None,
+            request_ip: crate::tenant::extract_client_ip(&headers),
+            user_agent: extract_user_agent(&headers),
+            target_type: Some("billing_pricing_rule".to_string()),
+            target_id: Some(response.id.to_string()),
+            payload_json: json!({
+                "model_pattern": request_model_pattern,
+                "request_kind": response.request_kind.clone(),
+                "scope": response.scope.clone(),
+                "threshold_input_tokens": response.threshold_input_tokens,
+                "input_multiplier_ppm": response.input_multiplier_ppm,
+                "cached_input_multiplier_ppm": response.cached_input_multiplier_ppm,
+                "output_multiplier_ppm": response.output_multiplier_ppm,
+                "priority": response.priority,
+                "enabled": response.enabled,
+            }),
+            result_status: "ok".to_string(),
+        },
+    )
+    .await;
+    Ok(Json(response))
+}
+
+async fn delete_admin_billing_pricing_rule(
+    Path(rule_id): Path<Uuid>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorEnvelope>)> {
+    let principal = require_admin_principal(&state, &headers)?;
+    let tenant_auth = require_tenant_auth_service(&state)?;
+    tenant_auth
+        .admin_delete_billing_pricing_rule(rule_id)
+        .await
+        .map_err(map_tenant_error)?;
+    write_audit_log_best_effort(
+        &state,
+        crate::tenant::AuditLogWriteRequest {
+            actor_type: "admin_user".to_string(),
+            actor_id: Some(principal.user_id),
+            tenant_id: None,
+            action: "admin.billing_pricing_rule.delete".to_string(),
+            reason: None,
+            request_ip: crate::tenant::extract_client_ip(&headers),
+            user_agent: extract_user_agent(&headers),
+            target_type: Some("billing_pricing_rule".to_string()),
+            target_id: Some(rule_id.to_string()),
+            payload_json: json!({}),
+            result_status: "ok".to_string(),
+        },
+    )
+    .await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn list_admin_model_entities(
     State(state): State<AppState>,
     headers: HeaderMap,

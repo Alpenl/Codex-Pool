@@ -422,6 +422,43 @@ pub struct ModelPricingItem {
     pub updated_at: DateTime<Utc>,
 }
 
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BillingPricingRuleUpsertRequest {
+    #[serde(default)]
+    pub id: Option<Uuid>,
+    pub model_pattern: String,
+    #[serde(default = "default_request_kind_any")]
+    pub request_kind: String,
+    #[serde(default = "default_billing_rule_scope_request")]
+    pub scope: String,
+    #[serde(default)]
+    pub threshold_input_tokens: Option<i64>,
+    pub input_multiplier_ppm: i64,
+    pub cached_input_multiplier_ppm: i64,
+    pub output_multiplier_ppm: i64,
+    #[serde(default)]
+    pub priority: i32,
+    #[serde(default = "default_enabled_true")]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BillingPricingRuleItem {
+    pub id: Uuid,
+    pub model_pattern: String,
+    pub request_kind: String,
+    pub scope: String,
+    pub threshold_input_tokens: Option<i64>,
+    pub input_multiplier_ppm: i64,
+    pub cached_input_multiplier_ppm: i64,
+    pub output_multiplier_ppm: i64,
+    pub priority: i32,
+    pub enabled: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AdminModelEntityUpsertRequest {
     pub model: String,
@@ -727,6 +764,14 @@ pub struct AuditLogListResponse {
 
 fn default_enabled_true() -> bool {
     true
+}
+
+fn default_request_kind_any() -> String {
+    "any".to_string()
+}
+
+fn default_billing_rule_scope_request() -> String {
+    "request".to_string()
 }
 
 pub struct TenantAuthService {
