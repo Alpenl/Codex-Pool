@@ -29,6 +29,7 @@ import { LanguageToggle } from '@/components/LanguageToggle'
 import { ParallaxBackground } from '@/components/ui/parallax-background'
 import { Button } from '@/components/ui/button'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import codexPoolLogo from '@/assets/codex-pool-logo.png'
 
 const MOBILE_FOCUSABLE_SELECTOR = [
     'a[href]',
@@ -225,26 +226,62 @@ export function AppLayout({
                     aria-modal={mobileSidebarOpen ? true : undefined}
                     aria-label={t('nav.mainNavigation', { defaultValue: 'Main navigation' })}
                     className={cn(
-                        "border-r border-border/40 bg-card/40 backdrop-blur-2xl flex flex-col shrink-0 z-40",
+                        "relative overflow-hidden border-r border-border/40 bg-card/40 backdrop-blur-2xl flex flex-col shrink-0 z-40",
                         "fixed inset-y-0 left-0 w-56 transform transition-transform md:static md:translate-x-0",
                         sidebarCollapsed ? "md:w-20" : "md:w-56",
                         mobileSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
                     )}
                 >
-                    <div className="h-14 relative flex items-center justify-center border-b border-border/40 shrink-0">
-                        <div className="flex items-center justify-center gap-2 min-w-0">
-                            <div className="h-6 w-6 rounded-md bg-primary flex items-center justify-center shadow-inner relative overflow-hidden">
-                                {!prefersReducedMotion ? (
-                                    <motion.div
-                                        className="absolute inset-0 bg-white/20"
-                                        animate={{ y: ["100%", "-100%"] }}
-                                        transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
-                                    />
-                                ) : null}
-                                <Box className="h-4 w-4 text-primary-foreground" />
+                    <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[300px] bg-[linear-gradient(180deg,rgba(248,250,252,0.96)_0%,rgba(226,232,240,0.82)_22%,rgba(203,213,225,0.42)_48%,rgba(148,163,184,0.12)_72%,transparent_92%)] dark:bg-[linear-gradient(180deg,rgba(2,6,23,0.98)_0%,rgba(15,23,42,0.88)_24%,rgba(51,65,85,0.46)_50%,rgba(148,163,184,0.12)_74%,transparent_92%)]"
+                    />
+                    <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[220px] bg-[radial-gradient(circle_at_14%_10%,rgba(255,255,255,0.62)_0%,rgba(255,255,255,0.20)_18%,rgba(255,255,255,0.06)_34%,transparent_58%)] dark:bg-[radial-gradient(circle_at_14%_10%,rgba(226,232,240,0.18)_0%,rgba(148,163,184,0.09)_22%,rgba(125,211,252,0.04)_36%,transparent_58%)]"
+                    />
+                    <div
+                        className={cn(
+                            "relative z-[1] overflow-hidden flex items-center justify-start border-b border-border/30 shrink-0 bg-white/18 shadow-[inset_0_1px_0_rgba(255,255,255,0.24)] backdrop-blur-[2px] dark:border-white/5 dark:bg-white/[0.03] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
+                            sidebarCollapsed ? "h-16 px-3 pr-10" : "h-20 px-4 pr-12",
+                        )}
+                    >
+                        <div
+                            aria-hidden="true"
+                            className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,rgba(255,255,255,0.54)_0%,rgba(255,255,255,0.10)_36%,rgba(255,255,255,0.28)_100%)] dark:bg-[linear-gradient(90deg,rgba(255,255,255,0.08)_0%,rgba(255,255,255,0.02)_36%,rgba(226,232,240,0.12)_100%)]"
+                        />
+                        <div
+                            aria-hidden="true"
+                            className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_24%,rgba(255,255,255,0.22)_0%,rgba(255,255,255,0.08)_18%,transparent_44%)] dark:bg-[radial-gradient(circle_at_12%_24%,rgba(226,232,240,0.08)_0%,rgba(148,163,184,0.04)_24%,transparent_48%)]"
+                        />
+                        <div className="relative z-[1] flex min-w-0 flex-1 items-center justify-start gap-3 pr-2">
+                            <div
+                                className={cn(
+                                    "relative isolate shrink-0 flex items-center justify-start",
+                                    sidebarCollapsed ? "h-10 w-10" : "h-14 w-14",
+                                )}
+                            >
+                                <div
+                                    aria-hidden="true"
+                                    className={cn(
+                                        "pointer-events-none absolute inset-0 -z-10 rounded-full blur-xl bg-[radial-gradient(circle,rgba(255,255,255,0.26)_0%,rgba(203,213,225,0.16)_30%,rgba(148,163,184,0.08)_50%,transparent_78%)] dark:bg-[radial-gradient(circle,rgba(241,245,249,0.18)_0%,rgba(148,163,184,0.12)_34%,rgba(125,211,252,0.05)_56%,transparent_80%)]",
+                                        sidebarCollapsed ? "scale-90 opacity-55" : "scale-110 opacity-70",
+                                    )}
+                                />
+                                <img
+                                    src={codexPoolLogo}
+                                    alt=""
+                                    aria-hidden="true"
+                                    className={cn(
+                                        "relative z-[1] object-contain [filter:drop-shadow(0_10px_18px_rgba(15,23,42,0.14))] dark:[filter:drop-shadow(0_0_12px_rgba(226,232,240,0.10))_drop-shadow(0_12px_26px_rgba(2,6,23,0.50))]",
+                                        sidebarCollapsed ? "h-10 w-10" : "h-14 w-14",
+                                    )}
+                                />
                             </div>
                             {!sidebarCollapsed ? (
-                                <h1 className="font-semibold tracking-tight text-sm truncate">{appName}</h1>
+                                <h1 className="min-w-0 flex-1 truncate text-[13.5px] font-semibold tracking-[0.01em] text-slate-700 [text-shadow:0_1px_0_rgba(255,255,255,0.20)] dark:text-slate-200 dark:[text-shadow:0_1px_0_rgba(255,255,255,0.08)]">
+                                    {appName}
+                                </h1>
                             ) : null}
                         </div>
                         <Button
@@ -255,16 +292,6 @@ export function AppLayout({
                             aria-label={t('nav.closeNavigation', { defaultValue: 'Close navigation menu' })}
                         >
                             <X className="h-4 w-4" />
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="absolute right-1 top-1/2 hidden h-8 w-6 -translate-y-1/2 rounded-md text-muted-foreground hover:text-foreground md:inline-flex"
-                            onClick={() => setSidebarCollapsed((prev) => !prev)}
-                            aria-label={sidebarCollapsed ? t('common.expandSidebar') : t('common.collapseSidebar')}
-                            title={sidebarCollapsed ? t('common.expandSidebar') : t('common.collapseSidebar')}
-                        >
-                            {sidebarCollapsed ? <ChevronsRight className="h-4 w-4" /> : <ChevronsLeft className="h-4 w-4" />}
                         </Button>
                     </div>
 
@@ -319,12 +346,24 @@ export function AppLayout({
                             </div>
                         ))}
                     </nav>
-                    <div className={cn("p-4 border-t border-border/40 text-xs text-muted-foreground/60 flex items-center", sidebarCollapsed ? "justify-center" : "justify-between")}>
+                    <div className={cn("p-4 border-t border-border/40 text-xs text-muted-foreground/60 flex items-center", sidebarCollapsed ? "flex-col justify-center gap-3" : "justify-between gap-3")}>
                         {!sidebarCollapsed ? <span>v1.0.0</span> : null}
-                        <span className="flex items-center gap-1.5" title={t('nav.online')}>
-                            <span className="h-2 w-2 rounded-full bg-success motion-reduce:animate-none animate-pulse" />
-                            {!sidebarCollapsed ? t('nav.online') : <span className="sr-only">{t('nav.online')}</span>}
-                        </span>
+                        <div className={cn("flex items-center", sidebarCollapsed ? "flex-col gap-3" : "ml-auto gap-3")}>
+                            <span className="flex items-center gap-1.5" title={t('nav.online')}>
+                                <span className="h-2 w-2 rounded-full bg-success motion-reduce:animate-none animate-pulse" />
+                                {!sidebarCollapsed ? t('nav.online') : <span className="sr-only">{t('nav.online')}</span>}
+                            </span>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="hidden h-7 w-7 rounded-full border border-white/35 bg-white/20 text-muted-foreground/75 shadow-sm backdrop-blur-sm hover:bg-white/30 hover:text-foreground dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10 md:inline-flex"
+                                onClick={() => setSidebarCollapsed((prev) => !prev)}
+                                aria-label={sidebarCollapsed ? t('common.expandSidebar') : t('common.collapseSidebar')}
+                                title={sidebarCollapsed ? t('common.expandSidebar') : t('common.collapseSidebar')}
+                            >
+                                {sidebarCollapsed ? <ChevronsRight className="h-4 w-4" /> : <ChevronsLeft className="h-4 w-4" />}
+                            </Button>
+                        </div>
                     </div>
                 </motion.aside>
 
