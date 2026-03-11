@@ -52,3 +52,7 @@ version = "0.6"
 
 [workspace.dependencies.assert-json-diff]
 version = "2"
+
+[patch.crates-io]
+higher-kinded-types = { path = "vendor/higher-kinded-types" }
+macro_rules_attribute = { path = "vendor/macro_rules_attribute" }

@@ -1,0 +1,59 @@
+# Templated by `cargo-generate` using https://github.com/danielhenrymantilla/proc-macro-template
+[lib]
+path = "src/_lib.rs"
+
+[package]
+name = "higher-kinded-types"
+authors = [
+    "Daniel Henry-Mantilla <daniel.henry.mantilla@gmail.com>",
+]
+version = "0.2.1"  # Keep in sync
+edition = "2021"
+
+license = "Zlib OR MIT OR Apache-2.0"
+repository = "https://github.com/danielhenrymantilla/higher-kinded-types.rs"
+documentation = "https://docs.rs/higher-kinded-types"
+readme = "README.md"
+
+description = """"Generic generics" / higher-kinded APIs in stable Rust"""
+keywords = ["higher-kinded-types", "HKT", "gaGATt", "lending-iterator", "lifetime"]
+
+[features]
+docs-rs = [
+    "better-docs",
+    "fn_traits",
+]
+better-docs = [  # unstable; it is not to be enabled by users!
+]
+ui-tests = [
+    "better-docs",
+    "fn_traits",
+]
+
+default = [
+]
+
+fn_traits = []
+
+[dependencies]
+macro_rules_attribute.version = "0.2.0"
+never-say-never.version = "6.6.666"
+paste.package = "pastey"
+paste.version = "0.2.1"
+
+[dev-dependencies]
+
+[package.metadata.docs.rs]
+features = ["docs-rs"]
+rustdoc-args = [
+    # Use (with or without `open`):
+    # ```md
+    # <details open class="custom"><summary><span class="summary-box"><span>Click to hide</span></span></summary>
+    # …
+    # </details>
+    # ```
+    # to get nice drop-down menus (and avoid the css bug with rustdoc).
+    "--html-before-content", "fix-docsrs-li-details-summary.html",
+]
+
+[workspace]
