@@ -1160,30 +1160,6 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
             get(list_admin_routing_plan_versions),
         )
         .route(
-            "/api/v1/admin/ai-routing/profiles",
-            get(list_admin_routing_profiles).post(upsert_admin_routing_profile),
-        )
-        .route(
-            "/api/v1/admin/ai-routing/profiles/{profile_id}",
-            delete(delete_admin_routing_profile),
-        )
-        .route(
-            "/api/v1/admin/ai-routing/model-policies",
-            get(list_admin_model_routing_policies).post(upsert_admin_model_routing_policy),
-        )
-        .route(
-            "/api/v1/admin/ai-routing/model-policies/{policy_id}",
-            delete(delete_admin_model_routing_policy),
-        )
-        .route(
-            "/api/v1/admin/ai-routing/settings",
-            get(get_admin_model_routing_settings).put(update_admin_model_routing_settings),
-        )
-        .route(
-            "/api/v1/admin/ai-routing/versions",
-            get(list_admin_routing_plan_versions),
-        )
-        .route(
             "/api/v1/admin/impersonations",
             post(create_admin_impersonation),
         )

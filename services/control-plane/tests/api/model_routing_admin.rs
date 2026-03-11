@@ -222,3 +222,23 @@ async fn admin_model_routing_management_endpoints_work() {
         .unwrap();
     assert_eq!(delete_profile_response.status(), StatusCode::NO_CONTENT);
 }
+
+#[tokio::test]
+async fn admin_ai_routing_aliases_are_not_available() {
+    let app = build_app();
+    let admin_token = login_admin_token(&app).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/admin/ai-routing/settings")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
