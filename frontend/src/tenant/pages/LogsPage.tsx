@@ -8,9 +8,16 @@ import { useTranslation } from 'react-i18next'
 import { auditLogsApi, type AuditLogItem } from '@/api/auditLogs'
 import { localizeRequestLogErrorDisplay } from '@/api/errorI18n'
 import { requestLogsApi, type RequestAuditLogItem } from '@/api/requestLogs'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { StandardDataTable } from '@/components/ui/standard-data-table'
+import {
+  getServiceTierBadgeTone,
+  getServiceTierDefaultLabel,
+  normalizeServiceTierForDisplay,
+  shouldHighlightServiceTier,
+} from '@/features/billing/service-tier'
 import {
   LogsFilterGrid,
   LogsFilterInput,
@@ -53,6 +60,18 @@ function buildTenantLogTimeTooltip(
     local: formatDateTime(value),
     utc: formatUtcLogDateTime(value, locale),
   })
+}
+
+function localizeTenantServiceTierLabel(t: TFunction, serviceTier?: string) {
+  const defaultLabel = getServiceTierDefaultLabel(serviceTier)
+  switch (normalizeServiceTierForDisplay(serviceTier)) {
+    case 'priority':
+      return t('serviceTier.priority', { defaultValue: defaultLabel })
+    case 'flex':
+      return t('serviceTier.flex', { defaultValue: defaultLabel })
+    default:
+      return t('serviceTier.default', { defaultValue: defaultLabel })
+  }
 }
 
 function localizeTenantAuditActorType(actorType: string | undefined, t: TFunction): string {
@@ -239,6 +258,24 @@ export function TenantLogsPage() {
             {row.original.status_code}
           </span>
         ),
+      },
+      {
+        id: 'serviceTier',
+        header: t('tenantLogs.request.columns.serviceTier', { defaultValue: 'Tier' }),
+        accessorFn: (row) => normalizeServiceTierForDisplay(row.service_tier),
+        cell: ({ row }) => {
+          if (!shouldHighlightServiceTier(row.original.service_tier)) {
+            return <span className="text-xs text-muted-foreground">-</span>
+          }
+          return (
+            <Badge
+              variant={getServiceTierBadgeTone(row.original.service_tier)}
+              className="px-2 py-0.5 font-medium"
+            >
+              {localizeTenantServiceTierLabel(t, row.original.service_tier)}
+            </Badge>
+          )
+        },
       },
       {
         id: 'latency',

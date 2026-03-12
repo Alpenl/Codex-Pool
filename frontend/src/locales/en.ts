@@ -55,10 +55,12 @@ export default {
             officialDescription: "Official OpenAI model metadata is read-only here. Manual override pricing can be edited below.",
             limitsTitle: "Rate Limits",
             noOauthStatus: "No OAuth status data yet.",
+            noSupportedModels: "No available model list has been captured for this account yet.",
             oauthNotApplicable: "OAuth details are not available for this account type.",
             oauthTitle: "OAuth Status",
             profileTitle: "Account Profile",
             rawTitle: "Raw Payload",
+            supportedModelsCount: "{{count}} models",
             tabAria: "Account detail tabs",
             tabs: {
                 limits: "Limits",
@@ -72,6 +74,7 @@ export default {
                 credentials: "Credentials",
                 identity: "Identity",
                 refresh: "Refresh State",
+                supportedModels: "Available Models",
                 subscription: "Subscription"
             },
             fields: {
@@ -278,6 +281,7 @@ export default {
                 failoverAction: "Action: {{action}}",
                 failure: "Failure: {{summary}}",
                 failurePrefix: "Failure:",
+                serviceTier: "Service Tier: {{tier}}",
                 source: "Source: {{source}}",
                 upstreamStatus: "Upstream {{status}}",
                 tokenSettlement: "Token settlement: input {{input}} + cached {{cached}} + output {{output}}",
@@ -394,6 +398,11 @@ export default {
             disabled: "Disabled",
             available: "Available"
         }
+    },
+    serviceTier: {
+        default: "Default",
+        flex: "Flex",
+        priority: "Priority"
     },
     config: {
         controlPlane: {
@@ -1007,6 +1016,7 @@ export default {
                 latency: "Latency (ms)",
                 path: "Path",
                 requestId: "Request ID",
+                serviceTier: "Tier",
                 status: "Status",
                 tenant: "Tenant"
             },
@@ -1681,6 +1691,7 @@ export default {
                 failureKeyword: "Failure Keyword",
                 failureSummary: "{{failure}}（{{reason}}）",
                 reconcileAdjust: "Reconcile Adjust",
+                serviceTier: "Service Tier: {{tier}}",
                 source: "Source",
                 tokenSettle: "Token Settle",
                 unitPrice: {
@@ -2250,6 +2261,7 @@ export default {
                 latency: "Latency (ms)",
                 path: "Path",
                 requestId: "Request ID",
+                serviceTier: "Tier",
                 status: "Status",
                 time: "Time"
             },

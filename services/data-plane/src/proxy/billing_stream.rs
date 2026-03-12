@@ -54,8 +54,14 @@ async fn build_pending_billing_session(
         .or(trace_request_id.clone())
         .unwrap_or_else(|| request_id.clone());
     let reserved_microcredits =
-        estimate_authorize_reserve_microcredits(state, api_key_id, model, estimated_input_tokens)
-            .await;
+        estimate_authorize_reserve_microcredits(
+            state,
+            api_key_id,
+            model,
+            context.requested_service_tier.as_deref(),
+            estimated_input_tokens,
+        )
+        .await;
 
     Ok(Some(PendingBillingSession {
         tenant_id,
@@ -63,6 +69,7 @@ async fn build_pending_billing_session(
         request_id,
         trace_request_id,
         model: model.to_string(),
+        requested_service_tier: context.requested_service_tier.clone(),
         session_key,
         request_kind: billing_request_kind(path).to_string(),
         is_stream: context.stream,
@@ -84,13 +91,16 @@ async fn estimate_authorize_reserve_microcredits(
     state: &AppState,
     api_key_id: Uuid,
     model: &str,
+    service_tier: Option<&str>,
     estimated_input_tokens: i64,
 ) -> i64 {
     if !state.billing_dynamic_preauth_enabled {
         return mark_fallback_preauth_reserve(state, state.stream_billing_reserve_microcredits);
     }
 
-    if let Some(pricing) = resolve_model_pricing_for_preauth(state, api_key_id, model).await {
+    if let Some(pricing) =
+        resolve_model_pricing_for_preauth(state, api_key_id, model, service_tier).await
+    {
         if let Some(reserve) = estimate_reserve_with_model_pricing(
             state,
             estimated_input_tokens,
@@ -117,8 +127,19 @@ async fn resolve_model_pricing_for_preauth(
     state: &AppState,
     api_key_id: Uuid,
     model: &str,
+    service_tier: Option<&str>,
 ) -> Option<InternalBillingPricingResponse> {
-    let model_key = format!("{}:{}", api_key_id, model.trim().to_ascii_lowercase());
+    let normalized_service_tier = service_tier
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_else(|| "default".to_string());
+    let model_key = format!(
+        "{}:{}:{}",
+        api_key_id,
+        model.trim().to_ascii_lowercase(),
+        normalized_service_tier
+    );
     if model_key.is_empty() {
         return None;
     }
@@ -136,7 +157,8 @@ async fn resolve_model_pricing_for_preauth(
         }
     }
 
-    let fetched = fetch_model_pricing_from_control_plane(state, api_key_id, model).await?;
+    let fetched =
+        fetch_model_pricing_from_control_plane(state, api_key_id, model, service_tier).await?;
     if let Ok(mut cache) = state.billing_pricing_cache.write() {
         cache.insert(
             model_key,
@@ -156,6 +178,7 @@ async fn fetch_model_pricing_from_control_plane(
     state: &AppState,
     api_key_id: Uuid,
     model: &str,
+    service_tier: Option<&str>,
 ) -> Option<InternalBillingPricingResponse> {
     let base_url = state.control_plane_base_url.as_deref()?;
     let endpoint = format!(
@@ -169,6 +192,7 @@ async fn fetch_model_pricing_from_control_plane(
         .json(&InternalBillingPricingPayload {
             model: model.to_string(),
             api_key_id: Some(api_key_id),
+            service_tier: service_tier.map(ToString::to_string),
         })
         .timeout(Duration::from_secs(INTERNAL_BILLING_PRICING_TIMEOUT_SEC))
         .send()
@@ -325,6 +349,7 @@ async fn authorize_billing_session(
             request_id: pending.request_id.clone(),
             trace_request_id: pending.trace_request_id.clone(),
             model: pending.model.clone(),
+            service_tier: pending.requested_service_tier.clone(),
             session_key: Some(pending.session_key.clone()),
             request_kind: Some(pending.request_kind.clone()),
             reserved_microcredits: pending.reserved_microcredits,
@@ -350,6 +375,8 @@ async fn authorize_billing_session(
                 request_id: pending.request_id.clone(),
                 trace_request_id: pending.trace_request_id.clone(),
                 model: pending.model.clone(),
+                requested_service_tier: pending.requested_service_tier.clone(),
+                effective_service_tier: None,
                 session_key: pending.session_key.clone(),
                 request_kind: pending.request_kind.clone(),
                 is_stream,
@@ -415,8 +442,13 @@ async fn settle_billing_if_needed(
                 .await;
                 return;
             }
-            if let Err(err) =
-                settle_authorized_billing(state.as_ref(), &billing_session_for_task, estimated_usage).await
+            if let Err(err) = settle_authorized_billing(
+                state.as_ref(),
+                &billing_session_for_task,
+                estimated_usage,
+                billing_session_for_task.effective_service_tier.as_deref(),
+            )
+            .await
             {
                 warn!(
                     status = ?err.status(),
@@ -433,8 +465,13 @@ async fn settle_billing_if_needed(
         });
     };
 
-    let settle_result =
-        settle_authorized_billing(state.as_ref(), billing_session, usage_tokens).await?;
+    let settle_result = settle_authorized_billing(
+        state.as_ref(),
+        billing_session,
+        usage_tokens,
+        billing_session.effective_service_tier.as_deref(),
+    )
+    .await?;
     Ok(BillingSettleOutcome::Settled(settle_result))
 }
 
@@ -442,6 +479,7 @@ async fn settle_authorized_billing(
     state: &AppState,
     billing_session: &BillingSession,
     usage_tokens: UsageTokens,
+    effective_service_tier: Option<&str>,
 ) -> std::result::Result<BillingSettleResult, Box<Response>> {
     state
         .billing_capture_total
@@ -453,6 +491,9 @@ async fn settle_authorized_billing(
             api_key_id: Some(billing_session.api_key_id),
             request_id: billing_session.request_id.clone(),
             model: billing_session.model.clone(),
+            service_tier: effective_service_tier
+                .map(ToString::to_string)
+                .or_else(|| billing_session.requested_service_tier.clone()),
             session_key: Some(billing_session.session_key.clone()),
             request_kind: Some(billing_session.request_kind.clone()),
             input_tokens: usage_tokens.input_tokens,
@@ -886,6 +927,9 @@ async fn emit_stream_usage_request_log_event(
             error_code: None,
             request_id: stream_log_context.request_id,
             model: stream_log_context.model,
+            service_tier: observation
+                .service_tier
+                .or(stream_log_context.requested_service_tier),
             input_tokens: usage.as_ref().map(|item| item.input_tokens),
             cached_input_tokens: usage.as_ref().map(|item| item.cached_input_tokens),
             output_tokens: usage.as_ref().map(|item| item.output_tokens),
@@ -997,13 +1041,20 @@ async fn drain_upstream_stream_until_timeout(
 
 async fn finalize_stream_billing(
     state: Arc<AppState>,
-    billing_session: BillingSession,
+    mut billing_session: BillingSession,
     observation: StreamUsageObservation,
 ) {
     if observation.used_json_line_fallback {
         state
             .stream_usage_json_line_fallback_total
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    if billing_session.effective_service_tier.is_none() {
+        billing_session.effective_service_tier = observation
+            .service_tier
+            .clone()
+            .or_else(|| billing_session.requested_service_tier.clone());
     }
 
     let mut usage = observation.usage;
@@ -1059,7 +1110,14 @@ async fn finalize_stream_billing(
         return;
     };
 
-    match settle_authorized_billing(state.as_ref(), &billing_session, usage_tokens).await {
+    match settle_authorized_billing(
+        state.as_ref(),
+        &billing_session,
+        usage_tokens,
+        billing_session.effective_service_tier.as_deref(),
+    )
+    .await
+    {
         Ok(settle_result) => {
             emit_stream_request_log_event(
                 state.as_ref(),
@@ -1126,6 +1184,10 @@ async fn emit_stream_request_log_event(
                 .clone()
                 .or_else(|| Some(billing_session.request_id.clone())),
             model: Some(billing_session.model.clone()),
+            service_tier: billing_session
+                .effective_service_tier
+                .clone()
+                .or_else(|| billing_session.requested_service_tier.clone()),
             input_tokens,
             cached_input_tokens,
             output_tokens,
@@ -1166,6 +1228,7 @@ impl SseUsageTracker {
         };
         StreamUsageObservation {
             usage: self.usage,
+            service_tier: self.service_tier,
             estimated_output_tokens,
             used_json_line_fallback: self.used_json_line_fallback,
         }
@@ -1185,6 +1248,9 @@ impl SseUsageTracker {
             return;
         }
         if let Ok(value) = serde_json::from_slice::<Value>(payload) {
+            if self.service_tier.is_none() {
+                self.service_tier = extract_service_tier_from_value(&value);
+            }
             if let Some(tokens) = extract_usage_tokens_from_value(&value) {
                 self.usage = Some(tokens);
                 if !from_data_line {

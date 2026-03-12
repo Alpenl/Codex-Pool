@@ -8,6 +8,12 @@ import { useSearchParams } from 'react-router-dom'
 
 import { billingApi } from '@/api/billing'
 import { localizeApiErrorDisplay, localizeHttpStatusDisplay } from '@/api/errorI18n'
+import {
+  getServiceTierBadgeTone,
+  getServiceTierDefaultLabel,
+  normalizeServiceTierForDisplay,
+  shouldHighlightServiceTier,
+} from '@/features/billing/service-tier'
 import { groupsApi } from '@/api/groups'
 import { tenantCreditsApi, type TenantCreditLedgerItem } from '@/api/tenantCredits'
 import { tenantKeysApi } from '@/api/tenantKeys'
@@ -80,6 +86,7 @@ interface LedgerBillingMeta {
   authorization_id?: string
   phase?: string
   is_stream?: boolean
+  service_tier?: string
   pricing_source?: string
   input_price_microcredits?: number
   cached_input_price_microcredits?: number
@@ -217,6 +224,18 @@ function mapFailoverActionLabel(action: string | undefined, t: TFunction): strin
   }
 }
 
+function localizeTenantBillingServiceTierLabel(value: string | undefined, t: TFunction): string {
+  const defaultLabel = getServiceTierDefaultLabel(value)
+  switch (normalizeServiceTierForDisplay(value)) {
+    case 'priority':
+      return t('serviceTier.priority', { defaultValue: defaultLabel })
+    case 'flex':
+      return t('serviceTier.flex', { defaultValue: defaultLabel })
+    default:
+      return t('serviceTier.default', { defaultValue: defaultLabel })
+  }
+}
+
 function parseLedgerBillingMeta(item: TenantCreditLedgerItem): LedgerBillingMeta | undefined {
   const payload = item.meta_json
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -227,6 +246,7 @@ function parseLedgerBillingMeta(item: TenantCreditLedgerItem): LedgerBillingMeta
     authorization_id: asString(map.authorization_id),
     phase: asString(map.phase),
     is_stream: asBoolean(map.is_stream),
+    service_tier: asString(map.service_tier),
     pricing_source: asString(map.pricing_source),
     input_price_microcredits: asNumber(map.input_price_microcredits),
     cached_input_price_microcredits: asNumber(map.cached_input_price_microcredits),
@@ -706,16 +726,33 @@ export function TenantBillingPage() {
       {
         id: 'billingDetail',
         header: t('tenantBilling.ledger.columns.detail', { defaultValue: 'Detail' }),
-        accessorFn: (row) => buildLedgerBillingDetailLines(row, showRawLedgerEvents, t).join(' | ').toLowerCase(),
+        accessorFn: (row) => {
+          const meta = parseLedgerBillingMeta(row)
+          const serviceTier = meta?.service_tier ? normalizeServiceTierForDisplay(meta.service_tier) : ''
+          return [serviceTier, ...buildLedgerBillingDetailLines(row, showRawLedgerEvents, t)]
+            .join(' | ')
+            .toLowerCase()
+        },
         cell: ({ row }) => {
           const meta = parseLedgerBillingMeta(row.original)
           const segments = buildTokenPriceSegments(meta, row.original, t)
           const lines = buildLedgerBillingDetailLines(row.original, showRawLedgerEvents, t)
+          const showServiceTierBadge = shouldHighlightServiceTier(meta?.service_tier)
+          const serviceTierLabel = localizeTenantBillingServiceTierLabel(meta?.service_tier, t)
+          const serviceTierLine = showServiceTierBadge
+            ? t('tenantBilling.ledger.detail.serviceTier', {
+                defaultValue: 'Service Tier: {{tier}}',
+                tier: serviceTierLabel,
+              })
+            : undefined
           if (lines.length === 1 && lines[0] === '-') {
-            return <span className="text-xs text-muted-foreground">-</span>
+            if (!showServiceTierBadge) {
+              return <span className="text-xs text-muted-foreground">-</span>
+            }
           }
           const primaryLine = lines[0]
           const secondaryLine = lines[1]
+          const showPrimaryLine = !(lines.length === 1 && lines[0] === '-')
           const failureTooltip = buildLedgerFailureTooltip(meta)
           const secondaryTone = secondaryLine?.includes(t('tenantBilling.ledger.detail.failureKeyword', { defaultValue: 'Failure Keyword' }))
             ? 'text-warning-foreground'
@@ -728,7 +765,30 @@ export function TenantBillingPage() {
           return (
             <div className="max-w-[620px] space-y-1 text-xs leading-relaxed">
               <div className="space-y-1">
-                {segments.length > 0 ? (
+                {showServiceTierBadge ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge
+                      variant={getServiceTierBadgeTone(meta?.service_tier)}
+                      className="px-2 py-0.5 font-medium"
+                    >
+                      {serviceTierLabel}
+                    </Badge>
+                    {segments.map((segment) => (
+                      <span
+                        key={`${row.original.id}-${segment.kind}`}
+                        className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 ${tokenSegmentTone(segment.kind)}`}
+                      >
+                        <span>{segment.label}</span>
+                        <span className="font-mono tabular-nums">{formatTokenCount(segment.tokens)}</span>
+                        {typeof segment.priceMicrocredits === 'number' ? (
+                          <span className="font-mono tabular-nums opacity-80">
+                            @{formatMicrocredits(segment.priceMicrocredits)}/1M
+                          </span>
+                        ) : null}
+                      </span>
+                    ))}
+                  </div>
+                ) : segments.length > 0 ? (
                   <div className="flex flex-wrap items-center gap-1.5">
                     {segments.map((segment) => (
                       <span
@@ -745,12 +805,18 @@ export function TenantBillingPage() {
                       </span>
                     ))}
                   </div>
-                ) : (
+                ) : showPrimaryLine ? (
                   <div className="flex items-start gap-1.5 text-muted-foreground">
                     <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span>{primaryLine}</span>
                   </div>
-                )}
+                ) : null}
+                {serviceTierLine ? (
+                  <div className="flex items-start gap-1.5 text-muted-foreground">
+                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{serviceTierLine}</span>
+                  </div>
+                ) : null}
                 {showSource ? (
                   <div className="flex items-start gap-1.5 text-muted-foreground">
                     <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -814,6 +880,7 @@ export function TenantBillingPage() {
         'created_at',
         'event_type',
         'request_type',
+        'service_tier',
         'delta_microcredits',
         'balance_after_microcredits',
         'api_key_id',
@@ -825,6 +892,10 @@ export function TenantBillingPage() {
         item.created_at,
         item.event_type,
         ledgerStreamTypeLabel(item, t),
+        (() => {
+          const meta = parseLedgerBillingMeta(item)
+          return meta?.service_tier ? normalizeServiceTierForDisplay(meta.service_tier) : ''
+        })(),
         String(displayDeltaMicrocreditsForLedgerItem(item, showRawLedgerEvents)),
         String(item.balance_after_microcredits),
         item.api_key_id ?? '',

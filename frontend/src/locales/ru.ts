@@ -55,10 +55,12 @@ export default {
             officialDescription: "Official OpenAI model metadata is read-only here. Manual override pricing can be edited below.",
             limitsTitle: "Название лимитов",
             noOauthStatus: "Нет статуса OAuth",
+            noSupportedModels: "Для этого аккаунта список доступных моделей пока не был получен.",
             oauthNotApplicable: "Оаутентификация не применима",
             oauthTitle: "Название авторизации",
             profileTitle: "Название профиля",
             rawTitle: "Необработанное название",
+            supportedModelsCount: "{{count}} моделей",
             tabAria: "Вкладки деталей аккаунта",
             tabs: {
                 limits: "Пределы",
@@ -72,6 +74,7 @@ export default {
                 credentials: "Учетные данные",
                 identity: "Идентификация",
                 refresh: "Состояние обновления",
+                supportedModels: "Доступные модели",
                 subscription: "Подписка"
             },
             fields: {
@@ -278,6 +281,7 @@ export default {
                 failoverAction: "Действие: {{action}}",
                 failure: "Ошибка: {{summary}}",
                 failurePrefix: "Отказ:",
+                serviceTier: "Уровень сервиса: {{tier}}",
                 source: "Источник: {{source}}",
                 upstreamStatus: "Апстрим {{status}}",
                 tokenSettlement: "Расчет токеном: ввод {{input}} + кэшированный {{cached}} + вывод {{output}}",
@@ -394,6 +398,11 @@ export default {
             disabled: "Отключено",
             available: "Доступно"
         }
+    },
+    serviceTier: {
+        default: "Стандартный",
+        flex: "Гибкий",
+        priority: "Приоритет"
     },
     config: {
         controlPlane: {
@@ -1007,6 +1016,7 @@ export default {
                 latency: "Задержка (мс)",
                 path: "Путь",
                 requestId: "Идентификатор запроса",
+                serviceTier: "Уровень сервиса",
                 status: "Статус",
                 tenant: "Жилец"
             },
@@ -1681,6 +1691,7 @@ export default {
                 failureKeyword: "Ключевое слово «Отказ»",
                 failureSummary: "{{failure}}（{{reason}}）",
                 reconcileAdjust: "Согласовать Корректировать",
+                serviceTier: "Уровень сервиса: {{tier}}",
                 source: "Источник",
                 tokenSettle: "Расчет токенов",
                 unitPrice: {
@@ -2250,6 +2261,7 @@ export default {
                 latency: "Задержка (мс)",
                 path: "Путь",
                 requestId: "Идентификатор запроса",
+                serviceTier: "Уровень сервиса",
                 status: "Статус",
                 time: "Время"
             },

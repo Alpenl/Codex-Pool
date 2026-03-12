@@ -35,7 +35,7 @@ impl ClickHouseUsageRepo {
             self.tenant_account_table
         );
         let request_log_ddl = format!(
-            "CREATE TABLE IF NOT EXISTS {} (id String, account_id String, tenant_id Nullable(String), api_key_id Nullable(String), request_id Nullable(String), path String, method String, model Nullable(String), input_tokens Nullable(Int64), cached_input_tokens Nullable(Int64), output_tokens Nullable(Int64), reasoning_tokens Nullable(Int64), first_token_latency_ms Nullable(UInt64), status_code UInt16, latency_ms UInt64, is_stream UInt8, error_code Nullable(String), billing_phase Nullable(String), authorization_id Nullable(String), capture_status Nullable(String), created_at Int64, event_version UInt16) ENGINE = ReplacingMergeTree ORDER BY (created_at, id)",
+            "CREATE TABLE IF NOT EXISTS {} (id String, account_id String, tenant_id Nullable(String), api_key_id Nullable(String), request_id Nullable(String), path String, method String, model Nullable(String), service_tier Nullable(String), input_tokens Nullable(Int64), cached_input_tokens Nullable(Int64), output_tokens Nullable(Int64), reasoning_tokens Nullable(Int64), first_token_latency_ms Nullable(UInt64), status_code UInt16, latency_ms UInt64, is_stream UInt8, error_code Nullable(String), billing_phase Nullable(String), authorization_id Nullable(String), capture_status Nullable(String), created_at Int64, event_version UInt16) ENGINE = ReplacingMergeTree ORDER BY (created_at, id)",
             self.request_log_table
         );
 
@@ -94,6 +94,10 @@ impl ClickHouseUsageRepo {
             ),
             format!(
                 "ALTER TABLE {} ADD COLUMN IF NOT EXISTS capture_status Nullable(String)",
+                self.request_log_table
+            ),
+            format!(
+                "ALTER TABLE {} ADD COLUMN IF NOT EXISTS service_tier Nullable(String)",
                 self.request_log_table
             ),
         ] {
@@ -211,7 +215,7 @@ impl ClickHouseUsageRepo {
 
     async fn fetch_request_logs(&self, query: RequestLogQuery) -> Result<Vec<RequestLogRow>> {
         let mut sql = format!(
-            "SELECT id, account_id, tenant_id, api_key_id, request_id, path, method, model, input_tokens, cached_input_tokens, output_tokens, reasoning_tokens, first_token_latency_ms, status_code, latency_ms, is_stream, error_code, billing_phase, authorization_id, capture_status, created_at, event_version FROM {} WHERE created_at >= ? AND created_at <= ?",
+            "SELECT id, account_id, tenant_id, api_key_id, request_id, path, method, model, service_tier, input_tokens, cached_input_tokens, output_tokens, reasoning_tokens, first_token_latency_ms, status_code, latency_ms, is_stream, error_code, billing_phase, authorization_id, capture_status, created_at, event_version FROM {} WHERE created_at >= ? AND created_at <= ?",
             self.request_log_table
         );
 
@@ -289,7 +293,7 @@ impl ClickHouseUsageRepo {
     ) -> Result<Vec<BillingReconcileFact>> {
         let capped_limit = limit.clamp(1, 10_000) as u64;
         let sql = format!(
-            "SELECT id, tenant_id, api_key_id, request_id, model, input_tokens, output_tokens, status_code, billing_phase, capture_status, created_at FROM {} WHERE created_at >= ? AND created_at <= ? AND tenant_id IS NOT NULL AND request_id IS NOT NULL AND status_code >= 200 AND status_code < 300 AND (billing_phase = 'released' OR input_tokens IS NOT NULL OR output_tokens IS NOT NULL) AND (created_at > ? OR (created_at = ? AND id > ?)) ORDER BY created_at ASC, id ASC LIMIT ?",
+            "SELECT id, tenant_id, api_key_id, request_id, model, service_tier, input_tokens, output_tokens, status_code, billing_phase, capture_status, created_at FROM {} WHERE created_at >= ? AND created_at <= ? AND tenant_id IS NOT NULL AND request_id IS NOT NULL AND status_code >= 200 AND status_code < 300 AND (billing_phase = 'released' OR input_tokens IS NOT NULL OR output_tokens IS NOT NULL) AND (created_at > ? OR (created_at = ? AND id > ?)) ORDER BY created_at ASC, id ASC LIMIT ?",
             self.request_log_table
         );
 

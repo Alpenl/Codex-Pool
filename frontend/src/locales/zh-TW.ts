@@ -55,10 +55,12 @@ export default {
             officialDescription: "這裡展示 OpenAI 官方模型資訊，唯讀。下方可以編輯手動價格覆蓋。",
             limitsTitle: "限額詳情",
             noOauthStatus: "暫無 OAuth 狀態資料",
+            noSupportedModels: "這個帳號目前還沒有採集到可用模型列表。",
             oauthNotApplicable: "此帳號類型不支援 OAuth 詳情",
             oauthTitle: "OAuth 狀態",
             profileTitle: "帳號資料",
             rawTitle: "原始資料",
+            supportedModelsCount: "{{count}} 個模型",
             tabAria: "帳號詳情分頁",
             tabs: {
                 limits: "限額",
@@ -72,6 +74,7 @@ export default {
                 credentials: "憑證",
                 identity: "身份資訊",
                 refresh: "刷新狀態",
+                supportedModels: "可用模型",
                 subscription: "訂閱資訊"
             },
             fields: {
@@ -278,6 +281,7 @@ export default {
                 failoverAction: "處理動作：{{action}}",
                 failure: "失敗：{{summary}}",
                 failurePrefix: "失敗：",
+                serviceTier: "服務層級：{{tier}}",
                 source: "來源：{{source}}",
                 upstreamStatus: "上游 {{status}}",
                 tokenSettlement: "代幣結算：輸入{{input}} + 快取{{cached}} + 輸出{{output}}",
@@ -394,6 +398,11 @@ export default {
             disabled: "停用",
             available: "可用"
         }
+    },
+    serviceTier: {
+        default: "預設",
+        flex: "彈性",
+        priority: "優先"
     },
     config: {
         controlPlane: {
@@ -1007,6 +1016,7 @@ export default {
                 latency: "延遲（毫秒）",
                 path: "路徑",
                 requestId: "請求 ID",
+                serviceTier: "服務層級",
                 status: "狀態",
                 tenant: "租戶"
             },
@@ -1681,6 +1691,7 @@ export default {
                 failureKeyword: "失敗關鍵字",
                 failureSummary: "{{failure}}（{{reason}}）",
                 reconcileAdjust: "對帳調整",
+                serviceTier: "服務層級：{{tier}}",
                 source: "來源",
                 tokenSettle: "Token 結算",
                 unitPrice: {
@@ -2250,6 +2261,7 @@ export default {
                 latency: "延遲（毫秒）",
                 path: "路徑",
                 requestId: "請求 ID",
+                serviceTier: "服務層級",
                 status: "狀態",
                 time: "時間"
             },

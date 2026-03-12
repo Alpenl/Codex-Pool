@@ -17,6 +17,7 @@ fn sample_event() -> RequestLogEvent {
         error_code: None,
         request_id: Some("req-event-sink".to_string()),
         model: Some("gpt-5.3-codex".to_string()),
+        service_tier: Some("priority".to_string()),
         input_tokens: Some(12),
         cached_input_tokens: None,
         output_tokens: Some(34),

@@ -1154,6 +1154,150 @@ async fn ws_billing_completed_response_authorizes_and_captures() {
 }
 
 #[tokio::test]
+async fn ws_billing_uses_priority_service_tier_for_pricing_and_logs_effective_tier() {
+    let authorization_id = Uuid::new_v4();
+    let tenant_id = Uuid::new_v4();
+    let api_key_id = Uuid::new_v4();
+    let upstream_base = spawn_ws_scripted_upstream(vec![vec![
+        json!({
+            "type": "response.created",
+            "response": { "id": "resp-tier-1", "model": "gpt-5.4" }
+        }),
+        json!({
+            "type": "response.completed",
+            "response": {
+                "id": "resp-tier-1",
+                "model": "gpt-5.4",
+                "service_tier": "priority",
+                "usage": { "input_tokens": 17, "output_tokens": 9 }
+            }
+        }),
+    ]])
+    .await;
+
+    let control_plane = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/auth/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tenant_id": tenant_id,
+            "api_key_id": api_key_id,
+            "enabled": true,
+            "group": {
+                "id": Uuid::new_v4(),
+                "name": "default",
+                "invalid": false
+            },
+            "tenant_status": "active",
+            "balance_microcredits": 1_000_000,
+            "cache_ttl_sec": 30,
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/pricing"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model": "gpt-5.4",
+            "input_price_microcredits": 2_000_000,
+            "cached_input_price_microcredits": 200_000,
+            "output_price_microcredits": 8_000_000,
+            "source": "priority_exact"
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/authorize"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "authorization_id": authorization_id,
+            "status": "authorized",
+            "reserved_microcredits": 2_000_000,
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/capture"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "captured"
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/release"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "released"
+        })))
+        .mount(&control_plane)
+        .await;
+
+    let sink = Arc::new(RecordingSink::default());
+    let codex_profile_base = format!("{}/backend-api/codex", upstream_base.trim_end_matches('/'));
+    let data_plane_base = spawn_data_plane_server_with_control_plane_and_event_sink(
+        vec![test_account(codex_profile_base, "upstream-token")],
+        Some(control_plane.uri()),
+        sink.clone(),
+    )
+    .await;
+
+    let mut request = ws_url(&data_plane_base, "/v1/responses")
+        .into_client_request()
+        .unwrap();
+    request
+        .headers_mut()
+        .insert("authorization", "Bearer cp_identity".parse().unwrap());
+    let (mut ws_client, response) = connect_async(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+
+    ws_client
+        .send(Message::Text(
+            json!({
+                "type": "response.create",
+                "request_id": "req-tier-1",
+                "response": {
+                    "model": "gpt-5.4",
+                    "service_tier": "fast"
+                }
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+    for _ in 0..2 {
+        let message = ws_client.next().await.unwrap().unwrap();
+        assert!(matches!(message, Message::Text(_)));
+    }
+
+    let (pricing_payload, events) = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let requests = control_plane.received_requests().await.unwrap();
+            let pricing_payload = requests
+                .iter()
+                .find(|request| request.url.path() == "/internal/v1/billing/pricing")
+                .map(|request| serde_json::from_slice::<Value>(&request.body).unwrap());
+            let events = sink.events();
+            if pricing_payload.is_some() && !events.is_empty() {
+                return (pricing_payload, events);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("pricing request and final billing event should arrive");
+
+    let pricing_payload = pricing_payload.expect("pricing payload should exist");
+    assert_eq!(pricing_payload["model"], "gpt-5.4");
+    assert_eq!(pricing_payload["service_tier"], "priority");
+
+    let final_event = events.last().expect("expected final stream request log event");
+    assert_eq!(final_event.request_id.as_deref(), Some("req-tier-1"));
+    assert_eq!(final_event.authorization_id, Some(authorization_id));
+    assert_eq!(final_event.service_tier.as_deref(), Some("priority"));
+    assert_eq!(final_event.capture_status.as_deref(), Some("captured"));
+
+    ws_client.close(None).await.unwrap();
+}
+
+#[tokio::test]
 async fn ws_billing_incomplete_response_releases_without_capture() {
     let tenant_id = Uuid::new_v4();
     let api_key_id = Uuid::new_v4();

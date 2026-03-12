@@ -140,6 +140,7 @@ export function AccountDetailDialog({
     oauthStatus?.rate_limits_last_error_code,
   )
   const sourceTypeLabel = getSourceTypeLabel(oauthStatus?.source_type, t)
+  const supportedModels = oauthStatus?.supported_models ?? []
 
   return (
     <Dialog open={Boolean(account)} onOpenChange={onOpenChange}>
@@ -262,6 +263,52 @@ export function AccountDetailDialog({
                       >
                         {account.bearer_token}
                       </DetailField>
+                    </DetailSection>
+
+                    <DetailSection
+                      title={t('accounts.details.sections.supportedModels', {
+                        defaultValue: 'Available Models',
+                      })}
+                      className="xl:col-span-2"
+                    >
+                      {!isSessionAccount ? (
+                        <p className="text-sm text-muted-foreground">
+                          {t('accounts.details.oauthNotApplicable', {
+                            defaultValue: 'OAuth details are not available for this account type.',
+                          })}
+                        </p>
+                      ) : oauthStatusLoading && !oauthStatus ? (
+                        <p className="text-sm text-muted-foreground">
+                          {t('accounts.oauth.loading')}
+                        </p>
+                      ) : supportedModels.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          {t('accounts.details.noSupportedModels', {
+                            defaultValue: 'No available model list has been captured for this account yet.',
+                          })}
+                        </p>
+                      ) : (
+                        <div className="space-y-3">
+                          <p className="text-xs text-muted-foreground">
+                            {t('accounts.details.supportedModelsCount', {
+                              defaultValue: '{{count}} models',
+                              count: supportedModels.length,
+                            })}
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {supportedModels.map((model) => (
+                              <Badge
+                                key={model}
+                                variant="outline"
+                                className="font-mono text-[11px]"
+                                title={model}
+                              >
+                                {model}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </DetailSection>
                   </div>
                 </section>

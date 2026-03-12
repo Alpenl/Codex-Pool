@@ -588,6 +588,8 @@ pub struct AdminRechargeResponse {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ModelPricingUpsertRequest {
     pub model: String,
+    #[serde(default = "default_service_tier_default")]
+    pub service_tier: String,
     pub input_price_microcredits: i64,
     #[serde(default)]
     pub cached_input_price_microcredits: Option<i64>,
@@ -600,6 +602,7 @@ pub struct ModelPricingUpsertRequest {
 pub struct ModelPricingItem {
     pub id: Uuid,
     pub model: String,
+    pub service_tier: String,
     pub input_price_microcredits: i64,
     pub cached_input_price_microcredits: i64,
     pub output_price_microcredits: i64,
@@ -723,6 +726,8 @@ pub struct BillingAuthorizeRequest {
     pub trace_request_id: Option<String>,
     pub model: String,
     #[serde(default)]
+    pub service_tier: Option<String>,
+    #[serde(default)]
     pub session_key: Option<String>,
     #[serde(default)]
     pub request_kind: Option<String>,
@@ -752,6 +757,8 @@ pub struct BillingCaptureRequest {
     pub api_key_id: Option<Uuid>,
     pub request_id: String,
     pub model: String,
+    #[serde(default)]
+    pub service_tier: Option<String>,
     #[serde(default)]
     pub session_key: Option<String>,
     #[serde(default)]
@@ -783,6 +790,8 @@ pub struct BillingPricingRequest {
     pub model: String,
     #[serde(default)]
     pub api_key_id: Option<Uuid>,
+    #[serde(default)]
+    pub service_tier: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -850,6 +859,7 @@ pub struct BillingReconcileFactRequest {
     pub api_key_id: Option<Uuid>,
     pub request_id: String,
     pub model: Option<String>,
+    pub service_tier: Option<String>,
     pub input_tokens: Option<i64>,
     pub cached_input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
@@ -988,6 +998,10 @@ pub struct AuditLogListResponse {
 
 fn default_enabled_true() -> bool {
     true
+}
+
+fn default_service_tier_default() -> String {
+    "default".to_string()
 }
 
 fn default_request_kind_any() -> String {

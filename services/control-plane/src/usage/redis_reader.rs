@@ -535,6 +535,7 @@ mod tests {
             error_code: None,
             request_id: Some("req-redis-reader".to_string()),
             model: Some("gpt-5.3-codex".to_string()),
+            service_tier: Some("default".to_string()),
             input_tokens: None,
             cached_input_tokens: None,
             output_tokens: None,

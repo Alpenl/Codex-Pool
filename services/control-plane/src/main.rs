@@ -548,6 +548,7 @@ async fn main() -> anyhow::Result<()> {
                                                     api_key_id: fact.api_key_id,
                                                     request_id: fact.request_id.clone(),
                                                     model: fact.model.clone(),
+                                                    service_tier: fact.service_tier.clone(),
                                                     input_tokens: fact.input_tokens,
                                                     cached_input_tokens: None,
                                                     output_tokens: fact.output_tokens,

@@ -3,10 +3,17 @@ async fn build_admin_models_response(
     official_catalog: Vec<crate::tenant::OpenAiModelCatalogItem>,
     pricing_overrides: Vec<crate::tenant::ModelPricingItem>,
 ) -> AdminModelsResponse {
-    let pricing_overrides_by_model = pricing_overrides
-        .into_iter()
-        .map(|item| (item.model.clone(), item))
-        .collect::<std::collections::HashMap<String, crate::tenant::ModelPricingItem>>();
+    let mut pricing_overrides_by_model =
+        std::collections::HashMap::<String, crate::tenant::ModelPricingItem>::new();
+    for item in pricing_overrides {
+        let model_id = item.model.clone();
+        match pricing_overrides_by_model.get(&model_id) {
+            Some(existing) if existing.service_tier == "default" => {}
+            _ => {
+                pricing_overrides_by_model.insert(model_id, item);
+            }
+        }
+    }
 
     let (cache_updated_at, cache_source_label, mut cache_entries) = {
         let cache = state
@@ -1056,6 +1063,7 @@ mod models_probe_tests {
             path: "/v1/responses".to_string(),
             method: "POST".to_string(),
             model: Some("gpt-5.4".to_string()),
+            service_tier: None,
             input_tokens: None,
             cached_input_tokens: None,
             output_tokens: None,
@@ -1393,6 +1401,7 @@ mod models_probe_tests {
             path: "/v1/responses".to_string(),
             method: "POST".to_string(),
             model: Some("gpt-5.4".to_string()),
+            service_tier: None,
             input_tokens: None,
             cached_input_tokens: None,
             output_tokens: None,

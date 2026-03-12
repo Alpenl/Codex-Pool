@@ -55,10 +55,12 @@ export default {
             officialDescription: "这里展示 OpenAI 官方模型信息，只读。下方可以编辑手工价格覆盖。",
             limitsTitle: "限额详情",
             noOauthStatus: "暂无 OAuth 状态数据",
+            noSupportedModels: "这个账号还没有采集到可用模型列表。",
             oauthNotApplicable: "该账号类型不支持 OAuth 详情",
             oauthTitle: "OAuth 状态",
             profileTitle: "账号资料",
             rawTitle: "原始数据",
+            supportedModelsCount: "{{count}} 个模型",
             tabAria: "账号详情标签页",
             tabs: {
                 limits: "限额",
@@ -72,6 +74,7 @@ export default {
                 credentials: "凭据",
                 identity: "身份信息",
                 refresh: "刷新状态",
+                supportedModels: "可用模型",
                 subscription: "订阅信息"
             },
             fields: {
@@ -278,6 +281,7 @@ export default {
                 failoverAction: "处理动作：{{action}}",
                 failure: "失败：{{summary}}",
                 failurePrefix: "失败：",
+                serviceTier: "服务层级：{{tier}}",
                 source: "来源：{{source}}",
                 upstreamStatus: "上游 {{status}}",
                 tokenSettlement: "代币结算：输入{{input}} + 缓存{{cached}} + 输出{{output}}",
@@ -394,6 +398,11 @@ export default {
             disabled: "禁用",
             available: "可用"
         }
+    },
+    serviceTier: {
+        default: "默认",
+        flex: "弹性",
+        priority: "优先"
     },
     config: {
         controlPlane: {
@@ -1007,6 +1016,7 @@ export default {
                 latency: "延迟（毫秒）",
                 path: "路径",
                 requestId: "请求 ID",
+                serviceTier: "服务层级",
                 status: "状态",
                 tenant: "租户"
             },
@@ -1681,6 +1691,7 @@ export default {
                 failureKeyword: "失败关键字",
                 failureSummary: "{{failure}}（{{reason}}）",
                 reconcileAdjust: "对账调整",
+                serviceTier: "服务层级：{{tier}}",
                 source: "来源",
                 tokenSettle: "Token 结算",
                 unitPrice: {
@@ -2250,6 +2261,7 @@ export default {
                 latency: "延迟（毫秒）",
                 path: "路径",
                 requestId: "请求 ID",
+                serviceTier: "服务层级",
                 status: "状态",
                 time: "时间"
             },

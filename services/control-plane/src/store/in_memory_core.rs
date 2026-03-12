@@ -421,6 +421,13 @@ impl InMemoryStore {
                 .map(|expires_at| expires_at - Duration::seconds(OAUTH_REFRESH_WINDOW_SEC)),
             _ => None,
         };
+        let supported_models = self
+            .account_model_support
+            .read()
+            .unwrap()
+            .get(&account.id)
+            .map(|item| item.supported_models.clone())
+            .unwrap_or_default();
 
         OAuthAccountStatusResponse {
             account_id: account.id,
@@ -461,6 +468,7 @@ impl InMemoryStore {
                 .and_then(|item| item.last_refresh_error_code.clone()),
             last_refresh_error: credential.and_then(|item| item.last_refresh_error.clone()),
             effective_enabled,
+            supported_models,
             rate_limits: Vec::new(),
             rate_limits_fetched_at: None,
             rate_limits_expires_at: None,
@@ -468,5 +476,41 @@ impl InMemoryStore {
             rate_limits_last_error: None,
             next_refresh_at,
         }
+    }
+}
+
+#[cfg(test)]
+mod oauth_status_tests {
+    use super::*;
+
+    #[test]
+    fn oauth_status_includes_supported_models_snapshot() {
+        let store = InMemoryStore::default();
+        let account = UpstreamAccount {
+            id: Uuid::new_v4(),
+            label: "acc".to_string(),
+            mode: UpstreamMode::CodexOauth,
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            bearer_token: "token".to_string(),
+            chatgpt_account_id: None,
+            enabled: true,
+            priority: 100,
+            created_at: Utc::now(),
+        };
+        store.account_model_support.write().unwrap().insert(
+            account.id,
+            AccountModelSupportRecord {
+                supported_models: vec!["gpt-5.4".to_string(), "o3".to_string()],
+            },
+        );
+
+        let status = store.oauth_status_from(
+            &account,
+            UpstreamAuthProvider::LegacyBearer,
+            None,
+            None,
+        );
+
+        assert_eq!(status.supported_models, vec!["gpt-5.4".to_string(), "o3".to_string()]);
     }
 }

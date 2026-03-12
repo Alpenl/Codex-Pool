@@ -55,10 +55,12 @@ export default {
             officialDescription: "Official OpenAI model metadata is read-only here. Manual override pricing can be edited below.",
             limitsTitle: "制限タイトル",
             noOauthStatus: "認証ステータスなし",
+            noSupportedModels: "このアカウントでは、利用可能なモデル一覧がまだ取得されていません。",
             oauthNotApplicable: "Oauth は適用されません",
             oauthTitle: "認証タイトル",
             profileTitle: "プロフィールのタイトル",
             rawTitle: "生のタイトル",
+            supportedModelsCount: "{{count}} モデル",
             tabAria: "アカウント詳細タブ",
             tabs: {
                 limits: "限界",
@@ -72,6 +74,7 @@ export default {
                 credentials: "資格情報",
                 identity: "識別情報",
                 refresh: "更新状態",
+                supportedModels: "利用可能なモデル",
                 subscription: "契約情報"
             },
             fields: {
@@ -278,6 +281,7 @@ export default {
                 failoverAction: "アクション: {{action}}",
                 failure: "失敗: {{summary}}",
                 failurePrefix: "失敗：",
+                serviceTier: "サービスティア: {{tier}}",
                 source: "出典: {{source}}",
                 upstreamStatus: "上流 {{status}}",
                 tokenSettlement: "トークン決済: 入力 {{input}} + キャッシュされた {{cached}} + 出力 {{output}}",
@@ -394,6 +398,11 @@ export default {
             disabled: "無効",
             available: "利用可能"
         }
+    },
+    serviceTier: {
+        default: "デフォルト",
+        flex: "フレックス",
+        priority: "優先"
     },
     config: {
         controlPlane: {
@@ -1007,6 +1016,7 @@ export default {
                 latency: "レイテンシー (ミリ秒)",
                 path: "パス",
                 requestId: "リクエストID",
+                serviceTier: "サービスティア",
                 status: "状態",
                 tenant: "テナント"
             },
@@ -1681,6 +1691,7 @@ export default {
                 failureKeyword: "失敗キーワード",
                 failureSummary: "{{failure}}（{{reason}}）",
                 reconcileAdjust: "調整調整",
+                serviceTier: "サービスティア: {{tier}}",
                 source: "ソース",
                 tokenSettle: "トークン決済",
                 unitPrice: {
@@ -2250,6 +2261,7 @@ export default {
                 latency: "レイテンシー (ミリ秒)",
                 path: "パス",
                 requestId: "リクエストID",
+                serviceTier: "サービスティア",
                 status: "状態",
                 time: "時間"
             },
