@@ -281,6 +281,7 @@ export default {
                 failoverAction: "Action: {{action}}",
                 failure: "Failure: {{summary}}",
                 failurePrefix: "Failure:",
+                serviceTier: "Service Tier: {{tier}}",
                 source: "Source: {{source}}",
                 upstreamStatus: "Upstream {{status}}",
                 tokenSettlement: "Token settlement: input {{input}} + cached {{cached}} + output {{output}}",
@@ -397,6 +398,11 @@ export default {
             disabled: "Disabled",
             available: "Available"
         }
+    },
+    serviceTier: {
+        default: "Default",
+        flex: "Flex",
+        priority: "Priority"
     },
     config: {
         controlPlane: {
@@ -1010,6 +1016,7 @@ export default {
                 latency: "Latency (ms)",
                 path: "Path",
                 requestId: "Request ID",
+                serviceTier: "Tier",
                 status: "Status",
                 tenant: "Tenant"
             },
@@ -1684,6 +1691,7 @@ export default {
                 failureKeyword: "Failure Keyword",
                 failureSummary: "{{failure}}（{{reason}}）",
                 reconcileAdjust: "Reconcile Adjust",
+                serviceTier: "Service Tier: {{tier}}",
                 source: "Source",
                 tokenSettle: "Token Settle",
                 unitPrice: {
@@ -2253,6 +2261,7 @@ export default {
                 latency: "Latency (ms)",
                 path: "Path",
                 requestId: "Request ID",
+                serviceTier: "Tier",
                 status: "Status",
                 time: "Time"
             },

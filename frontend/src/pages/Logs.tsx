@@ -13,6 +13,7 @@ import { auditLogsApi, type AuditLogItem } from '@/api/auditLogs'
 import { localizeRequestLogErrorDisplay } from '@/api/errorI18n'
 import { logsApi, type SystemLogEntry } from '@/api/logs'
 import { requestLogsApi, type RequestAuditLogItem } from '@/api/requestLogs'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -29,6 +30,12 @@ import {
   LogsFilterInput,
   LogsFilterSelect,
 } from '@/features/logs/filter-controls'
+import {
+  getServiceTierBadgeTone,
+  getServiceTierDefaultLabel,
+  normalizeServiceTierForDisplay,
+  shouldHighlightServiceTier,
+} from '@/features/billing/service-tier'
 import { formatDateTime as formatI18nDateTime, formatUtcDateTime, getUserTimeZone } from '@/lib/i18n-format'
 import { cn } from '@/lib/utils'
 
@@ -78,6 +85,18 @@ function buildLogTimeTooltip(
     local: formatLocalLogDateTime(value, locale),
     utc: formatUtcLogDateTime(value, locale),
   })
+}
+
+function localizeServiceTierLabel(t: TFunction, serviceTier?: string) {
+  const defaultLabel = getServiceTierDefaultLabel(serviceTier)
+  switch (normalizeServiceTierForDisplay(serviceTier)) {
+    case 'priority':
+      return t('serviceTier.priority', { defaultValue: defaultLabel })
+    case 'flex':
+      return t('serviceTier.flex', { defaultValue: defaultLabel })
+    default:
+      return t('serviceTier.default', { defaultValue: defaultLabel })
+  }
 }
 
 function normalizeLogLevel(level: string): Exclude<LogLevelFilter, 'all'> {
@@ -527,6 +546,24 @@ export default function Logs() {
             {row.original.status_code}
           </span>
         ),
+      },
+      {
+        id: 'serviceTier',
+        header: t('logs.request.columns.serviceTier', { defaultValue: 'Tier' }),
+        accessorFn: (row) => normalizeServiceTierForDisplay(row.service_tier),
+        cell: ({ row }) => {
+          if (!shouldHighlightServiceTier(row.original.service_tier)) {
+            return <span className="text-xs text-muted-foreground">-</span>
+          }
+          return (
+            <Badge
+              variant={getServiceTierBadgeTone(row.original.service_tier)}
+              className="px-2 py-0.5 font-medium"
+            >
+              {localizeServiceTierLabel(t, row.original.service_tier)}
+            </Badge>
+          )
+        },
       },
       {
         id: 'latency',

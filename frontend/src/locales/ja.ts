@@ -281,6 +281,7 @@ export default {
                 failoverAction: "アクション: {{action}}",
                 failure: "失敗: {{summary}}",
                 failurePrefix: "失敗：",
+                serviceTier: "サービスティア: {{tier}}",
                 source: "出典: {{source}}",
                 upstreamStatus: "上流 {{status}}",
                 tokenSettlement: "トークン決済: 入力 {{input}} + キャッシュされた {{cached}} + 出力 {{output}}",
@@ -397,6 +398,11 @@ export default {
             disabled: "無効",
             available: "利用可能"
         }
+    },
+    serviceTier: {
+        default: "デフォルト",
+        flex: "フレックス",
+        priority: "優先"
     },
     config: {
         controlPlane: {
@@ -1010,6 +1016,7 @@ export default {
                 latency: "レイテンシー (ミリ秒)",
                 path: "パス",
                 requestId: "リクエストID",
+                serviceTier: "サービスティア",
                 status: "状態",
                 tenant: "テナント"
             },
@@ -1684,6 +1691,7 @@ export default {
                 failureKeyword: "失敗キーワード",
                 failureSummary: "{{failure}}（{{reason}}）",
                 reconcileAdjust: "調整調整",
+                serviceTier: "サービスティア: {{tier}}",
                 source: "ソース",
                 tokenSettle: "トークン決済",
                 unitPrice: {
@@ -2253,6 +2261,7 @@ export default {
                 latency: "レイテンシー (ミリ秒)",
                 path: "パス",
                 requestId: "リクエストID",
+                serviceTier: "サービスティア",
                 status: "状態",
                 time: "時間"
             },

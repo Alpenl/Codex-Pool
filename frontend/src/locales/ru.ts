@@ -281,6 +281,7 @@ export default {
                 failoverAction: "Действие: {{action}}",
                 failure: "Ошибка: {{summary}}",
                 failurePrefix: "Отказ:",
+                serviceTier: "Уровень сервиса: {{tier}}",
                 source: "Источник: {{source}}",
                 upstreamStatus: "Апстрим {{status}}",
                 tokenSettlement: "Расчет токеном: ввод {{input}} + кэшированный {{cached}} + вывод {{output}}",
@@ -397,6 +398,11 @@ export default {
             disabled: "Отключено",
             available: "Доступно"
         }
+    },
+    serviceTier: {
+        default: "Стандартный",
+        flex: "Гибкий",
+        priority: "Приоритет"
     },
     config: {
         controlPlane: {
@@ -1010,6 +1016,7 @@ export default {
                 latency: "Задержка (мс)",
                 path: "Путь",
                 requestId: "Идентификатор запроса",
+                serviceTier: "Уровень сервиса",
                 status: "Статус",
                 tenant: "Жилец"
             },
@@ -1684,6 +1691,7 @@ export default {
                 failureKeyword: "Ключевое слово «Отказ»",
                 failureSummary: "{{failure}}（{{reason}}）",
                 reconcileAdjust: "Согласовать Корректировать",
+                serviceTier: "Уровень сервиса: {{tier}}",
                 source: "Источник",
                 tokenSettle: "Расчет токенов",
                 unitPrice: {
@@ -2253,6 +2261,7 @@ export default {
                 latency: "Задержка (мс)",
                 path: "Путь",
                 requestId: "Идентификатор запроса",
+                serviceTier: "Уровень сервиса",
                 status: "Статус",
                 time: "Время"
             },

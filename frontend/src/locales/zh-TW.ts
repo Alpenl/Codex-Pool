@@ -281,6 +281,7 @@ export default {
                 failoverAction: "處理動作：{{action}}",
                 failure: "失敗：{{summary}}",
                 failurePrefix: "失敗：",
+                serviceTier: "服務層級：{{tier}}",
                 source: "來源：{{source}}",
                 upstreamStatus: "上游 {{status}}",
                 tokenSettlement: "代幣結算：輸入{{input}} + 快取{{cached}} + 輸出{{output}}",
@@ -397,6 +398,11 @@ export default {
             disabled: "停用",
             available: "可用"
         }
+    },
+    serviceTier: {
+        default: "預設",
+        flex: "彈性",
+        priority: "優先"
     },
     config: {
         controlPlane: {
@@ -1010,6 +1016,7 @@ export default {
                 latency: "延遲（毫秒）",
                 path: "路徑",
                 requestId: "請求 ID",
+                serviceTier: "服務層級",
                 status: "狀態",
                 tenant: "租戶"
             },
@@ -1684,6 +1691,7 @@ export default {
                 failureKeyword: "失敗關鍵字",
                 failureSummary: "{{failure}}（{{reason}}）",
                 reconcileAdjust: "對帳調整",
+                serviceTier: "服務層級：{{tier}}",
                 source: "來源",
                 tokenSettle: "Token 結算",
                 unitPrice: {
@@ -2253,6 +2261,7 @@ export default {
                 latency: "延遲（毫秒）",
                 path: "路徑",
                 requestId: "請求 ID",
+                serviceTier: "服務層級",
                 status: "狀態",
                 time: "時間"
             },

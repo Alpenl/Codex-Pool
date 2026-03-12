@@ -21,6 +21,7 @@ export interface RequestAuditLogItem {
   path: string
   method: string
   model?: string
+  service_tier?: string
   status_code: number
   latency_ms: number
   is_stream: boolean
