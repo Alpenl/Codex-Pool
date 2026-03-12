@@ -1499,6 +1499,83 @@ impl PostgresStore {
 
         sqlx::query(
             r#"
+            CREATE TABLE IF NOT EXISTS upstream_error_learning_settings (
+                singleton BOOLEAN PRIMARY KEY,
+                enabled BOOLEAN NOT NULL DEFAULT false,
+                first_seen_timeout_ms BIGINT NOT NULL DEFAULT 2000,
+                review_hit_threshold INTEGER NOT NULL DEFAULT 10,
+                updated_at TIMESTAMPTZ NOT NULL
+            )
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create upstream_error_learning_settings table")?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO upstream_error_learning_settings (
+                singleton,
+                enabled,
+                first_seen_timeout_ms,
+                review_hit_threshold,
+                updated_at
+            )
+            VALUES ($1, false, 2000, 10, now())
+            ON CONFLICT (singleton) DO NOTHING
+            "#,
+        )
+        .bind(SNAPSHOT_SINGLETON_ROW)
+        .execute(tx.as_mut())
+        .await
+        .context("failed to initialize upstream_error_learning_settings row")?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS upstream_error_templates (
+                id UUID PRIMARY KEY,
+                fingerprint TEXT NOT NULL UNIQUE,
+                provider TEXT NOT NULL,
+                normalized_status_code INTEGER NOT NULL,
+                semantic_error_code TEXT NOT NULL,
+                action TEXT NOT NULL,
+                retry_scope TEXT NOT NULL,
+                status TEXT NOT NULL,
+                templates_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                representative_samples_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                hit_count BIGINT NOT NULL DEFAULT 0,
+                first_seen_at TIMESTAMPTZ NOT NULL,
+                last_seen_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL
+            )
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create upstream_error_templates table")?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_upstream_error_templates_status_last_seen_at
+            ON upstream_error_templates (status, last_seen_at DESC, updated_at DESC)
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create upstream_error_templates status index")?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_upstream_error_templates_provider_status
+            ON upstream_error_templates (provider, status)
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create upstream_error_templates provider/status index")?;
+
+        sqlx::query(
+            r#"
             CREATE TABLE IF NOT EXISTS routing_plan_versions (
                 id UUID PRIMARY KEY,
                 reason TEXT NULL,

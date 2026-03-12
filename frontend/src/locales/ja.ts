@@ -1915,6 +1915,8 @@ export default {
         messages: {
             settingsSaved: "Model routing settings saved.",
             settingsSaveFailed: "Failed to save model routing settings.",
+            errorLearningSettingsSaved: "上流エラー学習設定を保存しました。",
+            errorLearningSettingsSaveFailed: "上流エラー学習設定の保存に失敗しました。",
             profileSaved: "Routing profile saved: {{name}}",
             profileSaveFailed: "Failed to save routing profile.",
             profileDeleted: "Routing profile deleted.",
@@ -1922,7 +1924,15 @@ export default {
             policySaved: "Model routing policy saved: {{name}}",
             policySaveFailed: "Failed to save model routing policy.",
             policyDeleted: "Model routing policy deleted.",
-            policyDeleteFailed: "Failed to delete model routing policy."
+            policyDeleteFailed: "Failed to delete model routing policy.",
+            templateSaved: "上流エラーテンプレートを保存しました。",
+            templateSaveFailed: "上流エラーテンプレートの保存に失敗しました。",
+            templateApproved: "上流エラーテンプレートを承認しました。",
+            templateApproveFailed: "上流エラーテンプレートの承認に失敗しました。",
+            templateRejected: "上流エラーテンプレートを却下しました。",
+            templateRejectFailed: "上流エラーテンプレートの却下に失敗しました。",
+            templateRewritten: "AI で上流エラーテンプレートを書き直しました。",
+            templateRewriteFailed: "AI による上流エラーテンプレートの書き直しに失敗しました。"
         },
         status: {
             enabled: "Enabled",
@@ -1944,6 +1954,68 @@ export default {
         authProviders: {
             legacyBearer: "Legacy bearer",
             oauthRefreshToken: "OAuth refresh token"
+        },
+        errorLearning: {
+            settings: {
+                title: "上流エラー学習",
+                description: "初回に検出した上流失敗テンプレートを、確定ルールに昇格させる前にレビューします。",
+                enabled: "上流エラー学習を有効化",
+                enabledHint: "無効にすると、未知の上流エラーは汎用のローカライズ済みエラー文面にフォールバックします。",
+                firstSeenTimeoutMs: "初回検出タイムアウト（ms）",
+                firstSeenTimeoutMsHint: "初回の暫定テンプレート生成で同期的に待機する上限時間です。",
+                reviewHitThreshold: "レビュー移行しきい値",
+                reviewHitThresholdHint: "暫定テンプレートのヒット数がこの回数に達するとレビュー待ちへ移動します。",
+                updatedAt: "更新日時 {{value}}"
+            },
+            templates: {
+                title: "テンプレートレビューキュー",
+                description: "暫定テンプレートとレビュー待ちテンプレートを確認し、承認・却下・編集・AI 再生成を行います。",
+                empty: "上流エラーテンプレートはまだありません。",
+                fingerprint: "フィンガープリント",
+                normalizedStatusCode: "ステータス {{value}}",
+                hitCount: "{{count}} 件ヒット",
+                semanticErrorCode: "意味エラーコード",
+                action: "アクション",
+                retryScope: "再試行スコープ",
+                firstSeenAt: "初回検出",
+                lastSeenAt: "最終検出",
+                updatedAt: "更新日時",
+                representativeSamples: "代表サンプル",
+                samplesEmpty: "正規化サンプルはまだありません。",
+                localizedTemplates: "多言語テンプレート",
+                localeEmpty: "この言語のテンプレートはまだありません。"
+            },
+            actions: {
+                saveSettings: "エラー学習設定を保存",
+                approve: "承認",
+                reject: "却下",
+                rewrite: "AI 再生成",
+                saveTemplate: "テンプレートを保存",
+                cancel: "キャンセル"
+            },
+            statuses: {
+                provisionalLive: "暫定運用中",
+                reviewPending: "レビュー待ち",
+                approved: "承認済み",
+                rejected: "却下済み"
+            },
+            actionValues: {
+                returnFailure: "失敗を返す",
+                retrySameAccount: "同じアカウントで再試行",
+                retryCrossAccount: "別アカウントで再試行"
+            },
+            retryScopes: {
+                none: "再試行しない",
+                sameAccount: "同じアカウント",
+                crossAccount: "アカウントを跨いで再試行"
+            },
+            locales: {
+                en: "英語",
+                zhCN: "中国語（簡体字）",
+                zhTW: "中国語（繁体字）",
+                ja: "日本語",
+                ru: "ロシア語"
+            }
         },
         common: {
             none: "None",

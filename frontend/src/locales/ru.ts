@@ -1915,6 +1915,8 @@ export default {
         messages: {
             settingsSaved: "Model routing settings saved.",
             settingsSaveFailed: "Failed to save model routing settings.",
+            errorLearningSettingsSaved: "Настройки обучения ошибкам апстрима сохранены.",
+            errorLearningSettingsSaveFailed: "Не удалось сохранить настройки обучения ошибкам апстрима.",
             profileSaved: "Routing profile saved: {{name}}",
             profileSaveFailed: "Failed to save routing profile.",
             profileDeleted: "Routing profile deleted.",
@@ -1922,7 +1924,15 @@ export default {
             policySaved: "Model routing policy saved: {{name}}",
             policySaveFailed: "Failed to save model routing policy.",
             policyDeleted: "Model routing policy deleted.",
-            policyDeleteFailed: "Failed to delete model routing policy."
+            policyDeleteFailed: "Failed to delete model routing policy.",
+            templateSaved: "Шаблон ошибки апстрима сохранён.",
+            templateSaveFailed: "Не удалось сохранить шаблон ошибки апстрима.",
+            templateApproved: "Шаблон ошибки апстрима утверждён.",
+            templateApproveFailed: "Не удалось утвердить шаблон ошибки апстрима.",
+            templateRejected: "Шаблон ошибки апстрима отклонён.",
+            templateRejectFailed: "Не удалось отклонить шаблон ошибки апстрима.",
+            templateRewritten: "Шаблон ошибки апстрима переписан с помощью AI.",
+            templateRewriteFailed: "Не удалось переписать шаблон ошибки апстрима с помощью AI."
         },
         status: {
             enabled: "Enabled",
@@ -1944,6 +1954,68 @@ export default {
         authProviders: {
             legacyBearer: "Legacy bearer",
             oauthRefreshToken: "OAuth refresh token"
+        },
+        errorLearning: {
+            settings: {
+                title: "Обучение ошибкам апстрима",
+                description: "Проверяйте шаблоны впервые встреченных ошибок апстрима до их закрепления в детерминированных правилах.",
+                enabled: "Включить обучение ошибкам апстрима",
+                enabledHint: "Если отключить, неизвестные ошибки апстрима будут возвращаться через общее локализованное сообщение.",
+                firstSeenTimeoutMs: "Таймаут первого обнаружения (мс)",
+                firstSeenTimeoutMsHint: "Максимальное синхронное ожидание при генерации первого временного шаблона.",
+                reviewHitThreshold: "Порог отправки на ревью",
+                reviewHitThresholdHint: "После такого числа повторных срабатываний временный шаблон попадёт в очередь ревью.",
+                updatedAt: "Обновлено {{value}}"
+            },
+            templates: {
+                title: "Очередь ревью шаблонов",
+                description: "Просматривайте временные и ожидающие ревью шаблоны, затем утверждайте, отклоняйте, редактируйте или переписывайте их через AI.",
+                empty: "Шаблонов ошибок апстрима пока нет.",
+                fingerprint: "Отпечаток",
+                normalizedStatusCode: "Статус {{value}}",
+                hitCount: "{{count}} срабатываний",
+                semanticErrorCode: "Семантический код ошибки",
+                action: "Действие",
+                retryScope: "Область повторной попытки",
+                firstSeenAt: "Первое появление",
+                lastSeenAt: "Последнее появление",
+                updatedAt: "Обновлено",
+                representativeSamples: "Типовые примеры",
+                samplesEmpty: "Нормализованные примеры пока не сохранены.",
+                localizedTemplates: "Локализованные шаблоны",
+                localeEmpty: "Для этой локали шаблон ещё не создан."
+            },
+            actions: {
+                saveSettings: "Сохранить настройки обучения",
+                approve: "Утвердить",
+                reject: "Отклонить",
+                rewrite: "Переписать через AI",
+                saveTemplate: "Сохранить шаблон",
+                cancel: "Отмена"
+            },
+            statuses: {
+                provisionalLive: "Временный активный",
+                reviewPending: "Ожидает ревью",
+                approved: "Утверждён",
+                rejected: "Отклонён"
+            },
+            actionValues: {
+                returnFailure: "Вернуть ошибку",
+                retrySameAccount: "Повторить на том же аккаунте",
+                retryCrossAccount: "Повторить на другом аккаунте"
+            },
+            retryScopes: {
+                none: "Без повтора",
+                sameAccount: "Тот же аккаунт",
+                crossAccount: "Между аккаунтами"
+            },
+            locales: {
+                en: "Английский",
+                zhCN: "Китайский (упрощённый)",
+                zhTW: "Китайский (традиционный)",
+                ja: "Японский",
+                ru: "Русский"
+            }
         },
         common: {
             none: "None",

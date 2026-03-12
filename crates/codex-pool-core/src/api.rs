@@ -4,10 +4,11 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::model::{
-    AccountRoutingTraits, ApiKey, ModelRoutingSettings, ModelRoutingTriggerMode,
-    CompiledRoutingPlan, ModelRoutingPolicy, RoutingPlanVersion, RoutingPolicy, RoutingProfile,
-    RoutingProfileSelector, RoutingStrategy, UpstreamAccount, UpstreamAuthProvider,
-    UpstreamMode,
+    AccountRoutingTraits, AiErrorLearningSettings, ApiKey, CompiledRoutingPlan,
+    LocalizedErrorTemplates, ModelRoutingPolicy, ModelRoutingSettings, ModelRoutingTriggerMode,
+    RoutingPlanVersion, RoutingPolicy, RoutingProfile, RoutingProfileSelector, RoutingStrategy,
+    UpstreamAccount, UpstreamAuthProvider, UpstreamErrorAction, UpstreamErrorRetryScope,
+    UpstreamErrorTemplateRecord, UpstreamMode,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -196,6 +197,10 @@ pub struct DataPlaneSnapshot {
     pub account_traits: Vec<AccountRoutingTraits>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compiled_routing_plan: Option<CompiledRoutingPlan>,
+    #[serde(default)]
+    pub ai_error_learning_settings: AiErrorLearningSettings,
+    #[serde(default)]
+    pub approved_upstream_error_templates: Vec<UpstreamErrorTemplateRecord>,
     pub issued_at: DateTime<Utc>,
 }
 
@@ -216,6 +221,10 @@ pub struct DataPlaneSnapshotEvent {
     pub account: Option<UpstreamAccount>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compiled_routing_plan: Option<CompiledRoutingPlan>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_error_learning_settings: Option<AiErrorLearningSettings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved_upstream_error_templates: Option<Vec<UpstreamErrorTemplateRecord>>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -361,6 +370,61 @@ pub struct UpdateModelRoutingSettingsRequest {
 pub struct RoutingPlanVersionsResponse {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub versions: Vec<RoutingPlanVersion>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiErrorLearningSettingsResponse {
+    pub settings: AiErrorLearningSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateAiErrorLearningSettingsRequest {
+    pub enabled: bool,
+    pub first_seen_timeout_ms: u64,
+    pub review_hit_threshold: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpstreamErrorTemplatesResponse {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub templates: Vec<UpstreamErrorTemplateRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpstreamErrorTemplateResponse {
+    pub template: UpstreamErrorTemplateRecord,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateUpstreamErrorTemplateRequest {
+    pub semantic_error_code: String,
+    pub action: UpstreamErrorAction,
+    pub retry_scope: UpstreamErrorRetryScope,
+    #[serde(default)]
+    pub templates: LocalizedErrorTemplates,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResolveUpstreamErrorTemplateRequest {
+    pub fingerprint: String,
+    pub provider: String,
+    pub normalized_status_code: u16,
+    pub normalized_upstream_message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sanitized_upstream_raw: Option<String>,
+    pub target_locale: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolveUpstreamErrorTemplateResponse {
+    pub template: UpstreamErrorTemplateRecord,
+    #[serde(default)]
+    pub created: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

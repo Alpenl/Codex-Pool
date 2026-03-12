@@ -9,17 +9,18 @@ use codex_pool_core::api::{
     CreateApiKeyRequest, CreateApiKeyResponse, CreateTenantRequest, CreateUpstreamAccountRequest,
     DataPlaneSnapshot, DataPlaneSnapshotEventsResponse, ImportOAuthRefreshTokenRequest,
     OAuthAccountStatusResponse, OAuthFamilyActionResponse, OAuthRateLimitRefreshJobSummary,
-    OAuthRefreshStatus, SessionCredentialKind, UpsertModelRoutingPolicyRequest,
-    UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest, UpsertRoutingProfileRequest,
-    UpsertStreamRetryPolicyRequest, UpdateModelRoutingSettingsRequest,
+    OAuthRefreshStatus, SessionCredentialKind, UpdateAiErrorLearningSettingsRequest,
+    UpsertModelRoutingPolicyRequest, UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest,
+    UpsertRoutingProfileRequest, UpsertStreamRetryPolicyRequest, UpdateModelRoutingSettingsRequest,
     ValidateOAuthRefreshTokenRequest,
     ValidateOAuthRefreshTokenResponse,
 };
 use codex_pool_core::model::{
-    AccountRoutingTraits, ApiKey, ModelRoutingSettings, ModelRoutingTriggerMode,
-    CompiledModelRoutingPolicy, CompiledRoutingPlan, CompiledRoutingProfile, ModelRoutingPolicy,
-    RoutingPlanVersion, RoutingPolicy, RoutingProfile, RoutingStrategy, Tenant, UpstreamAccount,
-    UpstreamAuthProvider, UpstreamMode,
+    AccountRoutingTraits, AiErrorLearningSettings, ApiKey, ModelRoutingSettings,
+    ModelRoutingTriggerMode, CompiledModelRoutingPolicy, CompiledRoutingPlan,
+    CompiledRoutingProfile, ModelRoutingPolicy, RoutingPlanVersion, RoutingPolicy,
+    RoutingProfile, RoutingStrategy, Tenant, UpstreamAccount, UpstreamAuthProvider,
+    UpstreamErrorTemplateRecord, UpstreamErrorTemplateStatus, UpstreamMode,
 };
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -238,6 +239,51 @@ pub trait ControlPlaneStore: Send + Sync {
         _req: UpdateModelRoutingSettingsRequest,
     ) -> Result<ModelRoutingSettings> {
         Err(anyhow!("model routing settings repository is not implemented"))
+    }
+    async fn upstream_error_learning_settings(&self) -> Result<AiErrorLearningSettings> {
+        Err(anyhow!(
+            "upstream error learning settings repository is not implemented"
+        ))
+    }
+    async fn update_upstream_error_learning_settings(
+        &self,
+        _req: UpdateAiErrorLearningSettingsRequest,
+    ) -> Result<AiErrorLearningSettings> {
+        Err(anyhow!(
+            "upstream error learning settings repository is not implemented"
+        ))
+    }
+    async fn list_upstream_error_templates(
+        &self,
+        _status: Option<UpstreamErrorTemplateStatus>,
+    ) -> Result<Vec<UpstreamErrorTemplateRecord>> {
+        Err(anyhow!(
+            "upstream error template repository is not implemented"
+        ))
+    }
+    async fn upstream_error_template_by_id(
+        &self,
+        _template_id: Uuid,
+    ) -> Result<Option<UpstreamErrorTemplateRecord>> {
+        Err(anyhow!(
+            "upstream error template repository is not implemented"
+        ))
+    }
+    async fn upstream_error_template_by_fingerprint(
+        &self,
+        _fingerprint: &str,
+    ) -> Result<Option<UpstreamErrorTemplateRecord>> {
+        Err(anyhow!(
+            "upstream error template repository is not implemented"
+        ))
+    }
+    async fn save_upstream_error_template(
+        &self,
+        _template: UpstreamErrorTemplateRecord,
+    ) -> Result<UpstreamErrorTemplateRecord> {
+        Err(anyhow!(
+            "upstream error template repository is not implemented"
+        ))
     }
     async fn list_routing_plan_versions(&self) -> Result<Vec<RoutingPlanVersion>> {
         Err(anyhow!("routing plan version repository is not implemented"))
@@ -527,6 +573,9 @@ pub struct InMemoryStore {
     routing_profiles: Arc<RwLock<HashMap<Uuid, RoutingProfile>>>,
     model_routing_policies: Arc<RwLock<HashMap<Uuid, ModelRoutingPolicy>>>,
     model_routing_settings: Arc<RwLock<ModelRoutingSettings>>,
+    upstream_error_learning_settings: Arc<RwLock<AiErrorLearningSettings>>,
+    upstream_error_templates: Arc<RwLock<HashMap<Uuid, UpstreamErrorTemplateRecord>>>,
+    upstream_error_template_index: Arc<RwLock<HashMap<String, Uuid>>>,
     routing_plan_versions: Arc<RwLock<Vec<RoutingPlanVersion>>>,
     revision: Arc<AtomicU64>,
     oauth_client: Arc<dyn OAuthTokenClient>,

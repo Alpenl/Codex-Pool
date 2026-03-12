@@ -256,6 +256,93 @@ impl ControlPlaneStore for InMemoryStore {
         Ok(settings)
     }
 
+    async fn upstream_error_learning_settings(&self) -> Result<AiErrorLearningSettings> {
+        Ok(self.upstream_error_learning_settings.read().unwrap().clone())
+    }
+
+    async fn update_upstream_error_learning_settings(
+        &self,
+        req: UpdateAiErrorLearningSettingsRequest,
+    ) -> Result<AiErrorLearningSettings> {
+        let settings = AiErrorLearningSettings {
+            enabled: req.enabled,
+            first_seen_timeout_ms: req.first_seen_timeout_ms,
+            review_hit_threshold: req.review_hit_threshold,
+            updated_at: Some(Utc::now()),
+        };
+        *self.upstream_error_learning_settings.write().unwrap() = settings.clone();
+        self.revision.fetch_add(1, Ordering::Relaxed);
+        Ok(settings)
+    }
+
+    async fn list_upstream_error_templates(
+        &self,
+        status: Option<UpstreamErrorTemplateStatus>,
+    ) -> Result<Vec<UpstreamErrorTemplateRecord>> {
+        let mut templates = self
+            .upstream_error_templates
+            .read()
+            .unwrap()
+            .values()
+            .filter(|template| status.is_none_or(|item| template.status == item))
+            .cloned()
+            .collect::<Vec<_>>();
+        templates.sort_by(|left, right| {
+            right
+                .last_seen_at
+                .cmp(&left.last_seen_at)
+                .then_with(|| right.updated_at.cmp(&left.updated_at))
+        });
+        Ok(templates)
+    }
+
+    async fn upstream_error_template_by_id(
+        &self,
+        template_id: Uuid,
+    ) -> Result<Option<UpstreamErrorTemplateRecord>> {
+        Ok(self
+            .upstream_error_templates
+            .read()
+            .unwrap()
+            .get(&template_id)
+            .cloned())
+    }
+
+    async fn upstream_error_template_by_fingerprint(
+        &self,
+        fingerprint: &str,
+    ) -> Result<Option<UpstreamErrorTemplateRecord>> {
+        let template_id = self
+            .upstream_error_template_index
+            .read()
+            .unwrap()
+            .get(fingerprint)
+            .copied();
+        Ok(template_id.and_then(|template_id| {
+            self.upstream_error_templates
+                .read()
+                .unwrap()
+                .get(&template_id)
+                .cloned()
+        }))
+    }
+
+    async fn save_upstream_error_template(
+        &self,
+        template: UpstreamErrorTemplateRecord,
+    ) -> Result<UpstreamErrorTemplateRecord> {
+        self.upstream_error_template_index
+            .write()
+            .unwrap()
+            .insert(template.fingerprint.clone(), template.id);
+        self.upstream_error_templates
+            .write()
+            .unwrap()
+            .insert(template.id, template.clone());
+        self.revision.fetch_add(1, Ordering::Relaxed);
+        Ok(template)
+    }
+
     async fn list_routing_plan_versions(&self) -> Result<Vec<RoutingPlanVersion>> {
         Ok(self.routing_plan_versions.read().unwrap().clone())
     }

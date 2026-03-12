@@ -16,4 +16,5 @@ pub mod security;
 pub mod store;
 pub mod tenant;
 pub mod upstream_api;
+pub mod upstream_error_learning;
 pub mod usage;

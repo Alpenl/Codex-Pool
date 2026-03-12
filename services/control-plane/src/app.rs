@@ -5,34 +5,38 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context};
 use axum::body::Body;
-use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
+use axum::extract::{rejection::JsonRejection, DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::StatusCode;
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Request};
 use axum::middleware;
 use axum::middleware::Next;
 use axum::response::Response;
-use axum::routing::{delete, get, patch, post};
+use axum::routing::{delete, get, patch, post, put};
 use axum::Json;
 use axum::{response::IntoResponse, Router};
 use chrono::{DateTime, Utc};
 use codex_pool_core::api::{
     AccountUsageLeaderboardResponse, AdminLoginRequest, AdminMeResponse,
-    ApiKeyUsageLeaderboardResponse, CreateApiKeyRequest,
+    AiErrorLearningSettingsResponse, ApiKeyUsageLeaderboardResponse, CreateApiKeyRequest,
     CreateTenantRequest, CreateUpstreamAccountRequest, ErrorEnvelope, HourlyAccountUsagePoint,
-    HourlyTenantApiKeyUsagePoint, ImportOAuthRefreshTokenRequest,
-    ModelRoutingSettingsResponse,
-    ModelRoutingPoliciesResponse, OAuthAccountStatusResponse, OAuthFamilyActionResponse,
+    HourlyTenantApiKeyUsagePoint, ImportOAuthRefreshTokenRequest, ModelRoutingPoliciesResponse,
+    ModelRoutingSettingsResponse, OAuthAccountStatusResponse, OAuthFamilyActionResponse,
     OAuthImportItemStatus, OAuthImportJobActionResponse, OAuthImportJobItemsResponse,
     OAuthImportJobSummary, OAuthRateLimitRefreshJobStatus, OAuthRateLimitRefreshJobSummary,
-    PolicyResponse, RoutingPlanVersionsResponse, RoutingProfilesResponse,
-    TenantUsageLeaderboardResponse, UpdateModelRoutingSettingsRequest,
-    UpsertModelRoutingPolicyRequest, UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest,
-    UpsertRoutingProfileRequest, UpsertStreamRetryPolicyRequest,
-    UsageHourlyTenantTrendsResponse, UsageHourlyTrendsResponse, UsageLeaderboardOverviewResponse,
-    UsageQueryResponse, UsageSummaryQueryResponse, ValidateApiKeyRequest, ValidateApiKeyResponse,
+    PolicyResponse, ResolveUpstreamErrorTemplateRequest, ResolveUpstreamErrorTemplateResponse,
+    RoutingPlanVersionsResponse, RoutingProfilesResponse, TenantUsageLeaderboardResponse,
+    UpdateAiErrorLearningSettingsRequest, UpdateModelRoutingSettingsRequest,
+    UpdateUpstreamErrorTemplateRequest, UpsertModelRoutingPolicyRequest, UpsertRetryPolicyRequest,
+    UpsertRoutingPolicyRequest, UpsertRoutingProfileRequest, UpsertStreamRetryPolicyRequest,
+    UpstreamErrorTemplateResponse, UpstreamErrorTemplatesResponse, UsageHourlyTenantTrendsResponse,
+    UsageHourlyTrendsResponse, UsageLeaderboardOverviewResponse, UsageQueryResponse,
+    UsageSummaryQueryResponse, ValidateApiKeyRequest, ValidateApiKeyResponse,
     ValidateOAuthRefreshTokenRequest, ValidateOAuthRefreshTokenResponse,
 };
-use codex_pool_core::model::{ApiKey, ModelRoutingPolicy, RoutingProfile, UpstreamAccount};
+use codex_pool_core::model::{
+    ApiKey, LocalizedErrorTemplates, ModelRoutingPolicy, RoutingProfile, UpstreamAccount,
+    UpstreamErrorTemplateRecord, UpstreamErrorTemplateStatus,
+};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -505,7 +509,10 @@ async fn ensure_codex_oauth_callback_listener_started(state: &AppState) -> anyho
         .with_context(|| format!("failed to bind oauth callback listener at {listen_addr}"))?;
     let callback_app = Router::new()
         .route("/auth/callback", get(handle_codex_oauth_callback))
-        .route("/auth/probe-callback", get(handle_codex_oauth_probe_callback))
+        .route(
+            "/auth/probe-callback",
+            get(handle_codex_oauth_probe_callback),
+        )
         .route(
             "/api/v1/upstream-accounts/oauth/codex/callback",
             get(handle_codex_oauth_callback),
@@ -614,6 +621,8 @@ pub struct AppState {
     codex_oauth_callback_listen_addr: Option<SocketAddr>,
     codex_oauth_callback_listener:
         Arc<tokio::sync::Mutex<Option<CodexOAuthCallbackListenerRuntime>>>,
+    upstream_error_learning_runtime:
+        Arc<crate::upstream_error_learning::UpstreamErrorLearningRuntime>,
     #[cfg_attr(test, allow(dead_code))]
     model_probe_interval_sec: u64,
 }
@@ -914,6 +923,7 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
     import_job_manager.resume_recoverable_jobs();
     let runtime_config = build_runtime_config_from_env(auth_validate_cache_ttl_sec);
     let admin_proxies = build_admin_proxies_from_env(&runtime_config);
+    let upstream_error_learning_base_url = runtime_config.data_plane_base_url.clone();
     let model_probe_interval_sec = parse_model_probe_interval_sec();
     let oauth_import_max_body_bytes = oauth_import_multipart_max_bytes();
     let codex_oauth_callback_listen_mode = codex_oauth_callback_listen_mode_from_env();
@@ -945,6 +955,11 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
         codex_oauth_callback_listen_mode,
         codex_oauth_callback_listen_addr,
         codex_oauth_callback_listener: Arc::new(tokio::sync::Mutex::new(None)),
+        upstream_error_learning_runtime: Arc::new(
+            crate::upstream_error_learning::UpstreamErrorLearningRuntime::from_env(
+                &upstream_error_learning_base_url,
+            ),
+        ),
         model_probe_interval_sec,
     };
 
@@ -1010,7 +1025,10 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
             get(handle_codex_oauth_probe_callback),
         )
         .route("/auth/callback", get(handle_codex_oauth_callback))
-        .route("/auth/probe-callback", get(handle_codex_oauth_probe_callback))
+        .route(
+            "/auth/probe-callback",
+            get(handle_codex_oauth_probe_callback),
+        )
         .route(
             "/api/v1/upstream-accounts/{account_id}/oauth/refresh",
             post(refresh_oauth_account),
@@ -1156,6 +1174,31 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
             get(get_admin_model_routing_settings).put(update_admin_model_routing_settings),
         )
         .route(
+            "/api/v1/admin/model-routing/error-learning/settings",
+            get(get_admin_upstream_error_learning_settings)
+                .put(update_admin_upstream_error_learning_settings),
+        )
+        .route(
+            "/api/v1/admin/model-routing/upstream-errors",
+            get(list_admin_upstream_error_templates),
+        )
+        .route(
+            "/api/v1/admin/model-routing/upstream-errors/{template_id}",
+            put(update_admin_upstream_error_template),
+        )
+        .route(
+            "/api/v1/admin/model-routing/upstream-errors/{template_id}/approve",
+            post(approve_admin_upstream_error_template),
+        )
+        .route(
+            "/api/v1/admin/model-routing/upstream-errors/{template_id}/reject",
+            post(reject_admin_upstream_error_template),
+        )
+        .route(
+            "/api/v1/admin/model-routing/upstream-errors/{template_id}/rewrite",
+            post(rewrite_admin_upstream_error_template),
+        )
+        .route(
             "/api/v1/admin/model-routing/versions",
             get(list_admin_routing_plan_versions),
         )
@@ -1282,6 +1325,10 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
         .route(
             "/internal/v1/upstream-accounts/{account_id}/models/seen-ok",
             post(internal_mark_upstream_model_seen_ok),
+        )
+        .route(
+            "/internal/v1/upstream-errors/resolve",
+            post(internal_resolve_upstream_error_template),
         )
         .route("/internal/v1/auth/validate", post(validate_api_key))
         .route(

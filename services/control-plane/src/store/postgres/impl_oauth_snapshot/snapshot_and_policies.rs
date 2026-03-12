@@ -689,6 +689,9 @@ impl PostgresStore {
                 Some("postgres_snapshot".to_string()),
             )
             .await?;
+        let ai_error_learning_settings = self.load_upstream_error_learning_settings_inner().await?;
+        let approved_upstream_error_templates =
+            self.load_approved_upstream_error_templates_inner().await?;
         let account_traits = accounts
             .iter()
             .filter_map(|account| account_traits_map.get(&account.id).cloned())
@@ -699,6 +702,8 @@ impl PostgresStore {
             accounts,
             account_traits,
             compiled_routing_plan,
+            ai_error_learning_settings,
+            approved_upstream_error_templates,
             issued_at: Utc::now(),
         })
     }

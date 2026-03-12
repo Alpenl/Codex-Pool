@@ -99,6 +99,7 @@ struct ParsedRequestPolicyContext {
     model: Option<String>,
     stream: bool,
     request_id: Option<String>,
+    detected_locale: String,
     estimated_input_tokens: Option<i64>,
     continuation_key_hint: Option<String>,
     sticky_key_hint: Option<String>,
@@ -339,6 +340,7 @@ pub async fn proxy_handler(
 
     let max_request_body_bytes =
         max_request_body_bytes_for_path(state.max_request_body_bytes, &path);
+    let header_locale = detect_request_locale(&parts.headers, &bytes::Bytes::new());
     let body_bytes = match axum::body::to_bytes(body, max_request_body_bytes).await {
         Ok(bytes) => bytes,
         Err(err) => {
@@ -349,13 +351,15 @@ pub async fn proxy_handler(
                 "failed to read request body"
             );
             if is_body_too_large_error(&err) {
-                return json_error(
+                return localized_json_error(
+                    header_locale.as_str(),
                     StatusCode::PAYLOAD_TOO_LARGE,
                     "payload_too_large",
                     "request body exceeds the configured limit",
                 );
             }
-            return json_error(
+            return localized_json_error(
+                header_locale.as_str(),
                 StatusCode::BAD_REQUEST,
                 "invalid_request_body",
                 "failed to read request body",
@@ -406,7 +410,7 @@ pub async fn proxy_handler(
 
     loop {
         let alive_ring_account = if sticky_key.is_none() {
-            pick_account_from_alive_ring(&state, &tried_account_ids).await
+            pick_account_from_alive_ring(&state, &tried_account_ids, None).await
         } else {
             None
         };
@@ -501,7 +505,8 @@ pub async fn proxy_handler(
                     }),
                 )
                 .await;
-                return json_error(
+                return localized_json_error(
+                    parsed_policy_context.detected_locale.as_str(),
                     StatusCode::SERVICE_UNAVAILABLE,
                     "no_upstream_account",
                     "no enabled upstream account is available",
@@ -536,7 +541,8 @@ pub async fn proxy_handler(
                 Ok(url) => url,
                 Err(err) => {
                     warn!(error = %err, "failed to build upstream url");
-                    let response = json_error(
+                    let response = localized_json_error(
+                        parsed_policy_context.detected_locale.as_str(),
                         StatusCode::BAD_GATEWAY,
                         "invalid_upstream_url",
                         "failed to build upstream URL",
@@ -685,7 +691,8 @@ pub async fn proxy_handler(
                             .await;
                     }
 
-                    let response = json_error(
+                    let response = localized_json_error(
+                        parsed_policy_context.detected_locale.as_str(),
                         StatusCode::BAD_GATEWAY,
                         "upstream_transport_error",
                         "upstream request failed",
@@ -786,8 +793,16 @@ pub async fn proxy_handler(
 
             if bridge_stream_response && status.is_success() {
                 let (response, upstream_error_context, body) =
-                    buffered_codex_compat_response(status, &response_headers, upstream_response)
-                        .await;
+                    buffered_codex_compat_response(
+                        &state,
+                        upstream_provider_label(&account.mode),
+                        parsed_policy_context.detected_locale.as_str(),
+                        parsed_policy_context.model.as_deref(),
+                        status,
+                        &response_headers,
+                        upstream_response,
+                    )
+                    .await;
                 let is_503_overloaded = status == StatusCode::SERVICE_UNAVAILABLE
                     && upstream_error_context
                         .as_ref()
@@ -1172,7 +1187,8 @@ pub async fn proxy_handler(
                     Err(err) => {
                         let mut error_context: Option<UpstreamErrorContext> = None;
                         let mut status = StatusCode::BAD_GATEWAY;
-                        let mut response = json_error(
+                        let mut response = localized_json_error(
+                            parsed_policy_context.detected_locale.as_str(),
                             StatusCode::BAD_GATEWAY,
                             "upstream_transport_error",
                             "upstream request failed",
@@ -1188,13 +1204,20 @@ pub async fn proxy_handler(
                             }
                             StreamPreludeError::UpstreamReadFailed(message) => message,
                             StreamPreludeError::UpstreamErrorResponse(context) => {
-                                status = context.status;
-                                response = normalize_upstream_error_response(
-                                    UpstreamErrorSource::SsePrelude,
-                                    &context,
-                                );
+                                let (learned_response, learned_context) =
+                                    apply_upstream_error_learning(
+                                        &state,
+                                        UpstreamErrorSource::SsePrelude,
+                                        upstream_provider_label(&account.mode),
+                                        parsed_policy_context.detected_locale.as_str(),
+                                        parsed_policy_context.model.as_deref(),
+                                        context,
+                                    )
+                                    .await;
+                                status = learned_context.status;
+                                response = learned_response;
                                 reason_class = "stream_upstream_error";
-                                error_context = Some(context);
+                                error_context = Some(learned_context);
                                 should_retry_same_account = should_retry_same_account_on_status(
                                     UpstreamErrorSource::SsePrelude,
                                     status,
@@ -1356,13 +1379,28 @@ pub async fn proxy_handler(
             let (response, upstream_error_context, is_503_overloaded) = if status
                 == StatusCode::SERVICE_UNAVAILABLE
             {
-                let (response, error_context) =
-                    map_service_unavailable(&response_headers, upstream_response).await;
+                let (response, error_context) = map_service_unavailable(
+                    &state,
+                    upstream_provider_label(&account.mode),
+                    parsed_policy_context.detected_locale.as_str(),
+                    parsed_policy_context.model.as_deref(),
+                    &response_headers,
+                    upstream_response,
+                )
+                .await;
                 let is_overloaded = matches!(error_context.class, UpstreamErrorClass::Overloaded);
                 (response, Some(error_context), is_overloaded)
             } else {
-                let (mut response, error_context, body) =
-                    buffered_response(status, &response_headers, upstream_response).await;
+                let (mut response, error_context, body) = buffered_response(
+                    &state,
+                    upstream_provider_label(&account.mode),
+                    parsed_policy_context.detected_locale.as_str(),
+                    parsed_policy_context.model.as_deref(),
+                    status,
+                    &response_headers,
+                    upstream_response,
+                )
+                .await;
                 non_stream_observed_usage = extract_usage_tokens(&body);
                 if non_stream_observed_usage.is_none() {
                     let estimated_input_tokens = parsed_policy_context
@@ -1848,7 +1886,12 @@ pub async fn proxy_websocket_handler(
         Ok(ws_upgrade) => ws_upgrade,
         Err(err) => {
             warn!(error = %err, "invalid websocket upgrade request");
-            return json_error(
+            let locale = detect_request_locale(
+                request.headers(),
+                &bytes::Bytes::new(),
+            );
+            return localized_json_error(
+                locale.as_str(),
                 StatusCode::BAD_REQUEST,
                 "invalid_websocket_upgrade",
                 "request is not a valid websocket upgrade",
@@ -1863,6 +1906,7 @@ pub async fn proxy_websocket_handler(
     let request_method = parts.method.to_string();
     let requested_subprotocol = requested_websocket_subprotocol(&parts.headers);
     let sticky_key = sticky_session_key_from_headers(&parts.headers);
+    let detected_locale = detect_request_locale(&parts.headers, &bytes::Bytes::new());
     let failover_deadline = Instant::now() + state.request_failover_wait;
     let mut tried_account_ids = HashSet::new();
     let mut last_failure: Option<Response> = None;
@@ -1877,7 +1921,7 @@ pub async fn proxy_websocket_handler(
 
     loop {
         let alive_ring_account = if sticky_key.is_none() {
-            pick_account_from_alive_ring(&state, &tried_account_ids).await
+            pick_account_from_alive_ring(&state, &tried_account_ids, None).await
         } else {
             None
         };
@@ -1911,7 +1955,8 @@ pub async fn proxy_websocket_handler(
                     return response;
                 }
                 record_failover_exhausted_if_needed(&state, did_cross_account_failover);
-                return json_error(
+                return localized_json_error(
+                    detected_locale.as_str(),
                     StatusCode::SERVICE_UNAVAILABLE,
                     "no_upstream_account",
                     "no enabled upstream account is available",
@@ -1965,7 +2010,8 @@ pub async fn proxy_websocket_handler(
                     )
                     .await;
 
-                    let response = json_error(
+                    let response = localized_json_error(
+                        detected_locale.as_str(),
                         StatusCode::BAD_GATEWAY,
                         "invalid_upstream_url",
                         "failed to build upstream URL",
@@ -2010,7 +2056,8 @@ pub async fn proxy_websocket_handler(
 
                     let mut status = StatusCode::BAD_GATEWAY;
                     let mut error_context: Option<UpstreamErrorContext> = None;
-                    let mut response = json_error(
+                    let mut response = localized_json_error(
+                        detected_locale.as_str(),
                         StatusCode::BAD_GATEWAY,
                         "upstream_websocket_connect_error",
                         "failed to connect upstream websocket",
@@ -2024,7 +2071,8 @@ pub async fn proxy_websocket_handler(
                             let upstream_body =
                                 upstream_response.body().clone().unwrap_or_default();
                             if status == StatusCode::UPGRADE_REQUIRED {
-                                response = json_error(
+                                response = localized_json_error(
+                                    detected_locale.as_str(),
                                     StatusCode::UPGRADE_REQUIRED,
                                     "websocket_upgrade_required",
                                     "upstream websocket upgrade is required",
@@ -2043,12 +2091,19 @@ pub async fn proxy_websocket_handler(
                                     upstream_response.headers(),
                                     &upstream_body,
                                 ) {
-                                    status = context.status;
-                                    response = normalize_upstream_error_response(
-                                        UpstreamErrorSource::WsHandshake,
-                                        &context,
-                                    );
-                                    error_context = Some(context);
+                                    let (learned_response, learned_context) =
+                                        apply_upstream_error_learning(
+                                            &state,
+                                            UpstreamErrorSource::WsHandshake,
+                                            upstream_provider_label(&account.mode),
+                                            detected_locale.as_str(),
+                                            None,
+                                            context,
+                                        )
+                                        .await;
+                                    status = learned_context.status;
+                                    response = learned_response;
+                                    error_context = Some(learned_context);
                                 }
                                 should_retry_same_account_on_status(
                                     UpstreamErrorSource::WsHandshake,
@@ -2303,6 +2358,7 @@ async fn wait_for_route_update_or_deadline(state: &AppState, deadline: Instant) 
 async fn pick_account_from_alive_ring(
     state: &Arc<AppState>,
     excluded_account_ids: &HashSet<Uuid>,
+    model: Option<&str>,
 ) -> Option<UpstreamAccount> {
     let alive_ring = state.alive_ring_router.as_ref()?;
     let candidate_ids = match alive_ring.next_candidate_ids().await {
@@ -2312,11 +2368,23 @@ async fn pick_account_from_alive_ring(
             return None;
         }
     };
+    pick_alive_ring_candidate_from_ids(state, &candidate_ids, excluded_account_ids, model)
+}
+
+fn pick_alive_ring_candidate_from_ids(
+    state: &Arc<AppState>,
+    candidate_ids: &[Uuid],
+    excluded_account_ids: &HashSet<Uuid>,
+    model: Option<&str>,
+) -> Option<UpstreamAccount> {
     for account_id in candidate_ids {
         if excluded_account_ids.contains(&account_id) {
             continue;
         }
-        if let Some(account) = state.router.pick_account(account_id) {
+        if !state.router.account_matches_model_route(*account_id, model) {
+            continue;
+        }
+        if let Some(account) = state.router.pick_account(*account_id) {
             return Some(account);
         }
     }
@@ -2372,4 +2440,157 @@ fn is_upstream_no_subprotocol_error(error: &TungsteniteError) -> bool {
 
 fn should_eject_account_for_websocket_close(close: &UpstreamWebSocketClose) -> bool {
     close.code == 1008 || close.reason.to_ascii_lowercase().contains("policy")
+}
+
+#[cfg(test)]
+mod entry_route_selection_tests {
+    use super::*;
+    use crate::event::NoopEventSink;
+    use crate::routing_cache::InMemoryRoutingCache;
+    use crate::router::RoundRobinRouter;
+    use codex_pool_core::model::{
+        AiErrorLearningSettings, CompiledModelRoutingPolicy, CompiledRoutingPlan,
+        CompiledRoutingProfile, RoutingStrategy, UpstreamErrorTemplateRecord,
+    };
+    use std::collections::HashMap;
+    use std::sync::atomic::AtomicU64;
+
+    fn account(label: &str) -> UpstreamAccount {
+        UpstreamAccount {
+            id: Uuid::new_v4(),
+            label: label.to_string(),
+            mode: UpstreamMode::CodexOauth,
+            base_url: format!("https://{label}.example.com/backend-api/codex"),
+            bearer_token: format!("{label}-token"),
+            chatgpt_account_id: Some(format!("acct-{label}")),
+            enabled: true,
+            priority: 100,
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    fn compiled_route(model: &str, account_ids: Vec<Uuid>) -> CompiledRoutingPlan {
+        CompiledRoutingPlan {
+            version_id: Uuid::new_v4(),
+            published_at: chrono::Utc::now(),
+            trigger_reason: Some("test".to_string()),
+            default_route: Vec::new(),
+            policies: vec![CompiledModelRoutingPolicy {
+                id: Uuid::new_v4(),
+                name: "test-policy".to_string(),
+                family: "test-family".to_string(),
+                exact_models: vec![model.to_string()],
+                model_prefixes: Vec::new(),
+                fallback_segments: vec![CompiledRoutingProfile {
+                    id: Uuid::new_v4(),
+                    name: "primary".to_string(),
+                    account_ids,
+                }],
+            }],
+        }
+    }
+
+    fn test_state(accounts: Vec<UpstreamAccount>) -> Arc<AppState> {
+        Arc::new(AppState {
+            router: RoundRobinRouter::new(accounts),
+            http_client: reqwest::Client::new(),
+            control_plane_base_url: Some("http://127.0.0.1:8090".to_string()),
+            routing_strategy: RoutingStrategy::RoundRobin,
+            account_ejection_ttl: Duration::from_secs(30),
+            enable_request_failover: true,
+            same_account_quick_retry_max: 1,
+            request_failover_wait: Duration::from_millis(2_000),
+            retry_poll_interval: Duration::from_millis(100),
+            sticky_prefer_non_conflicting: true,
+            shared_routing_cache_enabled: true,
+            enable_metered_stream_billing: true,
+            billing_authorize_required_for_stream: true,
+            stream_billing_reserve_microcredits: 2_000_000,
+            billing_dynamic_preauth_enabled: true,
+            billing_preauth_expected_output_tokens: 256,
+            billing_preauth_safety_factor: 1.3,
+            billing_preauth_min_microcredits: 1_000,
+            billing_preauth_max_microcredits: 1_000_000_000_000,
+            billing_preauth_unit_price_microcredits: 10_000,
+            stream_billing_drain_timeout: Duration::from_millis(5_000),
+            billing_capture_retry_max: 3,
+            billing_capture_retry_backoff: Duration::from_millis(200),
+            billing_pricing_cache: std::sync::RwLock::new(HashMap::new()),
+            models_cache: std::sync::RwLock::new(None),
+            routing_cache: Arc::new(InMemoryRoutingCache::new()),
+            alive_ring_router: None,
+            seen_ok_reporter: None,
+            event_sink: Arc::new(NoopEventSink),
+            auth_validator: None,
+            control_plane_internal_auth_token: Arc::<str>::from("cp-internal-test-token"),
+            auth_fail_open: false,
+            allowed_api_keys: HashSet::new(),
+            snapshot_revision: AtomicU64::new(0),
+            snapshot_cursor: AtomicU64::new(0),
+            snapshot_remote_cursor: AtomicU64::new(0),
+            snapshot_events_apply_total: AtomicU64::new(0),
+            snapshot_events_cursor_gone_total: AtomicU64::new(0),
+            route_update_notify: Arc::new(tokio::sync::Notify::new()),
+            ai_error_learning_settings: std::sync::RwLock::new(AiErrorLearningSettings::default()),
+            approved_upstream_error_templates: std::sync::RwLock::new(
+                HashMap::<String, UpstreamErrorTemplateRecord>::new(),
+            ),
+            max_request_body_bytes: 10 * 1024 * 1024,
+            failover_attempt_total: AtomicU64::new(0),
+            failover_success_total: AtomicU64::new(0),
+            failover_exhausted_total: AtomicU64::new(0),
+            same_account_retry_total: AtomicU64::new(0),
+            billing_authorize_total: AtomicU64::new(0),
+            billing_authorize_failed_total: AtomicU64::new(0),
+            billing_capture_total: AtomicU64::new(0),
+            billing_capture_failed_total: AtomicU64::new(0),
+            billing_release_total: AtomicU64::new(0),
+            billing_idempotent_hit_total: AtomicU64::new(0),
+            billing_preauth_dynamic_total: AtomicU64::new(0),
+            billing_preauth_fallback_total: AtomicU64::new(0),
+            billing_preauth_amount_microcredits_sum: AtomicU64::new(0),
+            billing_preauth_error_ratio_ppm_sum_total: AtomicU64::new(0),
+            billing_preauth_error_ratio_count_total: AtomicU64::new(0),
+            billing_preauth_capture_missing_total: AtomicU64::new(0),
+            billing_settle_complete_total: AtomicU64::new(0),
+            billing_release_without_capture_total: AtomicU64::new(0),
+            billing_preauth_error_ratio_recent_ppm: std::sync::RwLock::new(
+                std::collections::VecDeque::new(),
+            ),
+            billing_preauth_error_ratio_by_model_ppm: std::sync::RwLock::new(HashMap::new()),
+            stream_usage_missing_total: AtomicU64::new(0),
+            stream_usage_estimated_total: AtomicU64::new(0),
+            stream_drain_timeout_total: AtomicU64::new(0),
+            stream_response_total: AtomicU64::new(0),
+            stream_protocol_sse_header_total: AtomicU64::new(0),
+            stream_protocol_header_missing_total: AtomicU64::new(0),
+            stream_usage_json_line_fallback_total: AtomicU64::new(0),
+            invalid_request_guard_enabled: true,
+            invalid_request_guard_window: Duration::from_secs(30),
+            invalid_request_guard_threshold: 12,
+            invalid_request_guard_block_ttl: Duration::from_secs(120),
+            invalid_request_guard: std::sync::RwLock::new(HashMap::new()),
+            invalid_request_guard_block_total: AtomicU64::new(0),
+        })
+    }
+
+    #[tokio::test]
+    async fn alive_ring_candidate_selection_respects_compiled_model_route() {
+        let free = account("free");
+        let paid = account("paid");
+        let state = test_state(vec![free.clone(), paid.clone()]);
+        state
+            .router
+            .replace_compiled_routing_plan(Some(compiled_route("gpt-5.4", vec![paid.id])));
+
+        let picked = pick_alive_ring_candidate_from_ids(
+            &state,
+            &[free.id, paid.id],
+            &HashSet::new(),
+            Some("gpt-5.4"),
+        )
+        .expect("alive ring should skip disallowed free account");
+
+        assert_eq!(picked.id, paid.id);
+    }
 }

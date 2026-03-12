@@ -141,14 +141,18 @@ impl RoundRobinRouter {
                 prefer_non_conflicting,
             );
         }
-        self.pick_with_round_robin_policy(
-            sticky_key,
-            excluded_account_ids,
-            prefer_non_conflicting,
-        )
+        self.pick_with_round_robin_policy(sticky_key, excluded_account_ids, prefer_non_conflicting)
     }
 
-    pub fn replace_compiled_routing_plan(&self, compiled_routing_plan: Option<CompiledRoutingPlan>) {
+    pub fn account_matches_model_route(&self, account_id: Uuid, model: Option<&str>) -> bool {
+        self.candidate_account_ids_for_model(model)
+            .is_none_or(|candidate_ids| candidate_ids.contains(&account_id))
+    }
+
+    pub fn replace_compiled_routing_plan(
+        &self,
+        compiled_routing_plan: Option<CompiledRoutingPlan>,
+    ) {
         *self.compiled_routing_plan.write().unwrap() = compiled_routing_plan;
     }
 
@@ -772,7 +776,10 @@ mod tests {
                 id: Uuid::new_v4(),
                 name: "test-policy".to_string(),
                 family: "test-family".to_string(),
-                exact_models: exact_models.iter().map(|item| (*item).to_string()).collect(),
+                exact_models: exact_models
+                    .iter()
+                    .map(|item| (*item).to_string())
+                    .collect(),
                 model_prefixes: Vec::new(),
                 fallback_segments: fallback_segments
                     .into_iter()
@@ -815,7 +822,12 @@ mod tests {
         )));
 
         let first = router
-            .pick_for_model(Some("gpt-5.2-codex"), Some("sticky-1"), &HashSet::new(), false)
+            .pick_for_model(
+                Some("gpt-5.2-codex"),
+                Some("sticky-1"),
+                &HashSet::new(),
+                false,
+            )
             .expect("initial route should pick account");
         assert_eq!(first.id, free.id);
 
@@ -825,9 +837,27 @@ mod tests {
         )));
 
         let rebound = router
-            .pick_for_model(Some("gpt-5.2-codex"), Some("sticky-1"), &HashSet::new(), false)
+            .pick_for_model(
+                Some("gpt-5.2-codex"),
+                Some("sticky-1"),
+                &HashSet::new(),
+                false,
+            )
             .expect("route should rebind after compiled route update");
 
         assert_eq!(rebound.id, paid.id);
+    }
+
+    #[test]
+    fn compiled_model_route_reports_account_eligibility() {
+        let free = account("free");
+        let paid = account("paid");
+        let router = RoundRobinRouter::new(vec![free.clone(), paid.clone()]);
+        router
+            .replace_compiled_routing_plan(Some(compiled_route(&["gpt-5.4"], vec![vec![paid.id]])));
+
+        assert!(!router.account_matches_model_route(free.id, Some("gpt-5.4")));
+        assert!(router.account_matches_model_route(paid.id, Some("gpt-5.4")));
+        assert!(router.account_matches_model_route(free.id, Some("gpt-5.2-codex")));
     }
 }

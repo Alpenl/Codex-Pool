@@ -8,8 +8,10 @@ use codex_pool_core::api::{
     DataPlaneSnapshotEventsResponse,
 };
 use codex_pool_core::model::{
-    AccountRoutingTraits, CompiledModelRoutingPolicy, CompiledRoutingPlan, CompiledRoutingProfile,
-    RoutingStrategy, UpstreamAccount, UpstreamMode,
+    AccountRoutingTraits, AiErrorLearningSettings, CompiledModelRoutingPolicy, CompiledRoutingPlan,
+    CompiledRoutingProfile, LocalizedErrorTemplates, RoutingStrategy, UpstreamAccount,
+    UpstreamErrorAction, UpstreamErrorRetryScope, UpstreamErrorTemplateRecord,
+    UpstreamErrorTemplateStatus, UpstreamMode,
 };
 use data_plane::app::AppState;
 use data_plane::event::NoopEventSink;
@@ -52,7 +54,32 @@ fn snapshot_with_revision(revision: u64, accounts: Vec<UpstreamAccount>) -> Data
         accounts,
         account_traits: Vec::<AccountRoutingTraits>::new(),
         compiled_routing_plan: None,
+        ai_error_learning_settings: AiErrorLearningSettings::default(),
+        approved_upstream_error_templates: Vec::new(),
         issued_at: chrono::Utc::now(),
+    }
+}
+
+fn approved_template() -> UpstreamErrorTemplateRecord {
+    UpstreamErrorTemplateRecord {
+        id: Uuid::new_v4(),
+        fingerprint: "openai:400:model_not_found".to_string(),
+        provider: "openai_compatible".to_string(),
+        normalized_status_code: 400,
+        semantic_error_code: "unsupported_model".to_string(),
+        action: UpstreamErrorAction::ReturnFailure,
+        retry_scope: UpstreamErrorRetryScope::None,
+        status: UpstreamErrorTemplateStatus::Approved,
+        templates: LocalizedErrorTemplates {
+            en: Some("The requested model is not available.".to_string()),
+            zh_cn: Some("请求的模型当前不可用。".to_string()),
+            ..LocalizedErrorTemplates::default()
+        },
+        representative_samples: vec!["The model {model} does not exist".to_string()],
+        hit_count: 12,
+        first_seen_at: chrono::Utc::now(),
+        last_seen_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
     }
 }
 
@@ -63,6 +90,8 @@ fn upsert_event(account: UpstreamAccount, id: u64) -> DataPlaneSnapshotEvent {
         account_id: account.id,
         account: Some(account),
         compiled_routing_plan: None,
+        ai_error_learning_settings: None,
+        approved_upstream_error_templates: None,
         created_at: chrono::Utc::now(),
     }
 }
@@ -74,6 +103,8 @@ fn delete_event(account_id: Uuid, id: u64) -> DataPlaneSnapshotEvent {
         account_id,
         account: None,
         compiled_routing_plan: None,
+        ai_error_learning_settings: None,
+        approved_upstream_error_templates: None,
         created_at: chrono::Utc::now(),
     }
 }
@@ -102,6 +133,25 @@ fn routing_plan_refresh_event(model: &str, account_id: Uuid, id: u64) -> DataPla
                 }],
             }],
         }),
+        ai_error_learning_settings: None,
+        approved_upstream_error_templates: None,
+        created_at: chrono::Utc::now(),
+    }
+}
+
+fn ai_error_learning_refresh_event(
+    settings: AiErrorLearningSettings,
+    templates: Vec<UpstreamErrorTemplateRecord>,
+    id: u64,
+) -> DataPlaneSnapshotEvent {
+    DataPlaneSnapshotEvent {
+        id,
+        event_type: DataPlaneSnapshotEventType::RoutingPlanRefresh,
+        account_id: Uuid::nil(),
+        account: None,
+        compiled_routing_plan: None,
+        ai_error_learning_settings: Some(settings),
+        approved_upstream_error_templates: Some(templates),
         created_at: chrono::Utc::now(),
     }
 }
@@ -147,6 +197,8 @@ fn test_state() -> AppState {
         snapshot_events_apply_total: AtomicU64::new(0),
         snapshot_events_cursor_gone_total: AtomicU64::new(0),
         route_update_notify: Arc::new(tokio::sync::Notify::new()),
+        ai_error_learning_settings: std::sync::RwLock::new(AiErrorLearningSettings::default()),
+        approved_upstream_error_templates: std::sync::RwLock::new(std::collections::HashMap::new()),
         max_request_body_bytes: 10 * 1024 * 1024,
         failover_attempt_total: AtomicU64::new(0),
         failover_success_total: AtomicU64::new(0),
@@ -260,4 +312,73 @@ async fn applies_routing_plan_refresh_event_without_replacing_accounts() {
         .expect("compiled route plan should be stored");
     assert_eq!(plan.policies.len(), 1);
     assert_eq!(plan.policies[0].exact_models, vec!["gpt-5.4".to_string()]);
+}
+
+#[tokio::test]
+async fn applies_ai_error_learning_snapshot_contract() {
+    let state = test_state();
+    let approved = approved_template();
+    let mut snapshot = snapshot_with_revision(2, vec![account_b()]);
+    snapshot.ai_error_learning_settings = AiErrorLearningSettings {
+        enabled: true,
+        ..AiErrorLearningSettings::default()
+    };
+    snapshot.approved_upstream_error_templates = vec![approved.clone()];
+
+    state.apply_snapshot(snapshot);
+
+    let settings = state
+        .ai_error_learning_settings
+        .read()
+        .expect("ai error learning settings");
+    assert!(settings.enabled);
+    drop(settings);
+
+    let templates = state
+        .approved_upstream_error_templates
+        .read()
+        .expect("approved template map");
+    let stored = templates
+        .get(&approved.fingerprint)
+        .expect("approved template stored by fingerprint");
+    assert_eq!(stored.semantic_error_code, "unsupported_model");
+    assert_eq!(stored.status, UpstreamErrorTemplateStatus::Approved);
+}
+
+#[tokio::test]
+async fn applies_ai_error_learning_updates_from_routing_refresh_event() {
+    let state = test_state();
+    let approved = approved_template();
+    let settings = AiErrorLearningSettings {
+        enabled: true,
+        first_seen_timeout_ms: 2_000,
+        review_hit_threshold: 10,
+        updated_at: Some(chrono::Utc::now()),
+    };
+
+    let cursor = state.apply_snapshot_events(DataPlaneSnapshotEventsResponse {
+        cursor: 11,
+        high_watermark: 11,
+        events: vec![ai_error_learning_refresh_event(
+            settings.clone(),
+            vec![approved.clone()],
+            11,
+        )],
+    });
+
+    assert_eq!(cursor, 11);
+    let stored_settings = state
+        .ai_error_learning_settings
+        .read()
+        .expect("ai error learning settings");
+    assert!(stored_settings.enabled);
+    assert_eq!(stored_settings.first_seen_timeout_ms, settings.first_seen_timeout_ms);
+    drop(stored_settings);
+
+    let templates = state
+        .approved_upstream_error_templates
+        .read()
+        .expect("approved template map");
+    assert_eq!(templates.len(), 1);
+    assert!(templates.contains_key(&approved.fingerprint));
 }

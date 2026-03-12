@@ -14,7 +14,9 @@ use axum::response::Response;
 use axum::routing::{get, post};
 use axum::Router;
 use codex_pool_core::api::{ErrorEnvelope, UsageSummary};
-use codex_pool_core::model::{RoutingStrategy, UpstreamMode};
+use codex_pool_core::model::{
+    AiErrorLearningSettings, RoutingStrategy, UpstreamErrorTemplateRecord, UpstreamMode,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::Notify;
@@ -123,6 +125,8 @@ pub struct AppState {
     pub snapshot_events_apply_total: AtomicU64,
     pub snapshot_events_cursor_gone_total: AtomicU64,
     pub route_update_notify: Arc<Notify>,
+    pub ai_error_learning_settings: RwLock<AiErrorLearningSettings>,
+    pub approved_upstream_error_templates: RwLock<HashMap<String, UpstreamErrorTemplateRecord>>,
     pub max_request_body_bytes: usize,
     pub failover_attempt_total: AtomicU64,
     pub failover_success_total: AtomicU64,
@@ -323,6 +327,8 @@ pub async fn build_app_with_event_sink_and_allowed_keys(
         snapshot_events_apply_total: AtomicU64::new(0),
         snapshot_events_cursor_gone_total: AtomicU64::new(0),
         route_update_notify: Arc::new(Notify::new()),
+        ai_error_learning_settings: RwLock::new(AiErrorLearningSettings::default()),
+        approved_upstream_error_templates: RwLock::new(HashMap::new()),
         max_request_body_bytes: max_request_body_bytes_from_env(),
         failover_attempt_total: AtomicU64::new(0),
         failover_success_total: AtomicU64::new(0),

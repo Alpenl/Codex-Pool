@@ -1373,6 +1373,11 @@ mod models_probe_tests {
             codex_oauth_callback_listen_mode: CodexOAuthCallbackListenMode::Off,
             codex_oauth_callback_listen_addr: None,
             codex_oauth_callback_listener: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+            upstream_error_learning_runtime: std::sync::Arc::new(
+                crate::upstream_error_learning::UpstreamErrorLearningRuntime::from_env(
+                    "http://127.0.0.1:8091",
+                ),
+            ),
             model_probe_interval_sec: MODEL_PROBE_DEFAULT_INTERVAL_SEC,
         }
     }

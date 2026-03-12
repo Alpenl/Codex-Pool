@@ -257,12 +257,30 @@ impl PostgresStore {
             } else {
                 None
             };
+            let ai_error_learning_settings = if matches!(
+                event_type,
+                DataPlaneSnapshotEventType::RoutingPlanRefresh
+            ) {
+                Some(self.load_upstream_error_learning_settings_inner().await?)
+            } else {
+                None
+            };
+            let approved_upstream_error_templates = if matches!(
+                event_type,
+                DataPlaneSnapshotEventType::RoutingPlanRefresh
+            ) {
+                Some(self.load_approved_upstream_error_templates_inner().await?)
+            } else {
+                None
+            };
             events.push(DataPlaneSnapshotEvent {
                 id,
                 event_type,
                 account_id,
                 account,
                 compiled_routing_plan,
+                ai_error_learning_settings,
+                approved_upstream_error_templates,
                 created_at: row.try_get::<DateTime<Utc>, _>("created_at")?,
             });
         }

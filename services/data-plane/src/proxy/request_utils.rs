@@ -252,9 +252,11 @@ struct UpstreamErrorContext {
     status: StatusCode,
     error_code: Option<String>,
     error_message: Option<String>,
+    raw_error: Option<String>,
     retry_after: Option<Duration>,
     upstream_request_id: Option<String>,
     class: UpstreamErrorClass,
+    learned_resolution: Option<LearnedTemplateResolution>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -272,13 +274,13 @@ enum RetryScope {
     CrossAccount,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct UpstreamErrorDecision {
     retry_scope: RetryScope,
     allow_cross_account_failover: bool,
     track_invalid_request: bool,
-    outward_code: &'static str,
-    outward_message: &'static str,
+    outward_code: String,
+    outward_message: String,
     recovery_action: Option<ProxyRecoveryAction>,
     decision_rule: &'static str,
 }
@@ -306,8 +308,8 @@ fn build_upstream_error_decision(
     retry_scope: RetryScope,
     allow_cross_account_failover: bool,
     track_invalid_request: bool,
-    outward_code: &'static str,
-    outward_message: &'static str,
+    outward_code: impl Into<String>,
+    outward_message: impl Into<String>,
     recovery_action: Option<ProxyRecoveryAction>,
     decision_rule: &'static str,
 ) -> UpstreamErrorDecision {
@@ -315,8 +317,8 @@ fn build_upstream_error_decision(
         retry_scope,
         allow_cross_account_failover,
         track_invalid_request,
-        outward_code,
-        outward_message,
+        outward_code: outward_code.into(),
+        outward_message: outward_message.into(),
         recovery_action,
         decision_rule,
     }
@@ -407,6 +409,30 @@ fn decide_upstream_error(
 
     let recovery_action = recovery_action_for_upstream_error_code(context.error_code.as_deref())
         .or_else(|| recovery_action_for_upstream_error_class(context.class));
+
+    if let Some(learned) = context.learned_resolution.as_ref() {
+        let retry_scope = match learned.action {
+            UpstreamErrorAction::RetrySameAccount => RetryScope::SameAccount,
+            UpstreamErrorAction::RetryCrossAccount => RetryScope::CrossAccount,
+            UpstreamErrorAction::ReturnFailure => match learned.retry_scope {
+                UpstreamErrorRetryScope::SameAccount => RetryScope::SameAccount,
+                UpstreamErrorRetryScope::CrossAccount => RetryScope::CrossAccount,
+                UpstreamErrorRetryScope::None => RetryScope::None,
+            },
+        };
+        let allow_cross_account_failover = !matches!(retry_scope, RetryScope::None);
+        let track_invalid_request = context.status.is_client_error()
+            && matches!(retry_scope, RetryScope::None);
+        return build_upstream_error_decision(
+            retry_scope,
+            allow_cross_account_failover,
+            track_invalid_request,
+            learned.semantic_error_code.clone(),
+            learned.localized_message.clone(),
+            recovery_action,
+            "learned_template",
+        );
+    }
 
     match context.class {
         UpstreamErrorClass::TokenInvalidated => build_upstream_error_decision(
@@ -865,21 +891,30 @@ fn log_failover_decision(
         upstream_error_message_preview = error_context
             .and_then(|context| context.error_message.as_deref())
             .unwrap_or("none"),
+        upstream_error_raw = error_context
+            .and_then(|context| context.raw_error.as_deref())
+            .unwrap_or("none"),
         upstream_error_class = upstream_error_class_label(error_context),
         upstream_request_id = error_context
             .and_then(|context| context.upstream_request_id.as_deref())
             .unwrap_or("none"),
         retry_after_seconds = error_context.and_then(|context| context.retry_after.map(|value| value.as_secs())),
         retry_scope = decision
+            .as_ref()
             .map(|value| retry_scope_label(value.retry_scope))
             .unwrap_or("none"),
         allow_cross_account_failover = decision
+            .as_ref()
             .map(|value| value.allow_cross_account_failover)
             .unwrap_or(false),
         track_invalid_request = decision
+            .as_ref()
             .map(|value| value.track_invalid_request)
             .unwrap_or(false),
-        decision_rule = decision.map(|value| value.decision_rule).unwrap_or("none"),
+        decision_rule = decision
+            .as_ref()
+            .map(|value| value.decision_rule)
+            .unwrap_or("none"),
         reason_class,
         recovery_action,
         recovery_outcome,
@@ -1044,17 +1079,25 @@ fn extract_upstream_error_details(body: &[u8]) -> (Option<String>, Option<String
             .get("error")
             .and_then(|error| error.get("message"))
             .and_then(Value::as_str)
+            .or_else(|| value.get("error").and_then(|error| error.get("detail")).and_then(Value::as_str))
             .or_else(|| value.get("message").and_then(Value::as_str))
+            .or_else(|| value.get("detail").and_then(Value::as_str))
             .map(ToString::to_string);
         return (code, message);
     }
 
-    let message = std::str::from_utf8(body)
-        .ok()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string);
+    let message = extract_upstream_raw_error(body);
     (None, message)
+}
+
+fn extract_upstream_raw_error(body: &[u8]) -> Option<String> {
+    let raw = String::from_utf8_lossy(body);
+    let raw = raw.trim();
+    if raw.is_empty() {
+        None
+    } else {
+        Some(raw.to_string())
+    }
 }
 
 fn build_upstream_error_context(
@@ -1063,6 +1106,7 @@ fn build_upstream_error_context(
     body: &[u8],
 ) -> Option<UpstreamErrorContext> {
     let (error_code, error_message) = extract_upstream_error_details(body);
+    let raw_error = extract_upstream_raw_error(body);
     if status.is_success() && error_code.is_none() && error_message.is_none() {
         return None;
     }
@@ -1083,9 +1127,11 @@ fn build_upstream_error_context(
         status: normalized_status,
         error_code,
         error_message,
+        raw_error,
         retry_after: extract_retry_after(headers),
         upstream_request_id: extract_upstream_request_id(headers),
         class,
+        learned_resolution: None,
     })
 }
 
@@ -1212,8 +1258,8 @@ fn normalize_upstream_error_response(
     let decision = decide_upstream_error(source, Some(error_context));
     json_error(
         error_context.status,
-        decision.outward_code,
-        decision.outward_message,
+        &decision.outward_code,
+        &decision.outward_message,
     )
 }
 
@@ -1508,6 +1554,10 @@ fn is_hop_by_hop_header(name: &HeaderName) -> bool {
 }
 
 async fn map_service_unavailable(
+    state: &Arc<AppState>,
+    provider: &str,
+    locale: &str,
+    model: Option<&str>,
     headers: &HeaderMap,
     upstream_response: reqwest::Response,
 ) -> (Response, UpstreamErrorContext) {
@@ -1518,29 +1568,52 @@ async fn map_service_unavailable(
             status: StatusCode::SERVICE_UNAVAILABLE,
             error_code: None,
             error_message: None,
+            raw_error: extract_upstream_raw_error(&body),
             retry_after: extract_retry_after(headers),
             upstream_request_id: extract_upstream_request_id(headers),
             class: UpstreamErrorClass::UpstreamUnavailable,
+            learned_resolution: None,
         });
-    (
-        normalize_upstream_error_response(UpstreamErrorSource::Http, &context),
+    apply_upstream_error_learning(
+        state,
+        UpstreamErrorSource::Http,
+        provider,
+        locale,
+        model,
         context,
     )
+    .await
 }
 
 async fn buffered_response(
+    state: &Arc<AppState>,
+    provider: &str,
+    locale: &str,
+    model: Option<&str>,
     status: StatusCode,
     headers: &HeaderMap,
     upstream_response: reqwest::Response,
 ) -> (Response, Option<UpstreamErrorContext>, bytes::Bytes) {
     let body = upstream_response.bytes().await.unwrap_or_default();
-    let error_context = if status.as_u16() >= 400 {
+    let mut error_context = if status.as_u16() >= 400 {
         build_upstream_error_context(status, headers, &body)
     } else {
         None
     };
     let response = match error_context.as_ref() {
-        Some(context) => normalize_upstream_error_response(UpstreamErrorSource::Http, context),
+        Some(_) => {
+            let (response, context) = apply_upstream_error_learning(
+                state,
+                UpstreamErrorSource::Http,
+                provider,
+                locale,
+                model,
+                error_context.take().expect("error context should exist"),
+            )
+            .await;
+            error_context = Some(context);
+            response
+        }
         None => response_with_bytes(status, headers, body.clone()),
     };
     (
@@ -1551,15 +1624,31 @@ async fn buffered_response(
 }
 
 async fn buffered_codex_compat_response(
+    state: &Arc<AppState>,
+    provider: &str,
+    locale: &str,
+    model: Option<&str>,
     status: StatusCode,
     headers: &HeaderMap,
     upstream_response: reqwest::Response,
 ) -> (Response, Option<UpstreamErrorContext>, bytes::Bytes) {
     let body = upstream_response.bytes().await.unwrap_or_default();
     if status.as_u16() >= 400 {
-        let error_context = build_upstream_error_context(status, headers, &body);
+        let mut error_context = build_upstream_error_context(status, headers, &body);
         let response = match error_context.as_ref() {
-            Some(context) => normalize_upstream_error_response(UpstreamErrorSource::Http, context),
+            Some(_) => {
+                let (response, context) = apply_upstream_error_learning(
+                    state,
+                    UpstreamErrorSource::Http,
+                    provider,
+                    locale,
+                    model,
+                    error_context.take().expect("error context should exist"),
+                )
+                .await;
+                error_context = Some(context);
+                response
+            }
             None => response_with_bytes(status, headers, body.clone()),
         };
         return (response, error_context, body);
@@ -1588,15 +1677,22 @@ async fn buffered_codex_compat_response(
         status: StatusCode::BAD_GATEWAY,
         error_code: None,
         error_message: Some("codex upstream stream missing completion event".to_string()),
+        raw_error: None,
         retry_after: None,
         upstream_request_id: extract_upstream_request_id(headers),
         class: UpstreamErrorClass::TransientServer,
+        learned_resolution: None,
     };
-    (
-        normalize_upstream_error_response(UpstreamErrorSource::Http, &error_context),
-        Some(error_context),
-        body,
+    let (response, error_context) = apply_upstream_error_learning(
+        state,
+        UpstreamErrorSource::Http,
+        provider,
+        locale,
+        model,
+        error_context,
     )
+    .await;
+    (response, Some(error_context), body)
 }
 
 fn extract_codex_completed_response(body: &[u8]) -> Option<Value> {
@@ -1646,6 +1742,7 @@ fn parse_request_policy_context(
     let Some(value) = parse_request_json_body(headers, body) else {
         return ParsedRequestPolicyContext {
             request_id,
+            detected_locale: detect_request_locale(headers, body),
             ..Default::default()
         };
     };
@@ -1683,6 +1780,7 @@ fn parse_request_policy_context(
         model,
         stream,
         request_id,
+        detected_locale: detect_request_locale(headers, body),
         estimated_input_tokens,
         continuation_key_hint: previous_response_id.clone(),
         sticky_key_hint,
@@ -2012,10 +2110,13 @@ struct UsageTokens {
 #[cfg(test)]
 mod request_utils_tests {
     use super::{
-        build_upstream_error_context, classify_upstream_error, decide_upstream_error, RetryScope,
-        UpstreamErrorClass, UpstreamErrorSource,
+        build_upstream_error_context, classify_upstream_error, decide_upstream_error,
+        parse_request_policy_context, LearnedTemplateResolution, RetryScope,
+        UpstreamErrorClass, UpstreamErrorContext, UpstreamErrorSource,
     };
-    use http::{HeaderMap, StatusCode};
+    use codex_pool_core::model::{UpstreamErrorAction, UpstreamErrorRetryScope};
+    use http::{HeaderMap, HeaderValue, StatusCode};
+    use std::io::Cursor;
 
     #[test]
     fn classifies_unknown_403_as_non_retryable_client() {
@@ -2085,6 +2186,22 @@ mod request_utils_tests {
     }
 
     #[test]
+    fn builds_error_context_from_top_level_detail_json() {
+        let headers = HeaderMap::new();
+        let body = br#"{"detail":"The 'gpt-5.4-ai-error-e2e-invalid' model is not supported when using Codex with a ChatGPT account."}"#;
+        let context = build_upstream_error_context(StatusCode::BAD_REQUEST, &headers, body)
+            .expect("detail json error body should build context");
+
+        assert_eq!(
+            context.error_message.as_deref(),
+            Some(
+                "The 'gpt-5.4-ai-error-e2e-invalid' model is not supported when using Codex with a ChatGPT account."
+            )
+        );
+        assert_eq!(context.raw_error.as_deref(), Some(std::str::from_utf8(body).unwrap()));
+    }
+
+    #[test]
     fn http_overloaded_errors_prefer_same_account_retry_before_cross_account_failover() {
         let headers = HeaderMap::new();
         let context = build_upstream_error_context(
@@ -2150,5 +2267,52 @@ mod request_utils_tests {
         assert!(!decision.allow_cross_account_failover);
         assert!(decision.track_invalid_request);
         assert_eq!(decision.outward_code, "upstream_request_failed");
+    }
+
+    #[test]
+    fn learned_template_decision_overrides_default_unknown_error_contract() {
+        let context = UpstreamErrorContext {
+            upstream_status: StatusCode::BAD_REQUEST,
+            status: StatusCode::BAD_REQUEST,
+            error_code: None,
+            error_message: Some("Model gpt-5.4 does not exist".to_string()),
+            raw_error: Some(r#"{"error":{"message":"Model gpt-5.4 does not exist"}}"#.to_string()),
+            retry_after: None,
+            upstream_request_id: None,
+            class: UpstreamErrorClass::Unknown,
+            learned_resolution: Some(LearnedTemplateResolution {
+                semantic_error_code: "unsupported_model".to_string(),
+                localized_message: "请求的模型当前不可用。".to_string(),
+                action: UpstreamErrorAction::ReturnFailure,
+                retry_scope: UpstreamErrorRetryScope::None,
+                fingerprint: "openai_compatible:400:model {model} does not exist".to_string(),
+            }),
+        };
+
+        let decision = decide_upstream_error(UpstreamErrorSource::Http, Some(&context));
+
+        assert_eq!(decision.retry_scope, RetryScope::None);
+        assert!(!decision.allow_cross_account_failover);
+        assert!(decision.track_invalid_request);
+        assert_eq!(decision.outward_code, "unsupported_model");
+        assert_eq!(decision.outward_message, "请求的模型当前不可用。");
+        assert_eq!(decision.decision_rule, "learned_template");
+    }
+
+    #[test]
+    fn parse_request_policy_context_reads_model_from_zstd_body() {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-encoding", HeaderValue::from_static("zstd"));
+        headers.insert("accept-language", HeaderValue::from_static("zh-CN,zh;q=0.8"));
+
+        let compressed = zstd::stream::encode_all(
+            Cursor::new(br#"{"model":"gpt-5.4","traces":[{"input":"compress this history"}]}"#),
+            0,
+        )
+        .expect("zstd encoding should succeed");
+        let context = parse_request_policy_context(&headers, &bytes::Bytes::from(compressed));
+
+        assert_eq!(context.model.as_deref(), Some("gpt-5.4"));
+        assert_eq!(context.detected_locale, "zh-CN");
     }
 }

@@ -1915,6 +1915,8 @@ export default {
         messages: {
             settingsSaved: "模型調度設定已儲存。",
             settingsSaveFailed: "儲存模型調度設定失敗。",
+            errorLearningSettingsSaved: "上游錯誤學習設定已儲存。",
+            errorLearningSettingsSaveFailed: "儲存上游錯誤學習設定失敗。",
             profileSaved: "路由畫像已儲存：{{name}}",
             profileSaveFailed: "儲存路由畫像失敗。",
             profileDeleted: "路由畫像已刪除。",
@@ -1922,7 +1924,15 @@ export default {
             policySaved: "模型路由策略已儲存：{{name}}",
             policySaveFailed: "儲存模型路由策略失敗。",
             policyDeleted: "模型路由策略已刪除。",
-            policyDeleteFailed: "刪除模型路由策略失敗。"
+            policyDeleteFailed: "刪除模型路由策略失敗。",
+            templateSaved: "上游錯誤模板已儲存。",
+            templateSaveFailed: "儲存上游錯誤模板失敗。",
+            templateApproved: "上游錯誤模板已核准。",
+            templateApproveFailed: "核准上游錯誤模板失敗。",
+            templateRejected: "上游錯誤模板已拒絕。",
+            templateRejectFailed: "拒絕上游錯誤模板失敗。",
+            templateRewritten: "已使用 AI 重寫上游錯誤模板。",
+            templateRewriteFailed: "AI 重寫上游錯誤模板失敗。"
         },
         status: {
             enabled: "已啟用",
@@ -1944,6 +1954,68 @@ export default {
         authProviders: {
             legacyBearer: "傳統 Bearer",
             oauthRefreshToken: "OAuth Refresh Token"
+        },
+        errorLearning: {
+            settings: {
+                title: "上游錯誤學習",
+                description: "審核首次發現的上游失敗模板，在固化為確定性錯誤規則前先行把關。",
+                enabled: "啟用上游錯誤學習",
+                enabledHint: "關閉後，未知上游錯誤會直接回退到通用本地化錯誤文案。",
+                firstSeenTimeoutMs: "首次發現逾時（毫秒）",
+                firstSeenTimeoutMsHint: "首次生成臨時模板時，允許同步等待的最長時間。",
+                reviewHitThreshold: "進入審核門檻",
+                reviewHitThresholdHint: "臨時模板累計命中達到此次數後轉入審核佇列。",
+                updatedAt: "更新時間 {{value}}"
+            },
+            templates: {
+                title: "模板審核佇列",
+                description: "檢視臨時模板與待審核模板，並進行核准、拒絕、編輯或 AI 重寫。",
+                empty: "尚無上游錯誤模板。",
+                fingerprint: "錯誤指紋",
+                normalizedStatusCode: "狀態碼 {{value}}",
+                hitCount: "命中 {{count}} 次",
+                semanticErrorCode: "語意錯誤碼",
+                action: "動作",
+                retryScope: "重試範圍",
+                firstSeenAt: "首次出現",
+                lastSeenAt: "最近出現",
+                updatedAt: "最近更新",
+                representativeSamples: "代表樣本",
+                samplesEmpty: "尚未記錄歸一化樣本。",
+                localizedTemplates: "多語言模板",
+                localeEmpty: "此語言尚未產生模板。"
+            },
+            actions: {
+                saveSettings: "儲存錯誤學習設定",
+                approve: "核准",
+                reject: "拒絕",
+                rewrite: "AI 重寫",
+                saveTemplate: "儲存模板",
+                cancel: "取消"
+            },
+            statuses: {
+                provisionalLive: "臨時生效",
+                reviewPending: "待審核",
+                approved: "已核准",
+                rejected: "已拒絕"
+            },
+            actionValues: {
+                returnFailure: "直接失敗",
+                retrySameAccount: "重試同帳號",
+                retryCrossAccount: "重試其他帳號"
+            },
+            retryScopes: {
+                none: "不重試",
+                sameAccount: "同帳號",
+                crossAccount: "跨帳號"
+            },
+            locales: {
+                en: "英文",
+                zhCN: "簡體中文",
+                zhTW: "繁體中文",
+                ja: "日文",
+                ru: "俄文"
+            }
         },
         common: {
             none: "無",

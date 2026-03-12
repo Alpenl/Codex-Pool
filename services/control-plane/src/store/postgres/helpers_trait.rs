@@ -499,6 +499,46 @@ impl ControlPlaneStore for PostgresStore {
         self.update_model_routing_settings_inner(req).await
     }
 
+    async fn upstream_error_learning_settings(&self) -> Result<AiErrorLearningSettings> {
+        self.load_upstream_error_learning_settings_inner().await
+    }
+
+    async fn update_upstream_error_learning_settings(
+        &self,
+        req: UpdateAiErrorLearningSettingsRequest,
+    ) -> Result<AiErrorLearningSettings> {
+        self.update_upstream_error_learning_settings_inner(req).await
+    }
+
+    async fn list_upstream_error_templates(
+        &self,
+        status: Option<UpstreamErrorTemplateStatus>,
+    ) -> Result<Vec<UpstreamErrorTemplateRecord>> {
+        self.list_upstream_error_templates_inner(status).await
+    }
+
+    async fn upstream_error_template_by_id(
+        &self,
+        template_id: Uuid,
+    ) -> Result<Option<UpstreamErrorTemplateRecord>> {
+        self.load_upstream_error_template_by_id_inner(template_id).await
+    }
+
+    async fn upstream_error_template_by_fingerprint(
+        &self,
+        fingerprint: &str,
+    ) -> Result<Option<UpstreamErrorTemplateRecord>> {
+        self.load_upstream_error_template_by_fingerprint_inner(fingerprint)
+            .await
+    }
+
+    async fn save_upstream_error_template(
+        &self,
+        template: UpstreamErrorTemplateRecord,
+    ) -> Result<UpstreamErrorTemplateRecord> {
+        self.save_upstream_error_template_inner(template).await
+    }
+
     async fn list_routing_plan_versions(&self) -> Result<Vec<RoutingPlanVersion>> {
         self.list_routing_plan_versions_inner().await
     }

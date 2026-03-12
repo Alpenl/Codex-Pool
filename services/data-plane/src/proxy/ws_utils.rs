@@ -1113,6 +1113,7 @@ fn parse_ws_request_policy_context(
         model,
         stream: true,
         request_id,
+        detected_locale: detect_request_locale(headers, &bytes::Bytes::new()),
         estimated_input_tokens,
         continuation_key_hint: previous_response_id.clone(),
         sticky_key_hint: previous_response_id

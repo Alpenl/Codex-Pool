@@ -24,6 +24,11 @@ impl InMemoryStore {
                 kill_switch: false,
                 updated_at: Utc::now(),
             })),
+            upstream_error_learning_settings: Arc::new(RwLock::new(
+                AiErrorLearningSettings::default(),
+            )),
+            upstream_error_templates: Arc::new(RwLock::new(HashMap::new())),
+            upstream_error_template_index: Arc::new(RwLock::new(HashMap::new())),
             routing_plan_versions: Arc::new(RwLock::new(Vec::new())),
             revision: Arc::new(AtomicU64::new(1)),
             oauth_client,

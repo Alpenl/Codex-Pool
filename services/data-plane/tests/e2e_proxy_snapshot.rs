@@ -73,6 +73,8 @@ impl SnapshotSource {
                     account_id: old_account.id,
                     account: None,
                     compiled_routing_plan: None,
+                    ai_error_learning_settings: None,
+                    approved_upstream_error_templates: None,
                     created_at: chrono::Utc::now(),
                 });
             }
@@ -85,6 +87,8 @@ impl SnapshotSource {
                 account_id: account.id,
                 account: Some(account),
                 compiled_routing_plan: None,
+                ai_error_learning_settings: None,
+                approved_upstream_error_templates: None,
                 created_at: chrono::Utc::now(),
             });
         }
@@ -109,6 +113,8 @@ impl SnapshotSource {
             accounts: self.accounts.read().unwrap().clone(),
             account_traits: Vec::new(),
             compiled_routing_plan: None,
+            ai_error_learning_settings: Default::default(),
+            approved_upstream_error_templates: Vec::new(),
             issued_at: chrono::Utc::now(),
         }
     }

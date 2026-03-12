@@ -1915,6 +1915,8 @@ export default {
         messages: {
             settingsSaved: "Model routing settings saved.",
             settingsSaveFailed: "Failed to save model routing settings.",
+            errorLearningSettingsSaved: "Upstream error learning settings saved.",
+            errorLearningSettingsSaveFailed: "Failed to save upstream error learning settings.",
             profileSaved: "Routing profile saved: {{name}}",
             profileSaveFailed: "Failed to save routing profile.",
             profileDeleted: "Routing profile deleted.",
@@ -1922,7 +1924,15 @@ export default {
             policySaved: "Model routing policy saved: {{name}}",
             policySaveFailed: "Failed to save model routing policy.",
             policyDeleted: "Model routing policy deleted.",
-            policyDeleteFailed: "Failed to delete model routing policy."
+            policyDeleteFailed: "Failed to delete model routing policy.",
+            templateSaved: "Upstream error template saved.",
+            templateSaveFailed: "Failed to save upstream error template.",
+            templateApproved: "Upstream error template approved.",
+            templateApproveFailed: "Failed to approve upstream error template.",
+            templateRejected: "Upstream error template rejected.",
+            templateRejectFailed: "Failed to reject upstream error template.",
+            templateRewritten: "Upstream error template rewritten by AI.",
+            templateRewriteFailed: "Failed to rewrite upstream error template."
         },
         status: {
             enabled: "Enabled",
@@ -1944,6 +1954,68 @@ export default {
         authProviders: {
             legacyBearer: "Legacy bearer",
             oauthRefreshToken: "OAuth refresh token"
+        },
+        errorLearning: {
+            settings: {
+                title: "Upstream Error Learning",
+                description: "Review first-seen upstream failures before they are promoted into deterministic error rules.",
+                enabled: "Enable upstream error learning",
+                enabledHint: "When disabled, unknown upstream errors fall back to the generic localized error response.",
+                firstSeenTimeoutMs: "First-seen timeout (ms)",
+                firstSeenTimeoutMsHint: "Maximum synchronous wait budget for generating the first provisional template.",
+                reviewHitThreshold: "Review threshold",
+                reviewHitThresholdHint: "Move a provisional template into review after this many repeated hits.",
+                updatedAt: "Updated at {{value}}"
+            },
+            templates: {
+                title: "Template Review Queue",
+                description: "Inspect provisional and pending templates, then approve, reject, edit, or rewrite them.",
+                empty: "No upstream error templates yet.",
+                fingerprint: "Fingerprint",
+                normalizedStatusCode: "Status {{value}}",
+                hitCount: "{{count}} hits",
+                semanticErrorCode: "Semantic error code",
+                action: "Action",
+                retryScope: "Retry scope",
+                firstSeenAt: "First seen",
+                lastSeenAt: "Last seen",
+                updatedAt: "Updated",
+                representativeSamples: "Representative samples",
+                samplesEmpty: "No normalized samples captured yet.",
+                localizedTemplates: "Localized templates",
+                localeEmpty: "No template yet for this locale."
+            },
+            actions: {
+                saveSettings: "Save error-learning settings",
+                approve: "Approve",
+                reject: "Reject",
+                rewrite: "AI rewrite",
+                saveTemplate: "Save template",
+                cancel: "Cancel"
+            },
+            statuses: {
+                provisionalLive: "Provisional live",
+                reviewPending: "Review pending",
+                approved: "Approved",
+                rejected: "Rejected"
+            },
+            actionValues: {
+                returnFailure: "Return failure",
+                retrySameAccount: "Retry same account",
+                retryCrossAccount: "Retry another account"
+            },
+            retryScopes: {
+                none: "Do not retry",
+                sameAccount: "Same account",
+                crossAccount: "Cross-account"
+            },
+            locales: {
+                en: "English",
+                zhCN: "Chinese (Simplified)",
+                zhTW: "Chinese (Traditional)",
+                ja: "Japanese",
+                ru: "Russian"
+            }
         },
         common: {
             none: "None",

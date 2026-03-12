@@ -39,11 +39,27 @@ impl AppState {
             cursor,
             accounts,
             compiled_routing_plan,
+            ai_error_learning_settings,
+            approved_upstream_error_templates,
             ..
         } = snapshot;
 
         self.router.replace_accounts(accounts);
         self.router.replace_compiled_routing_plan(compiled_routing_plan);
+        *self
+            .ai_error_learning_settings
+            .write()
+            .expect("ai error learning settings lock") = ai_error_learning_settings;
+        let mut templates = self
+            .approved_upstream_error_templates
+            .write()
+            .expect("approved upstream error templates lock");
+        templates.clear();
+        templates.extend(
+            approved_upstream_error_templates
+                .into_iter()
+                .map(|template| (template.fingerprint.clone(), template)),
+        );
         self.snapshot_revision
             .store(revision, Ordering::Relaxed);
         self.snapshot_cursor.store(cursor, Ordering::Relaxed);
@@ -61,6 +77,26 @@ impl AppState {
         for event in response.events {
             max_cursor = max_cursor.max(event.id);
             remote_cursor = remote_cursor.max(event.id);
+            if let Some(settings) = event.ai_error_learning_settings {
+                *self
+                    .ai_error_learning_settings
+                    .write()
+                    .expect("ai error learning settings lock") = settings;
+                routing_changed = true;
+            }
+            if let Some(templates) = event.approved_upstream_error_templates {
+                let mut approved = self
+                    .approved_upstream_error_templates
+                    .write()
+                    .expect("approved upstream error templates lock");
+                approved.clear();
+                approved.extend(
+                    templates
+                        .into_iter()
+                        .map(|template| (template.fingerprint.clone(), template)),
+                );
+                routing_changed = true;
+            }
             match event.event_type {
                 DataPlaneSnapshotEventType::AccountUpsert => {
                     if let Some(account) = event.account {

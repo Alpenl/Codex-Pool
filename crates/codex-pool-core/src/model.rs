@@ -164,6 +164,86 @@ pub struct ModelRoutingSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AiErrorLearningSettings {
+    pub enabled: bool,
+    pub first_seen_timeout_ms: u64,
+    pub review_hit_threshold: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+impl Default for AiErrorLearningSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            first_seen_timeout_ms: 2_000,
+            review_hit_threshold: 10,
+            updated_at: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct LocalizedErrorTemplates {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub en: Option<String>,
+    #[serde(default, rename = "zh-CN", skip_serializing_if = "Option::is_none")]
+    pub zh_cn: Option<String>,
+    #[serde(default, rename = "zh-TW", skip_serializing_if = "Option::is_none")]
+    pub zh_tw: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ja: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ru: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum UpstreamErrorAction {
+    ReturnFailure,
+    RetrySameAccount,
+    RetryCrossAccount,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum UpstreamErrorRetryScope {
+    None,
+    SameAccount,
+    CrossAccount,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum UpstreamErrorTemplateStatus {
+    ProvisionalLive,
+    ReviewPending,
+    Approved,
+    Rejected,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UpstreamErrorTemplateRecord {
+    pub id: Uuid,
+    pub fingerprint: String,
+    pub provider: String,
+    pub normalized_status_code: u16,
+    pub semantic_error_code: String,
+    pub action: UpstreamErrorAction,
+    pub retry_scope: UpstreamErrorRetryScope,
+    pub status: UpstreamErrorTemplateStatus,
+    #[serde(default)]
+    pub templates: LocalizedErrorTemplates,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub representative_samples: Vec<String>,
+    #[serde(default)]
+    pub hit_count: u64,
+    pub first_seen_at: DateTime<Utc>,
+    pub last_seen_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RoutingPlanVersion {
     pub id: Uuid,
     #[serde(skip_serializing_if = "Option::is_none")]

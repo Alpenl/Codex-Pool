@@ -659,12 +659,8 @@ impl OAuthTokenClient for OpenAiOAuthClient {
         base_url: Option<&str>,
         chatgpt_account_id: Option<&str>,
     ) -> Result<Option<String>, OAuthTokenClientError> {
-        self.fetch_workspace_name_from_backend_api(
-            access_token,
-            base_url,
-            chatgpt_account_id,
-        )
-        .await
+        self.fetch_workspace_name_from_backend_api(access_token, base_url, chatgpt_account_id)
+            .await
     }
 }
 
@@ -765,7 +761,12 @@ fn resolve_workspace_check_endpoint(base_url: Option<&str>) -> Option<String> {
         return None;
     }
 
-    Some(format!("{}://{}{}", parsed.scheme(), host, CHATGPT_ACCOUNTS_CHECK_PATH))
+    Some(format!(
+        "{}://{}{}",
+        parsed.scheme(),
+        host,
+        CHATGPT_ACCOUNTS_CHECK_PATH
+    ))
 }
 
 fn rate_limit_snapshots_from_payload(
@@ -877,7 +878,10 @@ fn parse_id_token_claims(id_token: &str) -> Option<OAuthIdTokenClaims> {
             }),
         chatgpt_user_id: nested_auth_claims
             .and_then(|nested| {
-                claim_string(nested, &["chatgpt_user_id", "chatgptUserId", "user_id", "userId"])
+                claim_string(
+                    nested,
+                    &["chatgpt_user_id", "chatgptUserId", "user_id", "userId"],
+                )
             })
             .or_else(|| {
                 claim_string(
@@ -979,10 +983,7 @@ fn parse_access_token_claims(access_token: &str) -> Option<OAuthAccessTokenClaim
             )
         }),
         chatgpt_account_user_id: nested_auth_claims.and_then(|nested| {
-            claim_string(
-                nested,
-                &["chatgpt_account_user_id", "chatgptAccountUserId"],
-            )
+            claim_string(nested, &["chatgpt_account_user_id", "chatgptAccountUserId"])
         }),
         chatgpt_compute_residency: nested_auth_claims.and_then(|nested| {
             claim_string(
@@ -1003,7 +1004,10 @@ fn parse_access_token_claims(access_token: &str) -> Option<OAuthAccessTokenClaim
             )
         }),
         chatgpt_user_id: nested_auth_claims.and_then(|nested| {
-            claim_string(nested, &["chatgpt_user_id", "chatgptUserId", "user_id", "userId"])
+            claim_string(
+                nested,
+                &["chatgpt_user_id", "chatgptUserId", "user_id", "userId"],
+            )
         }),
     })
 }
@@ -1087,9 +1091,13 @@ fn find_workspace_name_in_value(value: &Value, target_account_id: &str) -> Optio
                     return Some(name);
                 }
 
-                for nested_key in ["workspace", "account", "current_workspace", "current_account"] {
-                    if let Some(name) = map.get(nested_key).and_then(extract_workspace_name_label)
-                    {
+                for nested_key in [
+                    "workspace",
+                    "account",
+                    "current_workspace",
+                    "current_account",
+                ] {
+                    if let Some(name) = map.get(nested_key).and_then(extract_workspace_name_label) {
                         return Some(name);
                     }
                 }
@@ -1213,8 +1221,7 @@ mod tests {
     use super::{
         classify_oauth_error_code, parse_access_token_claims, parse_id_token_claims,
         parse_workspace_name_from_accounts_check, resolve_usage_endpoint,
-        resolve_workspace_check_endpoint,
-        OAuthRefreshErrorCode, OAuthTokenEndpointError,
+        resolve_workspace_check_endpoint, OAuthRefreshErrorCode, OAuthTokenEndpointError,
     };
     use base64::Engine;
     use chrono::{DateTime, Utc};
@@ -1361,22 +1368,37 @@ mod tests {
         let token = format!("header.{payload_segment}.signature");
 
         let claims = parse_id_token_claims(&token).expect("claims should parse");
-        assert_eq!(claims.oauth_subject.as_deref(), Some("google-oauth2|1234567890"));
+        assert_eq!(
+            claims.oauth_subject.as_deref(),
+            Some("google-oauth2|1234567890")
+        );
         assert_eq!(claims.oauth_identity_provider.as_deref(), Some("google"));
         assert_eq!(claims.email.as_deref(), Some("demo@example.com"));
         assert_eq!(claims.email_verified, Some(true));
         assert_eq!(claims.chatgpt_user_id.as_deref(), Some("user_shared"));
         assert_eq!(
             claims.chatgpt_subscription_active_start,
-            Some(DateTime::parse_from_rfc3339("2026-03-07T07:34:14+00:00").unwrap().with_timezone(&Utc))
+            Some(
+                DateTime::parse_from_rfc3339("2026-03-07T07:34:14+00:00")
+                    .unwrap()
+                    .with_timezone(&Utc)
+            )
         );
         assert_eq!(
             claims.chatgpt_subscription_active_until,
-            Some(DateTime::parse_from_rfc3339("2026-04-07T07:34:14+00:00").unwrap().with_timezone(&Utc))
+            Some(
+                DateTime::parse_from_rfc3339("2026-04-07T07:34:14+00:00")
+                    .unwrap()
+                    .with_timezone(&Utc)
+            )
         );
         assert_eq!(
             claims.chatgpt_subscription_last_checked,
-            Some(DateTime::parse_from_rfc3339("2026-03-11T03:58:04.173746+00:00").unwrap().with_timezone(&Utc))
+            Some(
+                DateTime::parse_from_rfc3339("2026-03-11T03:58:04.173746+00:00")
+                    .unwrap()
+                    .with_timezone(&Utc)
+            )
         );
         assert_eq!(claims.organizations.as_ref().map(Vec::len), Some(1));
         assert_eq!(claims.groups.as_ref().map(Vec::len), Some(1));
@@ -1404,7 +1426,10 @@ mod tests {
         let token = format!("header.{payload_segment}.signature");
 
         let claims = parse_access_token_claims(&token).expect("claims should parse");
-        assert_eq!(claims.oauth_subject.as_deref(), Some("google-oauth2|1234567890"));
+        assert_eq!(
+            claims.oauth_subject.as_deref(),
+            Some("google-oauth2|1234567890")
+        );
         assert_eq!(claims.email.as_deref(), Some("demo@example.com"));
         assert_eq!(claims.email_verified, Some(true));
         assert_eq!(claims.chatgpt_account_id.as_deref(), Some("acct_nested"));
@@ -1437,8 +1462,7 @@ mod tests {
             ]
         });
 
-        let workspace_name =
-            parse_workspace_name_from_accounts_check(&payload, "acct-team");
+        let workspace_name = parse_workspace_name_from_accounts_check(&payload, "acct-team");
         assert_eq!(workspace_name.as_deref(), Some("OAI-03.09"));
     }
 }

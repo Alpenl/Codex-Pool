@@ -351,6 +351,17 @@ impl InMemoryStore {
 
         let account_traits_map = self.build_account_routing_traits(&accounts);
         let compiled_routing_plan = self.compile_routing_plan_from_state(&accounts, &account_traits_map);
+        let ai_error_learning_settings = self.upstream_error_learning_settings.read().unwrap().clone();
+        let mut approved_upstream_error_templates = self
+            .upstream_error_templates
+            .read()
+            .unwrap()
+            .values()
+            .filter(|template| template.status == UpstreamErrorTemplateStatus::Approved)
+            .cloned()
+            .collect::<Vec<_>>();
+        approved_upstream_error_templates
+            .sort_by(|left, right| left.fingerprint.cmp(&right.fingerprint));
 
         Ok(DataPlaneSnapshot {
             revision: self.revision.load(Ordering::Relaxed),
@@ -358,6 +369,8 @@ impl InMemoryStore {
             accounts,
             account_traits: account_traits_map.into_values().collect(),
             compiled_routing_plan,
+            ai_error_learning_settings,
+            approved_upstream_error_templates,
             issued_at: Utc::now(),
         })
     }

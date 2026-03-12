@@ -7,16 +7,19 @@ use codex_pool_core::api::{
     DataPlaneSnapshotEventsResponse, ImportOAuthRefreshTokenRequest, OAuthAccountStatusResponse,
     OAuthFamilyActionResponse, OAuthRateLimitRefreshErrorSummary, OAuthRateLimitRefreshJobStatus,
     OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot, OAuthRefreshStatus,
-    SessionCredentialKind, UpsertModelRoutingPolicyRequest, UpsertRetryPolicyRequest,
-    UpsertRoutingPolicyRequest, UpsertRoutingProfileRequest, UpsertStreamRetryPolicyRequest,
+    SessionCredentialKind, UpdateAiErrorLearningSettingsRequest,
+    UpsertModelRoutingPolicyRequest, UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest,
+    UpsertRoutingProfileRequest, UpsertStreamRetryPolicyRequest,
     UpdateModelRoutingSettingsRequest, ValidateOAuthRefreshTokenRequest,
     ValidateOAuthRefreshTokenResponse,
 };
 use codex_pool_core::model::{
-    AccountRoutingTraits, ApiKey, ModelRoutingSettings, ModelRoutingTriggerMode,
-    CompiledModelRoutingPolicy, CompiledRoutingPlan, CompiledRoutingProfile,
-    ModelRoutingPolicy, RoutingPlanVersion, RoutingPolicy, RoutingProfile, RoutingProfileSelector,
-    RoutingStrategy, Tenant, UpstreamAccount, UpstreamAuthProvider, UpstreamMode,
+    AccountRoutingTraits, AiErrorLearningSettings, ApiKey, CompiledModelRoutingPolicy,
+    CompiledRoutingPlan, CompiledRoutingProfile, LocalizedErrorTemplates,
+    ModelRoutingPolicy, ModelRoutingSettings, ModelRoutingTriggerMode, RoutingPlanVersion,
+    RoutingPolicy, RoutingProfile, RoutingProfileSelector, RoutingStrategy, Tenant,
+    UpstreamAccount, UpstreamAuthProvider, UpstreamErrorAction, UpstreamErrorRetryScope,
+    UpstreamErrorTemplateRecord, UpstreamErrorTemplateStatus, UpstreamMode,
 };
 use futures_util::StreamExt;
 use sha2::{Digest, Sha256};

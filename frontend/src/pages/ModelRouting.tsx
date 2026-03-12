@@ -1,8 +1,19 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { RotateCw, Save, SquarePen, Trash2 } from 'lucide-react'
+import { Ban, Check, RotateCw, Save, Sparkles, SquarePen, Trash2, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import {
+  aiErrorLearningApi,
+  type AiErrorLearningSettings,
+  type LocalizedErrorTemplates,
+  type SupportedErrorTemplateLocale,
+  type UpdateUpstreamErrorTemplateRequest,
+  type UpstreamErrorAction,
+  type UpstreamErrorRetryScope,
+  type UpstreamErrorTemplateRecord,
+  type UpstreamErrorTemplateStatus,
+} from '@/api/aiErrorLearning'
 import {
   modelRoutingApi,
   type ModelRoutingSettings,
@@ -68,6 +79,24 @@ type SettingsFormState = {
   killSwitch: boolean
 }
 
+type ErrorLearningSettingsFormState = {
+  enabled: boolean
+  firstSeenTimeoutMs: string
+  reviewHitThreshold: string
+}
+
+type UpstreamErrorTemplateDraft = {
+  semanticErrorCode: string
+  action: UpstreamErrorAction
+  retryScope: UpstreamErrorRetryScope
+  templates: Record<SupportedErrorTemplateLocale, string>
+}
+
+type UpdateTemplateMutationPayload = {
+  templateId: string
+  payload: UpdateUpstreamErrorTemplateRequest
+}
+
 const DEFAULT_PROFILE_FORM: ProfileFormState = {
   name: '',
   description: '',
@@ -90,6 +119,20 @@ const DEFAULT_POLICY_FORM: PolicyFormState = {
   priority: '100',
 }
 
+const ERROR_TEMPLATE_LOCALES: SupportedErrorTemplateLocale[] = ['en', 'zh-CN', 'zh-TW', 'ja', 'ru']
+
+const ERROR_TEMPLATE_ACTIONS: UpstreamErrorAction[] = [
+  'return_failure',
+  'retry_same_account',
+  'retry_cross_account',
+]
+
+const ERROR_TEMPLATE_RETRY_SCOPES: UpstreamErrorRetryScope[] = [
+  'none',
+  'same_account',
+  'cross_account',
+]
+
 function parseCsvInput(raw: string): string[] {
   return raw
     .split(/[\n,]/)
@@ -108,6 +151,11 @@ function formatDateTime(value?: string | null) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '-'
   return date.toLocaleString()
+}
+
+function parseIntegerInput(raw: string, fallback: number) {
+  const value = Number(raw)
+  return Number.isFinite(value) && value >= 0 ? Math.trunc(value) : fallback
 }
 
 function selectorFilterSummary(profile: RoutingProfile, t: ReturnType<typeof useTranslation>['t']) {
@@ -178,6 +226,98 @@ function createSettingsDraft(settings: ModelRoutingSettings): SettingsFormState 
   }
 }
 
+function createErrorLearningSettingsDraft(
+  settings: AiErrorLearningSettings,
+): ErrorLearningSettingsFormState {
+  return {
+    enabled: settings.enabled,
+    firstSeenTimeoutMs: String(settings.first_seen_timeout_ms),
+    reviewHitThreshold: String(settings.review_hit_threshold),
+  }
+}
+
+function createUpstreamErrorTemplateDraft(
+  template: UpstreamErrorTemplateRecord,
+): UpstreamErrorTemplateDraft {
+  return {
+    semanticErrorCode: template.semantic_error_code,
+    action: template.action,
+    retryScope: template.retry_scope,
+    templates: {
+      en: template.templates.en ?? '',
+      'zh-CN': template.templates['zh-CN'] ?? '',
+      'zh-TW': template.templates['zh-TW'] ?? '',
+      ja: template.templates.ja ?? '',
+      ru: template.templates.ru ?? '',
+    },
+  }
+}
+
+function createLocalizedErrorTemplatesPayload(
+  draft: UpstreamErrorTemplateDraft,
+): LocalizedErrorTemplates {
+  return {
+    en: draft.templates.en.trim() || null,
+    'zh-CN': draft.templates['zh-CN'].trim() || null,
+    'zh-TW': draft.templates['zh-TW'].trim() || null,
+    ja: draft.templates.ja.trim() || null,
+    ru: draft.templates.ru.trim() || null,
+  }
+}
+
+function templateStatusVariant(
+  status: UpstreamErrorTemplateStatus,
+): 'success' | 'warning' | 'secondary' | 'destructive' | 'info' {
+  if (status === 'approved') return 'success'
+  if (status === 'review_pending') return 'warning'
+  if (status === 'rejected') return 'destructive'
+  return 'info'
+}
+
+function templateStatusLabel(
+  status: UpstreamErrorTemplateStatus,
+  t: ReturnType<typeof useTranslation>['t'],
+) {
+  if (status === 'review_pending') return t('modelRoutingPage.errorLearning.statuses.reviewPending')
+  if (status === 'approved') return t('modelRoutingPage.errorLearning.statuses.approved')
+  if (status === 'rejected') return t('modelRoutingPage.errorLearning.statuses.rejected')
+  return t('modelRoutingPage.errorLearning.statuses.provisionalLive')
+}
+
+function upstreamErrorActionLabel(
+  action: UpstreamErrorAction,
+  t: ReturnType<typeof useTranslation>['t'],
+) {
+  if (action === 'retry_same_account') {
+    return t('modelRoutingPage.errorLearning.actionValues.retrySameAccount')
+  }
+  if (action === 'retry_cross_account') {
+    return t('modelRoutingPage.errorLearning.actionValues.retryCrossAccount')
+  }
+  return t('modelRoutingPage.errorLearning.actionValues.returnFailure')
+}
+
+function upstreamErrorRetryScopeLabel(
+  scope: UpstreamErrorRetryScope,
+  t: ReturnType<typeof useTranslation>['t'],
+) {
+  if (scope === 'same_account') {
+    return t('modelRoutingPage.errorLearning.retryScopes.sameAccount')
+  }
+  if (scope === 'cross_account') {
+    return t('modelRoutingPage.errorLearning.retryScopes.crossAccount')
+  }
+  return t('modelRoutingPage.errorLearning.retryScopes.none')
+}
+
+function localeLabel(locale: SupportedErrorTemplateLocale, t: ReturnType<typeof useTranslation>['t']) {
+  if (locale === 'zh-CN') return t('modelRoutingPage.errorLearning.locales.zhCN')
+  if (locale === 'zh-TW') return t('modelRoutingPage.errorLearning.locales.zhTW')
+  if (locale === 'ja') return t('modelRoutingPage.errorLearning.locales.ja')
+  if (locale === 'ru') return t('modelRoutingPage.errorLearning.locales.ru')
+  return t('modelRoutingPage.errorLearning.locales.en')
+}
+
 export default function ModelRouting() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -188,6 +328,12 @@ export default function ModelRouting() {
   const [profileForm, setProfileForm] = useState<ProfileFormState>(DEFAULT_PROFILE_FORM)
   const [policyForm, setPolicyForm] = useState<PolicyFormState>(DEFAULT_POLICY_FORM)
   const [settingsDraftOverride, setSettingsDraftOverride] = useState<SettingsFormState | null>(null)
+  const [errorLearningDraftOverride, setErrorLearningDraftOverride] =
+    useState<ErrorLearningSettingsFormState | null>(null)
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null)
+  const [editingTemplateDraft, setEditingTemplateDraft] = useState<UpstreamErrorTemplateDraft | null>(
+    null,
+  )
 
   const resolveErrorLabel = useCallback(
     (err: unknown, fallback: string) => localizeApiErrorDisplay(t, err, fallback).label,
@@ -197,18 +343,29 @@ export default function ModelRouting() {
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ['adminModelRouting'],
     queryFn: async () => {
-      const [profilesPayload, policiesPayload, settingsPayload, versionsPayload] =
+      const [
+        profilesPayload,
+        policiesPayload,
+        settingsPayload,
+        versionsPayload,
+        errorLearningSettingsPayload,
+        upstreamErrorTemplatesPayload,
+      ] =
         await Promise.all([
           modelRoutingApi.listProfiles(),
           modelRoutingApi.listPolicies(),
           modelRoutingApi.getSettings(),
           modelRoutingApi.listVersions(),
+          aiErrorLearningApi.getSettings(),
+          aiErrorLearningApi.listTemplates(),
         ])
       return {
         profiles: profilesPayload.profiles ?? [],
         policies: policiesPayload.policies ?? [],
         settings: settingsPayload.settings,
         versions: versionsPayload.versions ?? [],
+        errorLearningSettings: errorLearningSettingsPayload.settings,
+        upstreamErrorTemplates: upstreamErrorTemplatesPayload.templates ?? [],
       }
     },
     staleTime: 30_000,
@@ -218,9 +375,35 @@ export default function ModelRouting() {
   const policies = useMemo(() => data?.policies ?? [], [data?.policies])
   const settings = data?.settings ?? null
   const versions = useMemo(() => data?.versions ?? [], [data?.versions])
+  const errorLearningSettings = data?.errorLearningSettings ?? null
+  const upstreamErrorTemplates = useMemo(() => {
+    const items = [...(data?.upstreamErrorTemplates ?? [])]
+    const statusRank: Record<UpstreamErrorTemplateStatus, number> = {
+      review_pending: 0,
+      provisional_live: 1,
+      approved: 2,
+      rejected: 3,
+    }
+    items.sort((left, right) => {
+      if (statusRank[left.status] !== statusRank[right.status]) {
+        return statusRank[left.status] - statusRank[right.status]
+      }
+      if (right.hit_count !== left.hit_count) {
+        return right.hit_count - left.hit_count
+      }
+      return new Date(right.last_seen_at).getTime() - new Date(left.last_seen_at).getTime()
+    })
+    return items
+  }, [data?.upstreamErrorTemplates])
   const settingsDraft = useMemo(
     () => settingsDraftOverride ?? (settings ? createSettingsDraft(settings) : null),
     [settingsDraftOverride, settings],
+  )
+  const errorLearningSettingsDraft = useMemo(
+    () =>
+      errorLearningDraftOverride ??
+      (errorLearningSettings ? createErrorLearningSettingsDraft(errorLearningSettings) : null),
+    [errorLearningDraftOverride, errorLearningSettings],
   )
 
   const updateSettingsDraft = useCallback(
@@ -232,6 +415,19 @@ export default function ModelRouting() {
       setSettingsDraftOverride(updater(base))
     },
     [settings, settingsDraft],
+  )
+
+  const updateErrorLearningDraft = useCallback(
+    (updater: (current: ErrorLearningSettingsFormState) => ErrorLearningSettingsFormState) => {
+      const base =
+        errorLearningSettingsDraft ??
+        (errorLearningSettings ? createErrorLearningSettingsDraft(errorLearningSettings) : null)
+      if (!base) {
+        return
+      }
+      setErrorLearningDraftOverride(updater(base))
+    },
+    [errorLearningSettings, errorLearningSettingsDraft],
   )
 
   const profileNames = useMemo(() => {
@@ -259,6 +455,36 @@ export default function ModelRouting() {
     },
     onError: (err) => {
       setError(resolveErrorLabel(err, t('modelRoutingPage.messages.settingsSaveFailed')))
+    },
+  })
+
+  const saveErrorLearningSettingsMutation = useMutation({
+    mutationFn: async () => {
+      if (!errorLearningSettingsDraft || !errorLearningSettings) {
+        throw new Error('error_learning_settings_missing')
+      }
+      return aiErrorLearningApi.updateSettings({
+        enabled: errorLearningSettingsDraft.enabled,
+        first_seen_timeout_ms: parseIntegerInput(
+          errorLearningSettingsDraft.firstSeenTimeoutMs,
+          errorLearningSettings.first_seen_timeout_ms,
+        ),
+        review_hit_threshold: parseIntegerInput(
+          errorLearningSettingsDraft.reviewHitThreshold,
+          errorLearningSettings.review_hit_threshold,
+        ),
+      })
+    },
+    onSuccess: () => {
+      setError(null)
+      setNotice(t('modelRoutingPage.messages.errorLearningSettingsSaved'))
+      setErrorLearningDraftOverride(null)
+      queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
+    },
+    onError: (err) => {
+      setError(
+        resolveErrorLabel(err, t('modelRoutingPage.messages.errorLearningSettingsSaveFailed')),
+      )
     },
   })
 
@@ -338,6 +564,65 @@ export default function ModelRouting() {
     },
   })
 
+  const updateTemplateMutation = useMutation({
+    mutationFn: ({ templateId, payload }: UpdateTemplateMutationPayload) =>
+      aiErrorLearningApi.updateTemplate(templateId, payload),
+    onSuccess: () => {
+      setError(null)
+      setNotice(t('modelRoutingPage.messages.templateSaved'))
+      setEditingTemplateId(null)
+      setEditingTemplateDraft(null)
+      queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
+    },
+    onError: (err) => {
+      setError(resolveErrorLabel(err, t('modelRoutingPage.messages.templateSaveFailed')))
+    },
+  })
+
+  const approveTemplateMutation = useMutation({
+    mutationFn: (templateId: string) => aiErrorLearningApi.approveTemplate(templateId),
+    onSuccess: ({ template }) => {
+      setError(null)
+      setNotice(t('modelRoutingPage.messages.templateApproved'))
+      if (editingTemplateId === template.id) {
+        setEditingTemplateId(null)
+      }
+      queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
+    },
+    onError: (err) => {
+      setError(resolveErrorLabel(err, t('modelRoutingPage.messages.templateApproveFailed')))
+    },
+  })
+
+  const rejectTemplateMutation = useMutation({
+    mutationFn: (templateId: string) => aiErrorLearningApi.rejectTemplate(templateId),
+    onSuccess: ({ template }) => {
+      setError(null)
+      setNotice(t('modelRoutingPage.messages.templateRejected'))
+      if (editingTemplateId === template.id) {
+        setEditingTemplateId(null)
+      }
+      queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
+    },
+    onError: (err) => {
+      setError(resolveErrorLabel(err, t('modelRoutingPage.messages.templateRejectFailed')))
+    },
+  })
+
+  const rewriteTemplateMutation = useMutation({
+    mutationFn: (templateId: string) => aiErrorLearningApi.rewriteTemplate(templateId),
+    onSuccess: ({ template }) => {
+      setError(null)
+      setNotice(t('modelRoutingPage.messages.templateRewritten'))
+      setEditingTemplateId(template.id)
+      setEditingTemplateDraft(createUpstreamErrorTemplateDraft(template))
+      queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
+    },
+    onError: (err) => {
+      setError(resolveErrorLabel(err, t('modelRoutingPage.messages.templateRewriteFailed')))
+    },
+  })
+
   const openCreateProfileDialog = () => {
     setProfileForm(DEFAULT_PROFILE_FORM)
     setProfileDialogOpen(true)
@@ -378,9 +663,31 @@ export default function ModelRouting() {
     setPolicyDialogOpen(true)
   }
 
+  const openTemplateEditor = (template: UpstreamErrorTemplateRecord) => {
+    setEditingTemplateId(template.id)
+    setEditingTemplateDraft(createUpstreamErrorTemplateDraft(template))
+  }
+
+  const cancelTemplateEditor = () => {
+    setEditingTemplateId(null)
+    setEditingTemplateDraft(null)
+  }
+
+  const updateTemplateDraft = useCallback(
+    (updater: (current: UpstreamErrorTemplateDraft) => UpstreamErrorTemplateDraft) => {
+      setEditingTemplateDraft((current) => (current ? updater(current) : current))
+    },
+    [],
+  )
+
   const modeOptions: UpstreamMode[] = ['codex_oauth', 'chat_gpt_session', 'open_ai_api_key']
   const authProviderOptions: UpstreamAuthProvider[] = ['oauth_refresh_token', 'legacy_bearer']
   const triggerModeOptions: ModelRoutingTriggerMode[] = ['hybrid', 'scheduled_only', 'event_only']
+  const anyTemplateMutationPending =
+    updateTemplateMutation.isPending ||
+    approveTemplateMutation.isPending ||
+    rejectTemplateMutation.isPending ||
+    rewriteTemplateMutation.isPending
 
   return (
     <div className="flex-1 overflow-y-auto p-8">
@@ -598,6 +905,388 @@ export default function ModelRouting() {
                         })}
                       </span>
                     </div>
+                  </div>
+                )
+              })
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(320px,0.75fr)_minmax(0,1.25fr)]">
+        <Card className="border-border/60">
+          <CardHeader>
+            <CardTitle>{t('modelRoutingPage.errorLearning.settings.title')}</CardTitle>
+            <CardDescription>{t('modelRoutingPage.errorLearning.settings.description')}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={errorLearningSettings?.enabled ? 'success' : 'secondary'}>
+                {errorLearningSettings?.enabled
+                  ? t('modelRoutingPage.status.enabled')
+                  : t('modelRoutingPage.status.disabled')}
+              </Badge>
+              <Badge variant="outline">
+                {t('modelRoutingPage.errorLearning.settings.updatedAt', {
+                  value: formatDateTime(errorLearningSettings?.updated_at),
+                })}
+              </Badge>
+            </div>
+
+            <label className={POOL_SECTION_CLASS_NAME}>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-medium">{t('modelRoutingPage.errorLearning.settings.enabled')}</div>
+                  <div className="text-sm text-muted-foreground">
+                    {t('modelRoutingPage.errorLearning.settings.enabledHint')}
+                  </div>
+                </div>
+                <Checkbox
+                  checked={errorLearningSettingsDraft?.enabled ?? false}
+                  onCheckedChange={(checked) =>
+                    updateErrorLearningDraft((prev) => ({
+                      ...prev,
+                      enabled: checked === true,
+                    }))
+                  }
+                />
+              </div>
+            </label>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  {t('modelRoutingPage.errorLearning.settings.firstSeenTimeoutMs')}
+                </label>
+                <Input
+                  type="number"
+                  value={errorLearningSettingsDraft?.firstSeenTimeoutMs ?? ''}
+                  onChange={(event) =>
+                    updateErrorLearningDraft((prev) => ({
+                      ...prev,
+                      firstSeenTimeoutMs: event.target.value,
+                    }))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('modelRoutingPage.errorLearning.settings.firstSeenTimeoutMsHint')}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  {t('modelRoutingPage.errorLearning.settings.reviewHitThreshold')}
+                </label>
+                <Input
+                  type="number"
+                  value={errorLearningSettingsDraft?.reviewHitThreshold ?? ''}
+                  onChange={(event) =>
+                    updateErrorLearningDraft((prev) => ({
+                      ...prev,
+                      reviewHitThreshold: event.target.value,
+                    }))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('modelRoutingPage.errorLearning.settings.reviewHitThresholdHint')}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <Button
+                onClick={() => saveErrorLearningSettingsMutation.mutate()}
+                disabled={saveErrorLearningSettingsMutation.isPending}
+              >
+                <Save className="mr-2 h-4 w-4" />
+                {t('modelRoutingPage.errorLearning.actions.saveSettings')}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/60">
+          <CardHeader>
+            <CardTitle>{t('modelRoutingPage.errorLearning.templates.title')}</CardTitle>
+            <CardDescription>{t('modelRoutingPage.errorLearning.templates.description')}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {upstreamErrorTemplates.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                {t('modelRoutingPage.errorLearning.templates.empty')}
+              </div>
+            ) : (
+              upstreamErrorTemplates.map((template) => {
+                const isEditing = editingTemplateId === template.id && editingTemplateDraft !== null
+
+                return (
+                  <div key={template.id} className={POOL_SECTION_CLASS_NAME}>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant={templateStatusVariant(template.status)}>
+                            {templateStatusLabel(template.status, t)}
+                          </Badge>
+                          <Badge variant="outline">{template.provider}</Badge>
+                          <Badge variant="outline">
+                            {t('modelRoutingPage.errorLearning.templates.normalizedStatusCode', {
+                              value: template.normalized_status_code,
+                            })}
+                          </Badge>
+                          <Badge variant="secondary">
+                            {t('modelRoutingPage.errorLearning.templates.hitCount', {
+                              count: template.hit_count,
+                            })}
+                          </Badge>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {t('modelRoutingPage.errorLearning.templates.fingerprint')}
+                        </div>
+                        <code className="block overflow-x-auto rounded bg-muted/50 px-3 py-2 text-xs">
+                          {template.fingerprint}
+                        </code>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openTemplateEditor(template)}
+                          disabled={anyTemplateMutationPending}
+                        >
+                          <SquarePen className="mr-2 h-4 w-4" />
+                          {t('modelRoutingPage.actions.edit')}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => rewriteTemplateMutation.mutate(template.id)}
+                          disabled={anyTemplateMutationPending}
+                        >
+                          <Sparkles className="mr-2 h-4 w-4" />
+                          {t('modelRoutingPage.errorLearning.actions.rewrite')}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => approveTemplateMutation.mutate(template.id)}
+                          disabled={anyTemplateMutationPending || template.status === 'approved'}
+                        >
+                          <Check className="mr-2 h-4 w-4" />
+                          {t('modelRoutingPage.errorLearning.actions.approve')}
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => rejectTemplateMutation.mutate(template.id)}
+                          disabled={anyTemplateMutationPending || template.status === 'rejected'}
+                        >
+                          <Ban className="mr-2 h-4 w-4" />
+                          {t('modelRoutingPage.errorLearning.actions.reject')}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 text-sm text-muted-foreground md:grid-cols-3">
+                      <div>
+                        <div className="text-xs font-medium uppercase tracking-wide">
+                          {t('modelRoutingPage.errorLearning.templates.semanticErrorCode')}
+                        </div>
+                        {isEditing ? (
+                          <Input
+                            value={editingTemplateDraft.semanticErrorCode}
+                            onChange={(event) =>
+                              updateTemplateDraft((prev) => ({
+                                ...prev,
+                                semanticErrorCode: event.target.value,
+                              }))
+                            }
+                          />
+                        ) : (
+                          <div className="mt-1 font-mono text-foreground">
+                            {template.semantic_error_code || '-'}
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="text-xs font-medium uppercase tracking-wide">
+                          {t('modelRoutingPage.errorLearning.templates.action')}
+                        </div>
+                        {isEditing ? (
+                          <Select
+                            value={editingTemplateDraft.action}
+                            onValueChange={(value) =>
+                              updateTemplateDraft((prev) => ({
+                                ...prev,
+                                action: value as UpstreamErrorAction,
+                              }))
+                            }
+                          >
+                            <SelectTrigger className="mt-1 w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ERROR_TEMPLATE_ACTIONS.map((action) => (
+                                <SelectItem key={action} value={action}>
+                                  {upstreamErrorActionLabel(action, t)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <div className="mt-1 text-foreground">
+                            {upstreamErrorActionLabel(template.action, t)}
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="text-xs font-medium uppercase tracking-wide">
+                          {t('modelRoutingPage.errorLearning.templates.retryScope')}
+                        </div>
+                        {isEditing ? (
+                          <Select
+                            value={editingTemplateDraft.retryScope}
+                            onValueChange={(value) =>
+                              updateTemplateDraft((prev) => ({
+                                ...prev,
+                                retryScope: value as UpstreamErrorRetryScope,
+                              }))
+                            }
+                          >
+                            <SelectTrigger className="mt-1 w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ERROR_TEMPLATE_RETRY_SCOPES.map((scope) => (
+                                <SelectItem key={scope} value={scope}>
+                                  {upstreamErrorRetryScopeLabel(scope, t)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <div className="mt-1 text-foreground">
+                            {upstreamErrorRetryScopeLabel(template.retry_scope, t)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 text-sm text-muted-foreground md:grid-cols-3">
+                      <div>
+                        <div className="text-xs font-medium uppercase tracking-wide">
+                          {t('modelRoutingPage.errorLearning.templates.firstSeenAt')}
+                        </div>
+                        <div className="mt-1 text-foreground">{formatDateTime(template.first_seen_at)}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-medium uppercase tracking-wide">
+                          {t('modelRoutingPage.errorLearning.templates.lastSeenAt')}
+                        </div>
+                        <div className="mt-1 text-foreground">{formatDateTime(template.last_seen_at)}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-medium uppercase tracking-wide">
+                          {t('modelRoutingPage.errorLearning.templates.updatedAt')}
+                        </div>
+                        <div className="mt-1 text-foreground">{formatDateTime(template.updated_at)}</div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        {t('modelRoutingPage.errorLearning.templates.representativeSamples')}
+                      </div>
+                      {template.representative_samples.length === 0 ? (
+                        <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                          {t('modelRoutingPage.errorLearning.templates.samplesEmpty')}
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {template.representative_samples.map((sample, index) => (
+                            <code
+                              key={`${template.id}-sample-${index}`}
+                              className="block overflow-x-auto rounded bg-muted/50 px-3 py-2 text-xs"
+                            >
+                              {sample}
+                            </code>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        {t('modelRoutingPage.errorLearning.templates.localizedTemplates')}
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        {ERROR_TEMPLATE_LOCALES.map((key) => (
+                          <div key={`${template.id}-${key}`} className="space-y-2">
+                            <div className="text-xs font-medium text-muted-foreground">
+                              {localeLabel(key, t)}
+                            </div>
+                            {isEditing ? (
+                              <Textarea
+                                rows={3}
+                                value={editingTemplateDraft.templates[key]}
+                                onChange={(event) =>
+                                  updateTemplateDraft((prev) => ({
+                                    ...prev,
+                                    templates: {
+                                      ...prev.templates,
+                                      [key]: event.target.value,
+                                    },
+                                  }))
+                                }
+                              />
+                            ) : (
+                              <div className="min-h-24 whitespace-pre-wrap rounded-lg border bg-muted/30 p-3 text-sm text-foreground">
+                                {template.templates[key]?.trim() ||
+                                  t('modelRoutingPage.errorLearning.templates.localeEmpty')}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {isEditing ? (
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={cancelTemplateEditor}
+                          disabled={updateTemplateMutation.isPending}
+                        >
+                          <X className="mr-2 h-4 w-4" />
+                          {t('modelRoutingPage.errorLearning.actions.cancel')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            if (!editingTemplateDraft) {
+                              return
+                            }
+                            updateTemplateMutation.mutate({
+                              templateId: template.id,
+                              payload: {
+                                semantic_error_code:
+                                  editingTemplateDraft.semanticErrorCode.trim(),
+                                action: editingTemplateDraft.action,
+                                retry_scope: editingTemplateDraft.retryScope,
+                                templates: createLocalizedErrorTemplatesPayload(editingTemplateDraft),
+                              },
+                            })
+                          }}
+                          disabled={updateTemplateMutation.isPending}
+                        >
+                          <Save className="mr-2 h-4 w-4" />
+                          {t('modelRoutingPage.errorLearning.actions.saveTemplate')}
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
                 )
               })

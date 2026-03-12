@@ -2,13 +2,15 @@ use base64::Engine;
 use chrono::{Duration, Utc};
 use codex_pool_core::api::{
     CreateApiKeyRequest, CreateTenantRequest, CreateUpstreamAccountRequest,
-    DataPlaneSnapshotEventType,
-    ImportOAuthRefreshTokenRequest, OAuthImportItemStatus, OAuthImportJobItem,
-    OAuthImportJobStatus, OAuthImportJobSummary, OAuthRateLimitSnapshot, OAuthRateLimitWindow,
-    OAuthRefreshStatus, UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest,
-    UpsertStreamRetryPolicyRequest,
+    DataPlaneSnapshotEventType, ImportOAuthRefreshTokenRequest, OAuthImportItemStatus,
+    OAuthImportJobItem, OAuthImportJobStatus, OAuthImportJobSummary, OAuthRateLimitSnapshot,
+    OAuthRateLimitWindow, OAuthRefreshStatus, UpdateAiErrorLearningSettingsRequest,
+    UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest, UpsertStreamRetryPolicyRequest,
 };
-use codex_pool_core::model::{RoutingStrategy, UpstreamMode};
+use codex_pool_core::model::{
+    LocalizedErrorTemplates, RoutingStrategy, UpstreamErrorAction, UpstreamErrorRetryScope,
+    UpstreamErrorTemplateRecord, UpstreamErrorTemplateStatus, UpstreamMode,
+};
 use control_plane::crypto::CredentialCipher;
 use control_plane::import_jobs::{
     ImportTaskRequest, OAuthImportJobStore, PersistedImportItem, PostgresOAuthImportJobStore,
@@ -19,6 +21,7 @@ use control_plane::oauth::{
 use control_plane::store::postgres::PostgresStore;
 use control_plane::store::ControlPlaneStore;
 use control_plane::tenant::{AdminImpersonateRequest, TenantAuthService};
+use serde_json::json;
 use sqlx_core::executor::Executor;
 use sqlx_core::query::query;
 use sqlx_core::query_scalar::query_scalar;
@@ -28,7 +31,6 @@ use std::sync::{Arc, LazyLock, Mutex as StdMutex};
 use std::time::Instant;
 use tokio::sync::Mutex as AsyncMutex;
 use uuid::Uuid;
-use serde_json::json;
 
 fn test_db_url() -> Option<String> {
     std::env::var("CONTROL_PLANE_DATABASE_URL")
@@ -564,10 +566,7 @@ async fn postgres_repo_oauth_status_exposes_email() {
         status.chatgpt_account_user_id.as_deref(),
         Some("acct_user_rate_limit")
     );
-    assert_eq!(
-        status.chatgpt_compute_residency.as_deref(),
-        Some("us")
-    );
+    assert_eq!(status.chatgpt_compute_residency.as_deref(), Some("us"));
     assert_eq!(status.workspace_name.as_deref(), Some("OAI-03.09"));
     assert_eq!(status.organizations.as_ref().map(Vec::len), Some(1));
     assert_eq!(status.groups.as_ref().map(Vec::len), Some(1));
@@ -683,14 +682,15 @@ async fn postgres_repo_emits_snapshot_event_after_rate_limit_cache_failure() {
     assert!(refreshed >= 1);
 
     let status = repo.oauth_account_status(account.id).await.unwrap();
-    assert_eq!(status.rate_limits_last_error_code.as_deref(), Some("rate_limited"));
-    assert!(
-        status
-            .rate_limits_last_error
-            .as_deref()
-            .unwrap_or_default()
-            .contains("usage limit")
+    assert_eq!(
+        status.rate_limits_last_error_code.as_deref(),
+        Some("rate_limited")
     );
+    assert!(status
+        .rate_limits_last_error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("usage limit"));
 
     let snapshot_after = repo.snapshot().await.unwrap();
     let refreshed_account = snapshot_after
@@ -700,7 +700,10 @@ async fn postgres_repo_emits_snapshot_event_after_rate_limit_cache_failure() {
         .expect("account present in snapshot");
     assert!(!refreshed_account.enabled);
 
-    let events = repo.data_plane_snapshot_events(cursor_before, 50).await.unwrap();
+    let events = repo
+        .data_plane_snapshot_events(cursor_before, 50)
+        .await
+        .unwrap();
     assert!(
         events.events.iter().any(|event| {
             event.account_id == account.id
@@ -1024,6 +1027,86 @@ async fn postgres_repo_supports_snapshot_and_policy_paths() {
 
     let snapshot_after_policy = repo.snapshot().await.unwrap();
     assert!(snapshot_after_policy.revision > snapshot_before_policy.revision);
+}
+
+#[tokio::test]
+async fn postgres_repo_ai_error_learning_changes_are_emitted_to_snapshot_events() {
+    let Some(db_url) = test_db_url() else {
+        eprintln!(
+            "skip postgres_repo_ai_error_learning_changes_are_emitted_to_snapshot_events: set CONTROL_PLANE_DATABASE_URL"
+        );
+        return;
+    };
+
+    let repo = PostgresStore::connect(&db_url).await.unwrap();
+    let cursor_before = repo.snapshot().await.unwrap().cursor;
+
+    repo.update_upstream_error_learning_settings(UpdateAiErrorLearningSettingsRequest {
+        enabled: true,
+        first_seen_timeout_ms: 2_000,
+        review_hit_threshold: 10,
+    })
+    .await
+    .unwrap();
+
+    let settings_events = repo.data_plane_snapshot_events(cursor_before, 50).await.unwrap();
+    let settings_refresh = settings_events
+        .events
+        .iter()
+        .find(|event| matches!(event.event_type, DataPlaneSnapshotEventType::RoutingPlanRefresh))
+        .expect("expected routing refresh event after ai settings update");
+    let settings = settings_refresh
+        .ai_error_learning_settings
+        .as_ref()
+        .expect("routing refresh event should include ai error learning settings");
+    assert!(settings.enabled);
+    assert_eq!(settings.first_seen_timeout_ms, 2_000);
+
+    let approved_template = UpstreamErrorTemplateRecord {
+        id: Uuid::new_v4(),
+        fingerprint: format!(
+            "openai_compatible:400:unsupported-model-{}",
+            Uuid::new_v4().simple()
+        ),
+        provider: "openai_compatible".to_string(),
+        normalized_status_code: 400,
+        semantic_error_code: "unsupported_model".to_string(),
+        action: UpstreamErrorAction::ReturnFailure,
+        retry_scope: UpstreamErrorRetryScope::None,
+        status: UpstreamErrorTemplateStatus::Approved,
+        templates: LocalizedErrorTemplates {
+            en: Some("The requested model is not available.".to_string()),
+            ..LocalizedErrorTemplates::default()
+        },
+        representative_samples: vec!["The requested model is not available.".to_string()],
+        hit_count: 11,
+        first_seen_at: Utc::now(),
+        last_seen_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+
+    repo.save_upstream_error_template(approved_template.clone())
+        .await
+        .unwrap();
+
+    let template_events = repo
+        .data_plane_snapshot_events(settings_events.cursor, 50)
+        .await
+        .unwrap();
+    let template_refresh = template_events
+        .events
+        .iter()
+        .find(|event| matches!(event.event_type, DataPlaneSnapshotEventType::RoutingPlanRefresh))
+        .expect("expected routing refresh event after approved template save");
+    let templates = template_refresh
+        .approved_upstream_error_templates
+        .as_ref()
+        .expect("routing refresh event should include approved templates");
+    assert!(
+        templates
+            .iter()
+            .any(|template| template.fingerprint == approved_template.fingerprint)
+    );
 }
 
 #[tokio::test]
