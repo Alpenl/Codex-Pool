@@ -247,6 +247,7 @@ fn map_request_log_row(row: crate::usage::RequestLogRow) -> RequestLogItemRespon
         path: row.path,
         method: row.method,
         model: row.model,
+        service_tier: row.service_tier,
         input_tokens: row.input_tokens,
         cached_input_tokens: row.cached_input_tokens,
         output_tokens: row.output_tokens,

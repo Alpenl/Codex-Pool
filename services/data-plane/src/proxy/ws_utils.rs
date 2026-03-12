@@ -75,6 +75,7 @@ struct WsLogicalResponseSeed {
     request_id: Option<String>,
     response_id: Option<String>,
     model: Option<String>,
+    requested_service_tier: Option<String>,
     started_at: Instant,
 }
 
@@ -209,6 +210,7 @@ impl WsLogicalResponseTracker {
                     request_id: None,
                     response_id: Some(response_id.clone()),
                     model: None,
+                    requested_service_tier: None,
                     started_at: Instant::now(),
                 },
                 billing_session: None,
@@ -252,6 +254,7 @@ impl WsLogicalResponseTracker {
                     request_id: None,
                     response_id: response_id.clone(),
                     model: None,
+                    requested_service_tier: None,
                     started_at: Instant::now(),
                 },
                 billing_session: None,
@@ -270,6 +273,8 @@ impl WsLogicalResponseTracker {
         }
 
         let usage = extract_usage_tokens_from_value(value);
+        let effective_service_tier =
+            extract_service_tier_from_value(value).or(tracked.seed.requested_service_tier.clone());
         if tracked.seed.request_id.is_none()
             && tracked.seed.response_id.is_none()
             && tracked.seed.model.is_none()
@@ -282,7 +287,10 @@ impl WsLogicalResponseTracker {
             self.completed_response_ids.insert(response_id.clone());
         }
 
-        if let Some(billing_session) = tracked.billing_session {
+        if let Some(mut billing_session) = tracked.billing_session {
+            if billing_session.effective_service_tier.is_none() {
+                billing_session.effective_service_tier = effective_service_tier.clone();
+            }
             self.pending_billing_actions
                 .push_back(WsPendingBillingAction::Capture {
                     billing_session,
@@ -305,6 +313,7 @@ impl WsLogicalResponseTracker {
             error_code: None,
             request_id: tracked.seed.request_id.or(tracked.seed.response_id.clone()),
             model: tracked.seed.model,
+            service_tier: effective_service_tier,
             input_tokens: usage.as_ref().map(|item| item.input_tokens),
             cached_input_tokens: usage.as_ref().map(|item| item.cached_input_tokens),
             output_tokens: usage.as_ref().map(|item| item.output_tokens),
@@ -334,6 +343,7 @@ impl WsLogicalResponseTracker {
                     request_id: None,
                     response_id: response_id.clone(),
                     model: None,
+                    requested_service_tier: None,
                     started_at: Instant::now(),
                 },
                 billing_session: None,
@@ -1149,9 +1159,11 @@ fn parse_ws_request_policy_context(
         .map(str::trim)
         .filter(|item| !item.is_empty())
         .map(ToString::to_string);
+    let requested_service_tier = extract_service_tier_from_value(request_value);
     let estimated_input_tokens = estimate_request_input_tokens(request_value);
     ParsedRequestPolicyContext {
         model,
+        requested_service_tier,
         stream: true,
         request_id,
         detected_locale: detect_request_locale(headers, &bytes::Bytes::new()),
@@ -1210,7 +1222,13 @@ async fn process_ws_pending_billing_actions(
                 usage,
             } => match usage {
                 Some(usage_tokens) => {
-                    match settle_authorized_billing(state.as_ref(), &billing_session, usage_tokens).await
+                    match settle_authorized_billing(
+                        state.as_ref(),
+                        &billing_session,
+                        usage_tokens,
+                        billing_session.effective_service_tier.as_deref(),
+                    )
+                    .await
                     {
                         Ok(settle_result) => {
                             emit_stream_request_log_event(
@@ -1344,6 +1362,7 @@ fn extract_ws_logical_request_seed(value: &Value) -> Option<WsLogicalResponseSee
         request_id: extract_ws_request_id(value),
         response_id: extract_ws_response_id(value),
         model: extract_ws_model(value),
+        requested_service_tier: extract_service_tier_from_value(value),
         started_at: Instant::now(),
     })
 }
@@ -1459,6 +1478,7 @@ mod tests {
             &UpstreamMode::ChatGptSession,
             "/v1/responses",
             Some("a=1"),
+            None,
         )
         .unwrap();
 
@@ -1515,6 +1535,7 @@ mod tests {
             &UpstreamMode::ChatGptSession,
             "/backend-api/codex/responses",
             None,
+            None,
         )
         .unwrap();
 
@@ -1552,15 +1573,22 @@ mod tests {
 
     #[test]
     fn appends_client_version_query_for_codex_models_when_missing() {
-        let query = ensure_client_version_query(Some("a=1"));
+        let query = ensure_client_version_query(Some("a=1"), None);
         assert!(query.contains("a=1"));
         assert!(query.contains("client_version=0.1.0"));
     }
 
     #[test]
     fn keeps_existing_client_version_query_for_codex_models() {
-        let query = ensure_client_version_query(Some("client_version=9.9.9&a=1"));
+        let query = ensure_client_version_query(Some("client_version=9.9.9&a=1"), Some("1.2.3"));
         assert_eq!(query, "client_version=9.9.9&a=1");
+    }
+
+    #[test]
+    fn prefers_version_header_for_codex_models_when_query_missing() {
+        let query = ensure_client_version_query(Some("a=1"), Some("2026.03.12"));
+        assert!(query.contains("a=1"));
+        assert!(query.contains("client_version=2026.03.12"));
     }
 
     #[test]
@@ -1569,6 +1597,7 @@ mod tests {
             "https://chatgpt.com/backend-api/codex",
             &UpstreamMode::OpenAiApiKey,
             "/v1/responses",
+            None,
             None,
         )
         .unwrap();

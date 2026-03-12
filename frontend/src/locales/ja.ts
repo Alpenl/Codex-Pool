@@ -55,10 +55,12 @@ export default {
             officialDescription: "Official OpenAI model metadata is read-only here. Manual override pricing can be edited below.",
             limitsTitle: "制限タイトル",
             noOauthStatus: "認証ステータスなし",
+            noSupportedModels: "このアカウントでは、利用可能なモデル一覧がまだ取得されていません。",
             oauthNotApplicable: "Oauth は適用されません",
             oauthTitle: "認証タイトル",
             profileTitle: "プロフィールのタイトル",
             rawTitle: "生のタイトル",
+            supportedModelsCount: "{{count}} モデル",
             tabAria: "アカウント詳細タブ",
             tabs: {
                 limits: "限界",
@@ -72,6 +74,7 @@ export default {
                 credentials: "資格情報",
                 identity: "識別情報",
                 refresh: "更新状態",
+                supportedModels: "利用可能なモデル",
                 subscription: "契約情報"
             },
             fields: {

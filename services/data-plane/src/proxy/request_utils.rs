@@ -3,10 +3,11 @@ fn build_upstream_url(
     mode: &UpstreamMode,
     path: &str,
     query: Option<&str>,
+    version_header: Option<&str>,
 ) -> anyhow::Result<String> {
     let mut base_url = url::Url::parse(base)?;
     let final_path = normalize_upstream_path(mode, base_url.path(), path);
-    let final_query = normalize_upstream_query(mode, &final_path, query);
+    let final_query = normalize_upstream_query(mode, &final_path, query, version_header);
 
     base_url.set_path(&final_path);
     base_url.set_query(final_query.as_deref());
@@ -52,9 +53,10 @@ fn normalize_upstream_query(
     mode: &UpstreamMode,
     final_path: &str,
     query: Option<&str>,
+    version_header: Option<&str>,
 ) -> Option<String> {
     if should_enforce_codex_models_client_version(mode, final_path) {
-        return Some(ensure_client_version_query(query));
+        return Some(ensure_client_version_query(query, version_header));
     }
     query.map(ToString::to_string)
 }
@@ -96,7 +98,7 @@ fn should_enforce_codex_models_client_version(mode: &UpstreamMode, final_path: &
     ) && final_path.ends_with(CODEX_MODELS_PATH_SUFFIX)
 }
 
-fn ensure_client_version_query(query: Option<&str>) -> String {
+fn ensure_client_version_query(query: Option<&str>, version_header: Option<&str>) -> String {
     if let Some(raw) = query {
         let has_client_version = url::form_urlencoded::parse(raw.as_bytes())
             .any(|(key, _)| key == CODEX_CLIENT_VERSION_QUERY_KEY);
@@ -105,13 +107,17 @@ fn ensure_client_version_query(query: Option<&str>) -> String {
         }
     }
 
+    let fallback_client_version = version_header
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(env!("CARGO_PKG_VERSION"));
     let mut serializer = url::form_urlencoded::Serializer::new(String::new());
     if let Some(raw) = query {
         for (key, value) in url::form_urlencoded::parse(raw.as_bytes()) {
             serializer.append_pair(&key, &value);
         }
     }
-    serializer.append_pair(CODEX_CLIENT_VERSION_QUERY_KEY, env!("CARGO_PKG_VERSION"));
+    serializer.append_pair(CODEX_CLIENT_VERSION_QUERY_KEY, fallback_client_version);
     serializer.finish()
 }
 
@@ -229,11 +235,40 @@ fn adapt_codex_service_tier_field(field: Option<&mut Value>) -> bool {
     let Some(Value::String(service_tier)) = field else {
         return false;
     };
-    if service_tier.eq_ignore_ascii_case("fast") {
-        *service_tier = "priority".to_string();
-        return true;
+    let Some(normalized) = normalize_service_tier_value(service_tier) else {
+        return false;
+    };
+    if *service_tier == normalized {
+        return false;
     }
-    false
+    *service_tier = normalized;
+    true
+}
+
+fn normalize_service_tier_value(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let lowered = trimmed.to_ascii_lowercase();
+    if lowered == "fast" {
+        return Some("priority".to_string());
+    }
+    Some(lowered)
+}
+
+fn extract_service_tier_from_value(value: &Value) -> Option<String> {
+    extract_service_tier_from_field(value.get("service_tier")).or_else(|| {
+        value
+            .get("response")
+            .and_then(|response| extract_service_tier_from_field(response.get("service_tier")))
+    })
+}
+
+fn extract_service_tier_from_field(field: Option<&Value>) -> Option<String> {
+    field
+        .and_then(Value::as_str)
+        .and_then(normalize_service_tier_value)
 }
 
 fn sticky_session_key_from_headers(headers: &HeaderMap) -> Option<String> {
@@ -958,10 +993,11 @@ async fn emit_request_log_event(
     is_stream: bool,
     request_id: Option<&str>,
     model: Option<&str>,
+    service_tier: Option<&str>,
 ) {
     emit_request_log_event_with_billing(
         state, account_id, principal, path, method, status, started, is_stream, request_id, model,
-        None, None, None, None, None, None, None, None,
+        service_tier, None, None, None, None, None, None, None, None,
     )
     .await;
 }
@@ -978,6 +1014,7 @@ async fn emit_request_log_event_with_billing(
     is_stream: bool,
     request_id: Option<&str>,
     model: Option<&str>,
+    service_tier: Option<&str>,
     billing_phase: Option<&str>,
     authorization_id: Option<Uuid>,
     capture_status: Option<&str>,
@@ -1003,6 +1040,7 @@ async fn emit_request_log_event_with_billing(
             error_code: (status.as_u16() >= 400).then(|| status.as_str().to_string()),
             request_id: request_id.map(ToString::to_string),
             model: model.map(ToString::to_string),
+            service_tier: service_tier.map(ToString::to_string),
             input_tokens,
             cached_input_tokens,
             output_tokens,
@@ -1779,6 +1817,7 @@ fn parse_request_policy_context(
         .get("stream")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let requested_service_tier = extract_service_tier_from_value(&value);
     let estimated_input_tokens = estimate_request_input_tokens(&value);
     let sticky_key_hint = value
         .get("prompt_cache_key")
@@ -1801,6 +1840,7 @@ fn parse_request_policy_context(
         .map(ToString::to_string);
     ParsedRequestPolicyContext {
         model,
+        requested_service_tier,
         stream,
         request_id,
         detected_locale: detect_request_locale(headers, body),
@@ -2065,6 +2105,11 @@ fn enforce_principal_request_policy(
 fn extract_usage_tokens(body: &bytes::Bytes) -> Option<UsageTokens> {
     let value = serde_json::from_slice::<Value>(body).ok()?;
     extract_usage_tokens_from_value(&value)
+}
+
+fn extract_response_service_tier(body: &bytes::Bytes) -> Option<String> {
+    let value = serde_json::from_slice::<Value>(body).ok()?;
+    extract_service_tier_from_value(&value)
 }
 
 fn extract_usage_tokens_from_value(value: &Value) -> Option<UsageTokens> {

@@ -21,6 +21,8 @@ pub struct RequestLogEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_tokens: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cached_input_tokens: Option<i64>,
@@ -74,6 +76,7 @@ mod tests {
             error_code: None,
             request_id: Some("req-1".to_string()),
             model: Some("gpt-5.3-codex".to_string()),
+            service_tier: Some("priority".to_string()),
             input_tokens: Some(123),
             cached_input_tokens: Some(0),
             output_tokens: Some(456),

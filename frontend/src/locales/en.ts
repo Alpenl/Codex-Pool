@@ -55,10 +55,12 @@ export default {
             officialDescription: "Official OpenAI model metadata is read-only here. Manual override pricing can be edited below.",
             limitsTitle: "Rate Limits",
             noOauthStatus: "No OAuth status data yet.",
+            noSupportedModels: "No available model list has been captured for this account yet.",
             oauthNotApplicable: "OAuth details are not available for this account type.",
             oauthTitle: "OAuth Status",
             profileTitle: "Account Profile",
             rawTitle: "Raw Payload",
+            supportedModelsCount: "{{count}} models",
             tabAria: "Account detail tabs",
             tabs: {
                 limits: "Limits",
@@ -72,6 +74,7 @@ export default {
                 credentials: "Credentials",
                 identity: "Identity",
                 refresh: "Refresh State",
+                supportedModels: "Available Models",
                 subscription: "Subscription"
             },
             fields: {

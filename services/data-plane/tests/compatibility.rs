@@ -648,6 +648,176 @@ async fn rewrites_v1_models_to_codex_models_and_appends_client_version() {
 }
 
 #[tokio::test]
+async fn rewrites_v1_models_to_codex_models_and_uses_version_header_when_query_missing() {
+    let upstream = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/backend-api/codex/models"))
+        .and(query_param("a", "1"))
+        .and(query_param("client_version", "2026.03.12"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models": [{"id": "o3"}]})))
+        .mount(&upstream)
+        .await;
+
+    let codex_base = format!("{}/backend-api/codex", upstream.uri());
+    let app = test_app(vec![test_account(codex_base, "upstream-token")]).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/models?a=1")
+                .header("version", "2026.03.12")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let payload: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(payload["models"][0]["id"], "o3");
+}
+
+#[tokio::test]
+async fn codex_models_passthrough_preserves_raw_body_headers_and_local_304_cache() {
+    let upstream = MockServer::start().await;
+    let raw_body = r#"{"models":[{"id":"o3","visibility":"list"}],"meta":{"source":"upstream"}}"#;
+
+    Mock::given(method("GET"))
+        .and(path("/backend-api/codex/models"))
+        .and(query_param("client_version", "0.1.0"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "application/vnd.openai.codex-models+json")
+                .insert_header("etag", "\"models-upstream-etag\"")
+                .set_body_raw(raw_body, "application/vnd.openai.codex-models+json"),
+        )
+        .mount(&upstream)
+        .await;
+
+    let codex_base = format!("{}/backend-api/codex", upstream.uri());
+    let app = test_app(vec![test_account(codex_base, "upstream-token")]).await;
+
+    let first_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/models")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(first_response.status(), StatusCode::OK);
+    assert_eq!(
+        first_response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("application/vnd.openai.codex-models+json")
+    );
+    assert_eq!(
+        first_response
+            .headers()
+            .get("etag")
+            .and_then(|value| value.to_str().ok()),
+        Some("\"models-upstream-etag\"")
+    );
+    let first_body = first_response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(std::str::from_utf8(&first_body).unwrap(), raw_body);
+
+    let cached_response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/models")
+                .header("if-none-match", "\"models-upstream-etag\"")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(cached_response.status(), StatusCode::NOT_MODIFIED);
+    assert_eq!(
+        cached_response
+            .headers()
+            .get("etag")
+            .and_then(|value| value.to_str().ok()),
+        Some("\"models-upstream-etag\"")
+    );
+    let cached_body = cached_response.into_body().collect().await.unwrap().to_bytes();
+    assert!(cached_body.is_empty());
+}
+
+#[tokio::test]
+async fn codex_models_cache_is_scoped_by_effective_client_version() {
+    let upstream = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/backend-api/codex/models"))
+        .and(query_param("client_version", "2026.03.12"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("etag", "\"models-v1\"")
+                .set_body_json(json!({"models": [{"id": "o3"}]})),
+        )
+        .mount(&upstream)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/backend-api/codex/models"))
+        .and(query_param("client_version", "2026.03.13"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("etag", "\"models-v2\"")
+                .set_body_json(json!({"models": [{"id": "o4-mini"}]})),
+        )
+        .mount(&upstream)
+        .await;
+
+    let codex_base = format!("{}/backend-api/codex", upstream.uri());
+    let app = test_app(vec![test_account(codex_base, "upstream-token")]).await;
+
+    let first_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/models")
+                .header("version", "2026.03.12")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first_response.status(), StatusCode::OK);
+    let first_body = first_response.into_body().collect().await.unwrap().to_bytes();
+    let first_payload: Value = serde_json::from_slice(&first_body).unwrap();
+    assert_eq!(first_payload["models"][0]["id"], "o3");
+
+    let second_response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/models")
+                .header("version", "2026.03.13")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second_response.status(), StatusCode::OK);
+    let second_body = second_response.into_body().collect().await.unwrap().to_bytes();
+    let second_payload: Value = serde_json::from_slice(&second_body).unwrap();
+    assert_eq!(second_payload["models"][0]["id"], "o4-mini");
+}
+
+#[tokio::test]
 async fn keeps_session_sticky_for_session_and_conversation_id_headers() {
     let upstream_a = MockServer::start().await;
     Mock::given(method("POST"))
@@ -1620,6 +1790,156 @@ async fn model_pricing_endpoint_drives_dynamic_preauth_and_cache_reuse() {
     assert_eq!(authorize_payload["reserved_microcredits"], expected_reserve);
     assert_eq!(authorize_count, 2);
     assert_eq!(pricing_count, 1);
+}
+
+#[tokio::test]
+async fn codex_profile_fast_service_tier_flows_into_pricing_and_request_log() {
+    let tenant_id = Uuid::new_v4();
+    let api_key_id = Uuid::new_v4();
+
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/backend-api/codex/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "resp_service_tier_http",
+            "service_tier": "priority",
+            "usage": {"input_tokens": 3, "output_tokens": 1}
+        })))
+        .mount(&upstream)
+        .await;
+
+    let control_plane = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/auth/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tenant_id": tenant_id,
+            "api_key_id": api_key_id,
+            "enabled": true,
+            "tenant_status": "active",
+            "balance_microcredits": 1_000_000,
+            "cache_ttl_sec": 30
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/pricing"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model": "gpt-5.3-codex",
+            "input_price_microcredits": 20_000_000,
+            "cached_input_price_microcredits": 2_000_000,
+            "output_price_microcredits": 40_000_000,
+            "source": "priority_exact"
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/authorize"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "authorization_id": Uuid::new_v4(),
+            "status": "authorized",
+            "reserved_microcredits": 13_364
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/capture"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "captured"
+        })))
+        .mount(&control_plane)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/internal/v1/billing/release"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "released"
+        })))
+        .mount(&control_plane)
+        .await;
+
+    let sink = Arc::new(RecordingSink::default());
+    let cfg = DataPlaneConfig {
+        listen_addr: "127.0.0.1:0".parse().unwrap(),
+        routing_strategy: RoutingStrategy::RoundRobin,
+        upstream_accounts: vec![test_account(
+            format!("{}/backend-api/codex", upstream.uri()),
+            "upstream-token",
+        )],
+        account_ejection_ttl_sec: 30,
+        enable_request_failover: true,
+        same_account_quick_retry_max: 1,
+        request_failover_wait_ms: 2_000,
+        retry_poll_interval_ms: 100,
+        sticky_prefer_non_conflicting: true,
+        shared_routing_cache_enabled: true,
+        enable_metered_stream_billing: true,
+        billing_authorize_required_for_stream: true,
+        stream_billing_reserve_microcredits: 2_000_000,
+        billing_dynamic_preauth_enabled: true,
+        billing_preauth_expected_output_tokens: 256,
+        billing_preauth_safety_factor: 1.3,
+        billing_preauth_min_microcredits: 1_000,
+        billing_preauth_max_microcredits: 1_000_000_000_000,
+        billing_preauth_unit_price_microcredits: 10_000,
+        stream_billing_drain_timeout_ms: 5_000,
+        billing_capture_retry_max: 3,
+        billing_capture_retry_backoff_ms: 200,
+        redis_url: None,
+        auth_validate_url: Some(format!("{}/internal/v1/auth/validate", control_plane.uri())),
+        auth_validate_cache_ttl_sec: 30,
+        auth_validate_negative_cache_ttl_sec: 5,
+        auth_fail_open: false,
+        enable_internal_debug_routes: false,
+    };
+    let app = build_app_with_event_sink(cfg, sink.clone())
+        .await
+        .expect("app should build");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("authorization", "Bearer cp_identity")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "model": "gpt-5.3-codex",
+                        "input": "hello priority",
+                        "service_tier": "fast"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let (pricing_payload, events) = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let requests = control_plane.received_requests().await.unwrap();
+            let pricing_payload = requests
+                .iter()
+                .find(|request| request.url.path() == "/internal/v1/billing/pricing")
+                .map(|request| serde_json::from_slice::<Value>(&request.body).unwrap());
+            let events = sink.events();
+            if pricing_payload.is_some() && !events.is_empty() {
+                return (pricing_payload, events);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("pricing request and request log should arrive");
+
+    let pricing_payload = pricing_payload.expect("pricing payload should exist");
+    assert_eq!(pricing_payload["model"], "gpt-5.3-codex");
+    assert_eq!(pricing_payload["service_tier"], "priority");
+
+    let final_event = events.last().expect("expected final request log event");
+    assert_eq!(final_event.model.as_deref(), Some("gpt-5.3-codex"));
+    assert_eq!(final_event.service_tier.as_deref(), Some("priority"));
+    assert_eq!(final_event.capture_status.as_deref(), Some("captured"));
 }
 
 #[tokio::test]

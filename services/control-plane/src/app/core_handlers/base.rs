@@ -132,6 +132,8 @@ struct RequestLogItemResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    service_tier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     input_tokens: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cached_input_tokens: Option<i64>,

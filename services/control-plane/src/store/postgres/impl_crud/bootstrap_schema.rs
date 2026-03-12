@@ -602,7 +602,8 @@ impl PostgresStore {
             r#"
             CREATE TABLE IF NOT EXISTS model_pricing_overrides (
                 id UUID PRIMARY KEY,
-                model TEXT NOT NULL UNIQUE,
+                model TEXT NOT NULL,
+                service_tier TEXT NOT NULL DEFAULT 'default',
                 input_price_microcredits BIGINT NOT NULL,
                 cached_input_price_microcredits BIGINT NOT NULL,
                 output_price_microcredits BIGINT NOT NULL,
@@ -615,6 +616,84 @@ impl PostgresStore {
         .execute(tx.as_mut())
         .await
         .context("failed to create model_pricing_overrides table")?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE model_pricing_overrides
+            ADD COLUMN IF NOT EXISTS service_tier TEXT NOT NULL DEFAULT 'default'
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to add model_pricing_overrides.service_tier column")?;
+
+        sqlx::query(
+            r#"
+            UPDATE model_pricing_overrides
+            SET service_tier = CASE
+                WHEN lower(trim(service_tier)) IN ('priority', 'flex') THEN lower(trim(service_tier))
+                ELSE 'default'
+            END
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to normalize model_pricing_overrides.service_tier values")?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE model_pricing_overrides
+            DROP CONSTRAINT IF EXISTS model_pricing_overrides_model_key
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to drop legacy model_pricing_overrides model unique constraint")?;
+
+        sqlx::query(
+            r#"
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_model_pricing_overrides_model_service_tier
+            ON model_pricing_overrides (model, service_tier)
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create model_pricing_overrides model+tier unique index")?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO model_pricing_overrides (
+                id,
+                model,
+                service_tier,
+                input_price_microcredits,
+                cached_input_price_microcredits,
+                output_price_microcredits,
+                enabled,
+                created_at,
+                updated_at
+            )
+            SELECT
+                gen_random_uuid(),
+                base.model,
+                tiers.service_tier,
+                base.input_price_microcredits,
+                base.cached_input_price_microcredits,
+                base.output_price_microcredits,
+                base.enabled,
+                base.created_at,
+                base.updated_at
+            FROM model_pricing_overrides AS base
+            CROSS JOIN (
+                VALUES ('priority'), ('flex')
+            ) AS tiers(service_tier)
+            WHERE base.service_tier = 'default'
+            ON CONFLICT (model, service_tier) DO NOTHING
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to seed priority/flex model_pricing_overrides rows")?;
 
         sqlx::query(
             r#"

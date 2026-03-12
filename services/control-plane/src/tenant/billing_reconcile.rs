@@ -49,6 +49,7 @@ impl TenantAuthService {
         let now = Utc::now();
         let expires_at = now + chrono::Duration::seconds(ttl_sec as i64);
         let request_kind = BillingRequestKind::from_optional(req.request_kind.as_deref());
+        let service_tier = normalize_billing_service_tier(req.service_tier.as_deref());
         let session_key = req
             .session_key
             .as_deref()
@@ -100,6 +101,7 @@ impl TenantAuthService {
         let pricing_decision = self
             .resolve_model_pricing_for_request(
                 model,
+                Some(service_tier.as_str()),
                 req.api_key_id,
                 request_kind,
                 existing_session
@@ -130,6 +132,7 @@ impl TenantAuthService {
                         "trace_request_id": req.trace_request_id,
                         "session_key": session_key,
                         "request_kind": request_kind.as_str(),
+                        "service_tier": service_tier.clone(),
                         "pricing_band": pricing_decision.band.as_str(),
                         "pricing_rule_id": pricing_decision.matched_rule_id.map(|id| id.to_string()),
                         "is_stream": req.is_stream,
@@ -160,6 +163,7 @@ impl TenantAuthService {
             "source": "data_plane",
             "session_key": session_key,
             "request_kind": request_kind.as_str(),
+            "service_tier": service_tier.clone(),
             "pricing_band": pricing_decision.band.as_str(),
             "pricing_rule_id": pricing_decision.matched_rule_id.map(|id| id.to_string()),
             "is_stream": req.is_stream,
@@ -259,6 +263,13 @@ impl TenantAuthService {
             .filter(|value| !value.is_empty())
             .map(ToString::to_string)
             .or_else(|| authorization_session_key(authorization.meta_json.as_ref()));
+        let authorization_service_tier =
+            authorization_service_tier(authorization.meta_json.as_ref());
+        let effective_service_tier = normalize_billing_service_tier(
+            req.service_tier
+                .as_deref()
+                .or(authorization_service_tier.as_deref()),
+        );
         let request_kind = match BillingRequestKind::from_optional(req.request_kind.as_deref()) {
             BillingRequestKind::Unknown => authorization_request_kind(authorization.meta_json.as_ref())
                 .unwrap_or(BillingRequestKind::Unknown),
@@ -274,6 +285,7 @@ impl TenantAuthService {
         let pricing_decision = self
             .resolve_model_pricing_for_request(
                 model,
+                Some(effective_service_tier.as_str()),
                 req.api_key_id,
                 request_kind,
                 existing_session
@@ -312,6 +324,7 @@ impl TenantAuthService {
                         "authorization_id": authorization.id,
                         "session_key": session_key,
                         "request_kind": request_kind.as_str(),
+                        "service_tier": effective_service_tier.clone(),
                         "pricing_band": pricing_decision.band.as_str(),
                         "pricing_rule_id": pricing_decision.matched_rule_id.map(|id| id.to_string()),
                         "reserved_microcredits": authorization.reserved_microcredits,
@@ -352,6 +365,7 @@ impl TenantAuthService {
             "phase": "capture",
             "session_key": session_key,
             "request_kind": request_kind.as_str(),
+            "service_tier": effective_service_tier.clone(),
             "pricing_band": pricing_decision.band.as_str(),
             "pricing_rule_id": pricing_decision.matched_rule_id.map(|id| id.to_string()),
             "pricing_source": pricing.source,
@@ -555,6 +569,10 @@ impl TenantAuthService {
         let cached_input_tokens = req.cached_input_tokens.map(|value| value.max(0));
         let output_tokens = req.output_tokens.map(|value| value.max(0));
         let reasoning_tokens = req.reasoning_tokens.map(|value| value.max(0));
+        let reconcile_service_tier = req
+            .service_tier
+            .clone()
+            .or_else(|| authorization_service_tier(authorization.meta_json.as_ref()));
 
         if authorization.status == "authorized" {
             if let (Some(model), Some(input_tokens), Some(output_tokens)) =
@@ -566,6 +584,7 @@ impl TenantAuthService {
                         api_key_id: req.api_key_id.or(authorization.api_key_id),
                         request_id: request_id.to_string(),
                         model: model.to_string(),
+                        service_tier: reconcile_service_tier.clone(),
                         session_key: authorization_session_key(authorization.meta_json.as_ref()),
                         request_kind: authorization_request_kind(authorization.meta_json.as_ref())
                             .map(|value| value.as_str().to_string()),
@@ -592,6 +611,7 @@ impl TenantAuthService {
                     output_tokens.unwrap_or(0),
                     reasoning_tokens.unwrap_or(0),
                     req.api_key_id,
+                    reconcile_service_tier.clone(),
                 )
                 .await?;
             if adjusted {
@@ -758,6 +778,7 @@ impl TenantAuthService {
         output_tokens: i64,
         reasoning_tokens: i64,
         api_key_id: Option<Uuid>,
+        service_tier: Option<String>,
     ) -> Result<bool> {
         let normalized_input_tokens = input_tokens.max(0);
         let normalized_cached_input_tokens = cached_input_tokens.max(0).min(normalized_input_tokens);
@@ -785,9 +806,17 @@ impl TenantAuthService {
 
         let request_kind = authorization_request_kind(authorization.meta_json.as_ref())
             .unwrap_or(BillingRequestKind::Unknown);
+        let authorization_service_tier =
+            authorization_service_tier(authorization.meta_json.as_ref());
+        let effective_service_tier = normalize_billing_service_tier(
+            service_tier
+                .as_deref()
+                .or(authorization_service_tier.as_deref()),
+        );
         let pricing_decision = self
             .resolve_model_pricing_for_request(
                 model,
+                Some(effective_service_tier.as_str()),
                 authorization.api_key_id,
                 request_kind,
                 authorization_pricing_band(authorization.meta_json.as_ref()),
@@ -835,6 +864,7 @@ impl TenantAuthService {
                             "request_id": request_id,
                             "authorization_id": authorization.id,
                             "request_kind": request_kind.as_str(),
+                            "service_tier": effective_service_tier.clone(),
                             "pricing_band": pricing_decision.band.as_str(),
                             "pricing_rule_id": pricing_decision.matched_rule_id.map(|id| id.to_string()),
                             "previous_captured_microcredits": authorization.captured_microcredits,
@@ -871,6 +901,7 @@ impl TenantAuthService {
             "reason": "request_log_capture_mismatch",
             "request_id": request_id,
             "request_kind": request_kind.as_str(),
+            "service_tier": effective_service_tier.clone(),
             "pricing_band": pricing_decision.band.as_str(),
             "pricing_rule_id": pricing_decision.matched_rule_id.map(|id| id.to_string()),
             "previous_captured_microcredits": authorization.captured_microcredits,

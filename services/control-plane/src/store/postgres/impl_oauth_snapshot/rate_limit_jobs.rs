@@ -150,6 +150,7 @@ impl PostgresStore {
                 c.refresh_reused_detected,
                 c.last_refresh_error_code,
                 c.last_refresh_error,
+                ms.supported_models_json::text AS supported_models_json_text,
                 rl.rate_limits_json::text AS rate_limits_json_text,
                 rl.fetched_at AS rate_limits_fetched_at,
                 rl.expires_at AS rate_limits_expires_at,
@@ -158,6 +159,7 @@ impl PostgresStore {
             FROM upstream_accounts a
             LEFT JOIN upstream_account_oauth_credentials c ON c.account_id = a.id
             LEFT JOIN upstream_account_session_profiles p ON p.account_id = a.id
+            LEFT JOIN upstream_account_model_support ms ON ms.account_id = a.id
             LEFT JOIN upstream_account_rate_limit_snapshots rl ON rl.account_id = a.id
             WHERE a.id = $1
             "#,
@@ -211,6 +213,9 @@ impl PostgresStore {
         let rate_limits_last_error_code =
             row.try_get::<Option<String>, _>("rate_limits_last_error_code")?;
         let rate_limits_last_error = row.try_get::<Option<String>, _>("rate_limits_last_error")?;
+        let supported_models = parse_json_string_array(
+            row.try_get::<Option<String>, _>("supported_models_json_text")?,
+        );
 
         let now = Utc::now();
         let effective_enabled = oauth_effective_enabled(
@@ -282,6 +287,7 @@ impl PostgresStore {
             last_refresh_error_code,
             last_refresh_error,
             effective_enabled,
+            supported_models,
             rate_limits,
             rate_limits_fetched_at,
             rate_limits_expires_at,
@@ -333,6 +339,7 @@ impl PostgresStore {
                 c.refresh_reused_detected,
                 c.last_refresh_error_code,
                 c.last_refresh_error,
+                ms.supported_models_json::text AS supported_models_json_text,
                 rl.rate_limits_json::text AS rate_limits_json_text,
                 rl.fetched_at AS rate_limits_fetched_at,
                 rl.expires_at AS rate_limits_expires_at,
@@ -341,6 +348,7 @@ impl PostgresStore {
             FROM upstream_accounts a
             LEFT JOIN upstream_account_oauth_credentials c ON c.account_id = a.id
             LEFT JOIN upstream_account_session_profiles p ON p.account_id = a.id
+            LEFT JOIN upstream_account_model_support ms ON ms.account_id = a.id
             LEFT JOIN upstream_account_rate_limit_snapshots rl ON rl.account_id = a.id
             WHERE a.id = ANY($1)
             "#,
@@ -388,6 +396,7 @@ impl PostgresStore {
             rate_limits_expires_at: Option<DateTime<Utc>>,
             rate_limits_last_error_code: Option<String>,
             rate_limits_last_error: Option<String>,
+            supported_models: Vec<String>,
         }
 
         let mut pending = Vec::with_capacity(rows.len());
@@ -436,6 +445,9 @@ impl PostgresStore {
                 .try_get::<Option<String>, _>("rate_limits_last_error_code")?;
             let rate_limits_last_error = row
                 .try_get::<Option<String>, _>("rate_limits_last_error")?;
+            let supported_models = parse_json_string_array(
+                row.try_get::<Option<String>, _>("supported_models_json_text")?,
+            );
 
             let effective_enabled = oauth_effective_enabled(
                 enabled,
@@ -503,6 +515,7 @@ impl PostgresStore {
                 rate_limits_expires_at,
                 rate_limits_last_error_code,
                 rate_limits_last_error,
+                supported_models,
             });
         }
 
@@ -549,6 +562,7 @@ impl PostgresStore {
                     last_refresh_error_code: item.last_refresh_error_code,
                     last_refresh_error: item.last_refresh_error,
                     effective_enabled: item.effective_enabled,
+                    supported_models: item.supported_models,
                     rate_limits: item.rate_limits,
                     rate_limits_fetched_at: item.rate_limits_fetched_at,
                     rate_limits_expires_at: item.rate_limits_expires_at,

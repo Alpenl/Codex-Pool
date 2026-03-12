@@ -7,7 +7,10 @@ impl TenantAuthService {
         if model.is_empty() {
             return Err(anyhow!("model must not be empty"));
         }
-        let base = self.resolve_model_pricing(model).await?;
+        let service_tier = normalize_billing_service_tier(req.service_tier.as_deref());
+        let base = self
+            .resolve_model_pricing(model, Some(service_tier.as_str()))
+            .await?;
         let resolved = if let Some(api_key_id) = req.api_key_id {
             self.resolve_api_key_group_pricing(api_key_id, model, &base)
                 .await?
@@ -363,34 +366,42 @@ impl TenantAuthService {
         .map(|value| value.unwrap_or(0))
     }
 
-    async fn resolve_base_model_pricing(&self, model: &str) -> Result<BillingPricingResolved> {
+    async fn resolve_base_model_pricing(
+        &self,
+        model: &str,
+        service_tier: Option<&str>,
+    ) -> Result<BillingPricingResolved> {
         if model.trim().is_empty() {
             return Err(anyhow!("model must not be empty"));
         }
 
-        if let Some(row) = sqlx::query(
-            r#"
-            SELECT input_price_microcredits, cached_input_price_microcredits, output_price_microcredits
-            FROM model_pricing_overrides
-            WHERE model = $1 AND enabled = true
-            "#,
-        )
-        .bind(model)
-        .fetch_optional(&self.pool)
-        .await
-        .context("failed to query exact model pricing override")?
-        {
-            let input_price_microcredits: i64 = row.try_get("input_price_microcredits")?;
-            let cached_input_price_microcredits = normalize_cached_input_price_microcredits(
-                input_price_microcredits,
-                row.try_get("cached_input_price_microcredits")?,
-            );
-            return Ok(BillingPricingResolved {
-                input_price_microcredits,
-                cached_input_price_microcredits,
-                output_price_microcredits: row.try_get("output_price_microcredits")?,
-                source: "manual_override".to_string(),
-            });
+        let normalized_service_tier = normalize_billing_service_tier(service_tier);
+        for lookup_tier in pricing_override_lookup_tiers(&normalized_service_tier) {
+            if let Some(row) = sqlx::query(
+                r#"
+                SELECT input_price_microcredits, cached_input_price_microcredits, output_price_microcredits
+                FROM model_pricing_overrides
+                WHERE model = $1 AND service_tier = $2 AND enabled = true
+                "#,
+            )
+            .bind(model)
+            .bind(lookup_tier)
+            .fetch_optional(&self.pool)
+            .await
+            .context("failed to query exact model pricing override")?
+            {
+                let input_price_microcredits: i64 = row.try_get("input_price_microcredits")?;
+                let cached_input_price_microcredits = normalize_cached_input_price_microcredits(
+                    input_price_microcredits,
+                    row.try_get("cached_input_price_microcredits")?,
+                );
+                return Ok(BillingPricingResolved {
+                    input_price_microcredits,
+                    cached_input_price_microcredits,
+                    output_price_microcredits: row.try_get("output_price_microcredits")?,
+                    source: format!("manual_override:{lookup_tier}"),
+                });
+            }
         }
 
         if let Some(row) = sqlx::query(
@@ -435,20 +446,25 @@ impl TenantAuthService {
         Err(anyhow!("model pricing is not configured"))
     }
 
-    async fn resolve_model_pricing(&self, model: &str) -> Result<BillingPricingResolved> {
-        self.resolve_base_model_pricing(model).await
+    async fn resolve_model_pricing(
+        &self,
+        model: &str,
+        service_tier: Option<&str>,
+    ) -> Result<BillingPricingResolved> {
+        self.resolve_base_model_pricing(model, service_tier).await
     }
 
     async fn resolve_model_pricing_for_request(
         &self,
         model: &str,
+        service_tier: Option<&str>,
         api_key_id: Option<Uuid>,
         request_kind: BillingRequestKind,
         persisted_band: Option<BillingPricingBand>,
         actual_input_tokens: Option<i64>,
         phase: BillingResolutionPhase,
     ) -> Result<BillingPricingDecision> {
-        let base = self.resolve_base_model_pricing(model).await?;
+        let base = self.resolve_base_model_pricing(model, service_tier).await?;
         let rules = self
             .list_matching_billing_pricing_rules(model, request_kind)
             .await?;
@@ -956,6 +972,27 @@ fn normalize_cached_input_price_microcredits(input_price: i64, cached_input_pric
     cached_input_price
 }
 
+fn normalize_billing_service_tier(raw: Option<&str>) -> String {
+    match raw
+        .unwrap_or("default")
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "priority" | "fast" => "priority".to_string(),
+        "flex" => "flex".to_string(),
+        _ => "default".to_string(),
+    }
+}
+
+fn pricing_override_lookup_tiers(service_tier: &str) -> Vec<&str> {
+    match service_tier {
+        "priority" => vec!["priority", "default"],
+        "flex" => vec!["flex", "default"],
+        _ => vec!["default"],
+    }
+}
+
 fn resolve_effective_pricing_for_band(
     base: &BillingPricingResolved,
     rules: &[BillingPricingRuleRecord],
@@ -1141,6 +1178,11 @@ fn authorization_request_kind(meta_json: Option<&serde_json::Value>) -> Option<B
 
 fn authorization_session_key(meta_json: Option<&serde_json::Value>) -> Option<String> {
     authorization_meta_string(meta_json, "session_key")
+}
+
+fn authorization_service_tier(meta_json: Option<&serde_json::Value>) -> Option<String> {
+    authorization_meta_string(meta_json, "service_tier")
+        .map(|raw| normalize_billing_service_tier(Some(raw.as_str())))
 }
 
 fn normalize_email(raw: &str) -> Result<String> {
@@ -1455,5 +1497,22 @@ mod billing_pricing_rule_tests {
         assert_eq!(resolved.final_pricing.input_price_microcredits, 9_000_000);
         assert_eq!(resolved.final_pricing.cached_input_price_microcredits, 900_000);
         assert_eq!(resolved.final_pricing.output_price_microcredits, 36_000_000);
+    }
+
+    #[test]
+    fn normalize_billing_service_tier_maps_unknown_values_to_default() {
+        assert_eq!(normalize_billing_service_tier(Some("priority")), "priority");
+        assert_eq!(normalize_billing_service_tier(Some("fast")), "priority");
+        assert_eq!(normalize_billing_service_tier(Some("flex")), "flex");
+        assert_eq!(normalize_billing_service_tier(Some("auto")), "default");
+        assert_eq!(normalize_billing_service_tier(Some("anything-else")), "default");
+        assert_eq!(normalize_billing_service_tier(None), "default");
+    }
+
+    #[test]
+    fn pricing_override_lookup_tiers_falls_back_to_default() {
+        assert_eq!(pricing_override_lookup_tiers("priority"), vec!["priority", "default"]);
+        assert_eq!(pricing_override_lookup_tiers("flex"), vec!["flex", "default"]);
+        assert_eq!(pricing_override_lookup_tiers("default"), vec!["default"]);
     }
 }

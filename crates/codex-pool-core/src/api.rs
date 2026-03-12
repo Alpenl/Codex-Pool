@@ -144,6 +144,8 @@ pub struct OAuthAccountStatusResponse {
     pub last_refresh_error: Option<String>,
     pub effective_enabled: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub supported_models: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rate_limits: Vec<OAuthRateLimitSnapshot>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limits_fetched_at: Option<DateTime<Utc>>,

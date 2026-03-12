@@ -97,6 +97,7 @@ struct InternalOAuthRefreshPayload {
 #[derive(Debug, Default)]
 struct ParsedRequestPolicyContext {
     model: Option<String>,
+    requested_service_tier: Option<String>,
     stream: bool,
     request_id: Option<String>,
     detected_locale: String,
@@ -120,6 +121,7 @@ struct PendingBillingSession {
     request_id: String,
     trace_request_id: Option<String>,
     model: String,
+    requested_service_tier: Option<String>,
     session_key: String,
     request_kind: String,
     is_stream: bool,
@@ -148,6 +150,8 @@ struct BillingSession {
     request_id: String,
     trace_request_id: Option<String>,
     model: String,
+    requested_service_tier: Option<String>,
+    effective_service_tier: Option<String>,
     session_key: String,
     request_kind: String,
     is_stream: bool,
@@ -177,6 +181,7 @@ struct StreamRequestLogContext {
     request_started: Instant,
     request_id: Option<String>,
     model: Option<String>,
+    requested_service_tier: Option<String>,
     estimated_input_tokens: Option<i64>,
 }
 
@@ -194,6 +199,7 @@ enum BillingSettleOutcome {
 struct SseUsageTracker {
     line_buffer: Vec<u8>,
     usage: Option<UsageTokens>,
+    service_tier: Option<String>,
     output_text_chars: usize,
     saw_output_text_delta: bool,
     used_json_line_fallback: bool,
@@ -202,6 +208,7 @@ struct SseUsageTracker {
 #[derive(Debug, Default)]
 struct StreamUsageObservation {
     usage: Option<UsageTokens>,
+    service_tier: Option<String>,
     estimated_output_tokens: Option<i64>,
     used_json_line_fallback: bool,
 }
@@ -213,6 +220,8 @@ struct InternalBillingAuthorizePayload {
     request_id: String,
     trace_request_id: Option<String>,
     model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_tier: Option<String>,
     session_key: Option<String>,
     request_kind: Option<String>,
     reserved_microcredits: i64,
@@ -234,6 +243,8 @@ struct InternalBillingCapturePayload {
     api_key_id: Option<Uuid>,
     request_id: String,
     model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_tier: Option<String>,
     session_key: Option<String>,
     request_kind: Option<String>,
     input_tokens: i64,
@@ -258,6 +269,8 @@ struct InternalBillingPricingPayload {
     model: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     api_key_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_tier: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -330,13 +343,15 @@ pub async fn proxy_handler(
     let path = parts.uri.path().to_string();
     let query = parts.uri.query().map(|v| v.to_string());
     let method = parts.method.clone();
+    let client_version_header = parts
+        .headers
+        .get("version")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
 
     let is_models_request = method == axum::http::Method::GET && path == "/v1/models";
-    if is_models_request {
-        if let Some(response) = serve_models_from_cache(state.as_ref(), &parts.headers) {
-            return response;
-        }
-    }
 
     let max_request_body_bytes =
         max_request_body_bytes_for_path(state.max_request_body_bytes, &path);
@@ -465,6 +480,7 @@ pub async fn proxy_handler(
                         false,
                         parsed_policy_context.request_id.as_deref(),
                         parsed_policy_context.model.as_deref(),
+                        parsed_policy_context.requested_service_tier.as_deref(),
                     )
                     .await;
                     release_billing_hold_best_effort(
@@ -540,7 +556,13 @@ pub async fn proxy_handler(
         }
 
         let upstream_url =
-            match build_upstream_url(&account.base_url, &account.mode, &path, query.as_deref()) {
+            match build_upstream_url(
+                &account.base_url,
+                &account.mode,
+                &path,
+                query.as_deref(),
+                client_version_header.as_deref(),
+            ) {
                 Ok(url) => url,
                 Err(err) => {
                     warn!(error = %err, "failed to build upstream url");
@@ -562,6 +584,7 @@ pub async fn proxy_handler(
                         false,
                         parsed_policy_context.request_id.as_deref(),
                         parsed_policy_context.model.as_deref(),
+                        parsed_policy_context.requested_service_tier.as_deref(),
                     )
                     .await;
                     record_failover_exhausted_if_needed(&state, did_cross_account_failover);
@@ -581,6 +604,14 @@ pub async fn proxy_handler(
                     return response;
                 }
             };
+        let models_cache_key = is_models_request
+            .then(|| build_models_cache_key(account.id, upstream_url.as_str()));
+        if let Some(cache_key) = models_cache_key.as_deref() {
+            if let Some(response) = serve_models_from_cache(state.as_ref(), &parts.headers, cache_key)
+            {
+                return response;
+            }
+        }
         let upstream_request_adaptation = maybe_adapt_openai_responses_request_for_codex_profile(
             &account.mode,
             &account.base_url,
@@ -761,6 +792,7 @@ pub async fn proxy_handler(
                         false,
                         parsed_policy_context.request_id.as_deref(),
                         parsed_policy_context.model.as_deref(),
+                        parsed_policy_context.requested_service_tier.as_deref(),
                     )
                     .await;
                     record_failover_exhausted_if_needed(&state, did_cross_account_failover);
@@ -819,6 +851,7 @@ pub async fn proxy_handler(
                     non_stream_billing_settle,
                     non_stream_billing_deferred,
                     non_stream_billing_failed,
+                    non_stream_effective_service_tier,
                 ) = (
                     response,
                     upstream_error_context,
@@ -826,6 +859,8 @@ pub async fn proxy_handler(
                     None,
                     None,
                     None,
+                    extract_response_service_tier(&body)
+                        .or_else(|| parsed_policy_context.requested_service_tier.clone()),
                 );
                 let mut non_stream_billing_settle = non_stream_billing_settle;
                 let mut non_stream_billing_deferred = non_stream_billing_deferred;
@@ -960,6 +995,7 @@ pub async fn proxy_handler(
                         false,
                         parsed_policy_context.request_id.as_deref(),
                         parsed_policy_context.model.as_deref(),
+                        non_stream_effective_service_tier.as_deref(),
                         billing_phase,
                         authorization_id,
                         capture_status,
@@ -1125,6 +1161,7 @@ pub async fn proxy_handler(
                     false,
                     parsed_policy_context.request_id.as_deref(),
                     parsed_policy_context.model.as_deref(),
+                    parsed_policy_context.requested_service_tier.as_deref(),
                 )
                 .await;
                 record_failover_exhausted_if_needed(&state, did_cross_account_failover);
@@ -1168,6 +1205,7 @@ pub async fn proxy_handler(
                         request_started: started,
                         request_id: parsed_policy_context.request_id.clone(),
                         model: parsed_policy_context.model.clone(),
+                        requested_service_tier: parsed_policy_context.requested_service_tier.clone(),
                         estimated_input_tokens: parsed_policy_context.estimated_input_tokens,
                     }),
                 )
@@ -1347,6 +1385,7 @@ pub async fn proxy_handler(
                             true,
                             parsed_policy_context.request_id.as_deref(),
                             parsed_policy_context.model.as_deref(),
+                            parsed_policy_context.requested_service_tier.as_deref(),
                         )
                         .await;
                         record_failover_exhausted_if_needed(&state, did_cross_account_failover);
@@ -1379,8 +1418,10 @@ pub async fn proxy_handler(
             let mut non_stream_billing_settle: Option<BillingSettleResult> = None;
             let mut non_stream_billing_deferred: Option<(Uuid, UsageTokens)> = None;
             let mut non_stream_billing_failed: Option<(Uuid, UsageTokens)> = None;
-            let mut non_stream_observed_usage: Option<UsageTokens> = None;
-            let mut non_stream_estimated_usage: Option<UsageTokens> = None;
+                let mut non_stream_observed_usage: Option<UsageTokens> = None;
+                let mut non_stream_estimated_usage: Option<UsageTokens> = None;
+                let mut non_stream_effective_service_tier =
+                    parsed_policy_context.requested_service_tier.clone();
 
             let (response, upstream_error_context, is_503_overloaded) = if status
                 == StatusCode::SERVICE_UNAVAILABLE
@@ -1408,6 +1449,8 @@ pub async fn proxy_handler(
                 )
                 .await;
                 non_stream_observed_usage = extract_usage_tokens(&body);
+                non_stream_effective_service_tier = extract_response_service_tier(&body)
+                    .or_else(|| parsed_policy_context.requested_service_tier.clone());
                 if non_stream_observed_usage.is_none() {
                     let estimated_input_tokens = parsed_policy_context
                         .estimated_input_tokens
@@ -1426,7 +1469,12 @@ pub async fn proxy_handler(
                 }
                 let mut models_cached: Option<CachedModelsResponse> = None;
                 if is_models_request && status.is_success() {
-                    let cached = cache_models_response(state.as_ref(), &response_headers, &body);
+                    let cached = cache_models_response(
+                        state.as_ref(),
+                        &response_headers,
+                        &body,
+                        models_cache_key.as_deref().unwrap_or_default(),
+                    );
                     apply_models_cache_headers(&mut response, &cached, Instant::now());
                     models_cached = Some(cached);
                 }
@@ -1565,6 +1613,7 @@ pub async fn proxy_handler(
                     is_stream,
                     parsed_policy_context.request_id.as_deref(),
                     parsed_policy_context.model.as_deref(),
+                    non_stream_effective_service_tier.as_deref(),
                     billing_phase,
                     authorization_id,
                     capture_status,
@@ -1730,6 +1779,7 @@ pub async fn proxy_handler(
                 is_stream,
                 parsed_policy_context.request_id.as_deref(),
                 parsed_policy_context.model.as_deref(),
+                parsed_policy_context.requested_service_tier.as_deref(),
             )
             .await;
             record_failover_exhausted_if_needed(&state, did_cross_account_failover);
@@ -1769,13 +1819,21 @@ fn max_request_body_bytes_for_path(default_limit: usize, path: &str) -> usize {
     }
 }
 
-fn serve_models_from_cache(state: &AppState, request_headers: &HeaderMap) -> Option<Response> {
+fn build_models_cache_key(account_id: Uuid, upstream_url: &str) -> String {
+    format!("{account_id}:{upstream_url}")
+}
+
+fn serve_models_from_cache(
+    state: &AppState,
+    request_headers: &HeaderMap,
+    cache_key: &str,
+) -> Option<Response> {
     let now = Instant::now();
     let cached = state
         .models_cache
         .read()
         .ok()
-        .and_then(|guard| guard.as_ref().cloned())?;
+        .and_then(|guard| guard.get(cache_key).cloned())?;
     if cached.expires_at <= now {
         return None;
     }
@@ -1803,6 +1861,7 @@ fn cache_models_response(
     state: &AppState,
     response_headers: &HeaderMap,
     body: &bytes::Bytes,
+    cache_key: &str,
 ) -> CachedModelsResponse {
     let now = Instant::now();
     let etag = response_headers
@@ -1826,7 +1885,7 @@ fn cache_models_response(
     };
 
     if let Ok(mut guard) = state.models_cache.write() {
-        *guard = Some(cached.clone());
+        guard.insert(cache_key.to_string(), cached.clone());
     }
     cached
 }
@@ -2531,7 +2590,7 @@ mod entry_route_selection_tests {
             billing_capture_retry_max: 3,
             billing_capture_retry_backoff: Duration::from_millis(200),
             billing_pricing_cache: std::sync::RwLock::new(HashMap::new()),
-            models_cache: std::sync::RwLock::new(None),
+            models_cache: std::sync::RwLock::new(std::collections::HashMap::new()),
             routing_cache: Arc::new(InMemoryRoutingCache::new()),
             alive_ring_router: None,
             seen_ok_reporter: None,

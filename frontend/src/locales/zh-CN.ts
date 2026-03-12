@@ -55,10 +55,12 @@ export default {
             officialDescription: "这里展示 OpenAI 官方模型信息，只读。下方可以编辑手工价格覆盖。",
             limitsTitle: "限额详情",
             noOauthStatus: "暂无 OAuth 状态数据",
+            noSupportedModels: "这个账号还没有采集到可用模型列表。",
             oauthNotApplicable: "该账号类型不支持 OAuth 详情",
             oauthTitle: "OAuth 状态",
             profileTitle: "账号资料",
             rawTitle: "原始数据",
+            supportedModelsCount: "{{count}} 个模型",
             tabAria: "账号详情标签页",
             tabs: {
                 limits: "限额",
@@ -72,6 +74,7 @@ export default {
                 credentials: "凭据",
                 identity: "身份信息",
                 refresh: "刷新状态",
+                supportedModels: "可用模型",
                 subscription: "订阅信息"
             },
             fields: {

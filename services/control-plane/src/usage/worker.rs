@@ -610,6 +610,7 @@ where
                 path: message.event.path.clone(),
                 method: message.event.method.clone(),
                 model: message.event.model.clone(),
+                service_tier: message.event.service_tier.clone(),
                 input_tokens: message.event.input_tokens,
                 cached_input_tokens: message.event.cached_input_tokens,
                 output_tokens: message.event.output_tokens,

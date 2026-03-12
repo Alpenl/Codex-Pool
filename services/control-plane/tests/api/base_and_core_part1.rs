@@ -289,6 +289,7 @@ fn sample_cached_oauth_status(account_id: Uuid) -> OAuthAccountStatusResponse {
         last_refresh_error_code: None,
         last_refresh_error: None,
         effective_enabled: true,
+        supported_models: vec!["o3".to_string(), "gpt-5.4".to_string()],
         rate_limits: vec![OAuthRateLimitSnapshot {
             limit_id: Some("five_hours".to_string()),
             limit_name: Some("5h".to_string()),

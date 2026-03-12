@@ -652,7 +652,10 @@ impl TenantAuthService {
 
         let mut items = Vec::with_capacity(by_model.len());
         for (_, entry) in by_model {
-            let base_pricing = self.resolve_base_model_pricing(&entry.model).await.ok();
+            let base_pricing = self
+                .resolve_base_model_pricing(&entry.model, None)
+                .await
+                .ok();
             items.push(ApiKeyGroupCatalogItem {
                 model: entry.model,
                 provider: entry.provider,

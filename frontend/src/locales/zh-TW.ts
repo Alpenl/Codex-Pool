@@ -55,10 +55,12 @@ export default {
             officialDescription: "這裡展示 OpenAI 官方模型資訊，唯讀。下方可以編輯手動價格覆蓋。",
             limitsTitle: "限額詳情",
             noOauthStatus: "暫無 OAuth 狀態資料",
+            noSupportedModels: "這個帳號目前還沒有採集到可用模型列表。",
             oauthNotApplicable: "此帳號類型不支援 OAuth 詳情",
             oauthTitle: "OAuth 狀態",
             profileTitle: "帳號資料",
             rawTitle: "原始資料",
+            supportedModelsCount: "{{count}} 個模型",
             tabAria: "帳號詳情分頁",
             tabs: {
                 limits: "限額",
@@ -72,6 +74,7 @@ export default {
                 credentials: "憑證",
                 identity: "身份資訊",
                 refresh: "刷新狀態",
+                supportedModels: "可用模型",
                 subscription: "訂閱資訊"
             },
             fields: {

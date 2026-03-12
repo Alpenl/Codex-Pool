@@ -55,10 +55,12 @@ export default {
             officialDescription: "Official OpenAI model metadata is read-only here. Manual override pricing can be edited below.",
             limitsTitle: "Название лимитов",
             noOauthStatus: "Нет статуса OAuth",
+            noSupportedModels: "Для этого аккаунта список доступных моделей пока не был получен.",
             oauthNotApplicable: "Оаутентификация не применима",
             oauthTitle: "Название авторизации",
             profileTitle: "Название профиля",
             rawTitle: "Необработанное название",
+            supportedModelsCount: "{{count}} моделей",
             tabAria: "Вкладки деталей аккаунта",
             tabs: {
                 limits: "Пределы",
@@ -72,6 +74,7 @@ export default {
                 credentials: "Учетные данные",
                 identity: "Идентификация",
                 refresh: "Состояние обновления",
+                supportedModels: "Доступные модели",
                 subscription: "Подписка"
             },
             fields: {

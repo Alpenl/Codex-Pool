@@ -307,6 +307,7 @@ async fn admin_request_logs_forwards_filters_and_returns_rows() {
         path: "/v1/responses".to_string(),
         method: "POST".to_string(),
         model: Some("gpt-5.3-codex".to_string()),
+        service_tier: Some("priority".to_string()),
         input_tokens: Some(123),
         cached_input_tokens: Some(12),
         output_tokens: Some(456),
@@ -360,6 +361,7 @@ async fn admin_request_logs_forwards_filters_and_returns_rows() {
     assert_eq!(payload["items"][0]["latency_ms"], 123);
     assert_eq!(payload["items"][0]["input_tokens"], 123);
     assert_eq!(payload["items"][0]["output_tokens"], 456);
+    assert_eq!(payload["items"][0]["service_tier"], "priority");
     assert_eq!(payload["items"][0]["event_version"], 2);
 
     let calls = usage_repo.request_log_calls.lock().unwrap().clone();
@@ -388,6 +390,7 @@ async fn admin_request_correlation_returns_request_and_audit_context() {
         path: "/v1/responses".to_string(),
         method: "POST".to_string(),
         model: Some("gpt-5.3-codex".to_string()),
+        service_tier: Some("default".to_string()),
         input_tokens: Some(64),
         cached_input_tokens: Some(0),
         output_tokens: Some(32),
@@ -516,6 +519,7 @@ async fn tenant_request_logs_overrides_tenant_scope_from_principal() {
             path: "/v1/responses".to_string(),
             method: "POST".to_string(),
             model: Some("gpt-5.3-codex".to_string()),
+            service_tier: Some("flex".to_string()),
             input_tokens: None,
             cached_input_tokens: None,
             output_tokens: None,

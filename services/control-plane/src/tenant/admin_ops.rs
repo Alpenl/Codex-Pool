@@ -226,6 +226,7 @@ impl TenantAuthService {
             SELECT
                 id,
                 model,
+                service_tier,
                 input_price_microcredits,
                 cached_input_price_microcredits,
                 output_price_microcredits,
@@ -233,7 +234,7 @@ impl TenantAuthService {
                 created_at,
                 updated_at
             FROM model_pricing_overrides
-            ORDER BY model ASC
+            ORDER BY model ASC, service_tier ASC
             "#,
         )
         .fetch_all(&self.pool)
@@ -244,6 +245,7 @@ impl TenantAuthService {
                 Ok(ModelPricingItem {
                     id: row.try_get("id")?,
                     model: row.try_get("model")?,
+                    service_tier: row.try_get("service_tier")?,
                     input_price_microcredits: row.try_get("input_price_microcredits")?,
                     cached_input_price_microcredits: row
                         .try_get("cached_input_price_microcredits")?,
@@ -264,6 +266,7 @@ impl TenantAuthService {
         if model.is_empty() {
             return Err(anyhow!("model must not be empty"));
         }
+        let service_tier = normalize_billing_service_tier(Some(req.service_tier.as_str()));
         let exists = sqlx::query_scalar::<_, i64>(
             r#"SELECT COUNT(*) FROM openai_models_catalog WHERE model_id = $1"#,
         )
@@ -290,10 +293,10 @@ impl TenantAuthService {
         let row = sqlx::query(
             r#"
             INSERT INTO model_pricing_overrides (
-                id, model, input_price_microcredits, cached_input_price_microcredits, output_price_microcredits, enabled, created_at, updated_at
+                id, model, service_tier, input_price_microcredits, cached_input_price_microcredits, output_price_microcredits, enabled, created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
-            ON CONFLICT (model)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+            ON CONFLICT (model, service_tier)
             DO UPDATE SET
                 input_price_microcredits = EXCLUDED.input_price_microcredits,
                 cached_input_price_microcredits = EXCLUDED.cached_input_price_microcredits,
@@ -303,6 +306,7 @@ impl TenantAuthService {
             RETURNING
                 id,
                 model,
+                service_tier,
                 input_price_microcredits,
                 cached_input_price_microcredits,
                 output_price_microcredits,
@@ -313,6 +317,7 @@ impl TenantAuthService {
         )
         .bind(Uuid::new_v4())
         .bind(model)
+        .bind(service_tier)
         .bind(req.input_price_microcredits)
         .bind(cached_input_price_microcredits)
         .bind(req.output_price_microcredits)
@@ -324,6 +329,7 @@ impl TenantAuthService {
         Ok(ModelPricingItem {
             id: row.try_get("id")?,
             model: row.try_get("model")?,
+            service_tier: row.try_get("service_tier")?,
             input_price_microcredits: row.try_get("input_price_microcredits")?,
             cached_input_price_microcredits: row.try_get("cached_input_price_microcredits")?,
             output_price_microcredits: row.try_get("output_price_microcredits")?,
