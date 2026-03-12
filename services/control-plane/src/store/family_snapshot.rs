@@ -371,6 +371,7 @@ impl InMemoryStore {
             compiled_routing_plan,
             ai_error_learning_settings,
             approved_upstream_error_templates,
+            builtin_error_templates: self.list_builtin_error_templates_inner(),
             issued_at: Utc::now(),
         })
     }

@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Context, Result};
 use codex_pool_core::api::ResolveUpstreamErrorTemplateRequest;
 use codex_pool_core::model::{
+    default_builtin_error_template, BuiltinErrorTemplateKind, BuiltinErrorTemplateRecord,
     LocalizedErrorTemplates, UpstreamErrorAction, UpstreamErrorRetryScope,
 };
 use serde_json::{json, Value};
@@ -122,6 +123,27 @@ impl UpstreamErrorLearningRuntime {
         heuristic_template(ctx, locales)
     }
 
+    pub async fn rewrite_builtin_templates(
+        &self,
+        template: &BuiltinErrorTemplateRecord,
+        locales: &[String],
+    ) -> LocalizedErrorTemplates {
+        let use_remote =
+            !(self.force_fallback || self.api_key.is_none() || self.base_url.is_none());
+        if use_remote {
+            if let Ok(generated) = self
+                .try_rewrite_builtin_templates_remote(template, locales)
+                .await
+            {
+                return generated;
+            }
+        }
+
+        let mut templates = template.templates.clone();
+        fill_missing_from_source(&mut templates, locales, &template.default_templates);
+        templates
+    }
+
     async fn reserve_new_fingerprint_slot(&self) -> bool {
         let mut timestamps = self.new_fingerprint_timestamps.lock().await;
         let cutoff = Instant::now() - Duration::from_secs(60);
@@ -225,6 +247,72 @@ impl UpstreamErrorLearningRuntime {
             retry_scope,
             templates,
         })
+    }
+
+    async fn try_rewrite_builtin_templates_remote(
+        &self,
+        template: &BuiltinErrorTemplateRecord,
+        locales: &[String],
+    ) -> Result<LocalizedErrorTemplates> {
+        let base_url = self.base_url.as_ref().context("missing ai base url")?;
+        let api_key = self.api_key.as_ref().context("missing ai api key")?;
+        let endpoint = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
+        let prompt = json!({
+            "kind": template.kind,
+            "code": template.code,
+            "default_templates": template.default_templates,
+            "current_templates": template.templates,
+            "action": template.action,
+            "retry_scope": template.retry_scope,
+            "target_locales": locales,
+            "output_contract": {
+                "templates": "object keyed by locale"
+            }
+        });
+        let response = self
+            .http_client
+            .post(endpoint)
+            .bearer_auth(api_key)
+            .header("x-codex-internal-purpose", "builtin-error-template-rewrite")
+            .header("x-codex-routing-mode", "bypass-ai")
+            .timeout(self.timeout)
+            .json(&json!({
+                "model": self.model,
+                "temperature": 0,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You rewrite localized gateway error messages. Return compact JSON only with key templates. Keep messages short, user-facing, and free of internal details."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt.to_string()
+                    }
+                ]
+            }))
+            .send()
+            .await
+            .context("failed to request builtin error template rewrite")?;
+        let response = response
+            .error_for_status()
+            .context("builtin error template rewrite returned error status")?;
+        let payload: Value = response
+            .json()
+            .await
+            .context("failed to decode builtin error template rewrite response")?;
+        let content = extract_completion_content(&payload)
+            .ok_or_else(|| anyhow!("builtin error template rewrite response missing content"))?;
+        let parsed: Value = serde_json::from_str(&content)
+            .context("builtin error template rewrite content was not valid json")?;
+        let mut templates = template.templates.clone();
+        let generated = parsed
+            .get("templates")
+            .and_then(Value::as_object)
+            .map(map_templates_from_object)
+            .unwrap_or_default();
+        overlay_templates(&mut templates, &generated);
+        fill_missing_from_source(&mut templates, locales, &template.default_templates);
+        Ok(templates)
     }
 }
 
@@ -336,8 +424,41 @@ fn fill_missing_templates(
         assign_locale_template(
             templates,
             locale,
-            fallback_message_for_locale(semantic_error_code, locale).to_string(),
+            fallback_message_for_locale(semantic_error_code, locale),
         );
+    }
+}
+
+fn overlay_templates(target: &mut LocalizedErrorTemplates, generated: &LocalizedErrorTemplates) {
+    if generated.en.is_some() {
+        target.en = generated.en.clone();
+    }
+    if generated.zh_cn.is_some() {
+        target.zh_cn = generated.zh_cn.clone();
+    }
+    if generated.zh_tw.is_some() {
+        target.zh_tw = generated.zh_tw.clone();
+    }
+    if generated.ja.is_some() {
+        target.ja = generated.ja.clone();
+    }
+    if generated.ru.is_some() {
+        target.ru = generated.ru.clone();
+    }
+}
+
+fn fill_missing_from_source(
+    templates: &mut LocalizedErrorTemplates,
+    locales: &[String],
+    source: &LocalizedErrorTemplates,
+) {
+    for locale in locales {
+        if locale_template(templates, locale).is_some() {
+            continue;
+        }
+        if let Some(value) = locale_template(source, locale) {
+            assign_locale_template(templates, locale, value.to_string());
+        }
     }
 }
 
@@ -363,34 +484,21 @@ fn assign_locale_template(templates: &mut LocalizedErrorTemplates, locale: &str,
     }
 }
 
-fn fallback_message_for_locale(semantic_error_code: &str, locale: &str) -> &'static str {
-    match (semantic_error_code, locale) {
-        ("unsupported_model", "zh-CN") => "请求的模型当前不可用。",
-        ("unsupported_model", "zh-TW") => "請求的模型目前不可用。",
-        ("unsupported_model", "ja") => "要求されたモデルは現在利用できません。",
-        ("unsupported_model", "ru") => "Запрошенная модель сейчас недоступна.",
-        ("unsupported_model", _) => "The requested model is not available.",
-        ("quota_exhausted", "zh-CN") => "上游额度已耗尽，请稍后重试。",
-        ("quota_exhausted", "zh-TW") => "上游額度已耗盡，請稍後重試。",
-        ("quota_exhausted", "ja") => {
-            "上流のクォータが尽きています。しばらくしてから再試行してください。"
+fn fallback_message_for_locale(semantic_error_code: &str, locale: &str) -> String {
+    if let Some(template) = default_builtin_error_template(
+        BuiltinErrorTemplateKind::HeuristicUpstream,
+        semantic_error_code,
+    ) {
+        if let Some(message) = locale_template(&template.templates, locale) {
+            return message.to_string();
         }
-        ("quota_exhausted", "ru") => {
-            "Квота на стороне апстрима исчерпана. Повторите попытку позже."
-        }
-        ("quota_exhausted", _) => "The upstream quota is exhausted. Please retry shortly.",
-        ("upstream_request_failed", "zh-CN") => "上游请求失败，请稍后重试。",
-        ("upstream_request_failed", "zh-TW") => "上游請求失敗，請稍後重試。",
-        ("upstream_request_failed", "ja") => {
-            "上流リクエストに失敗しました。しばらくしてから再試行してください。"
-        }
-        ("upstream_request_failed", "ru") => "Ошибка запроса к апстриму. Повторите попытку позже.",
-        ("upstream_request_failed", _) => "The upstream request failed. Please retry later.",
-        (_, "zh-CN") => "上游请求暂时不可用。",
-        (_, "zh-TW") => "上游請求暫時不可用。",
-        (_, "ja") => "上流リクエストは現在利用できません。",
-        (_, "ru") => "Запрос к апстриму сейчас недоступен.",
-        _ => "The upstream request is currently unavailable.",
+    }
+    match locale {
+        "zh-CN" => "上游请求暂时不可用。".to_string(),
+        "zh-TW" => "上游請求暫時不可用。".to_string(),
+        "ja" => "上流リクエストは現在利用できません。".to_string(),
+        "ru" => "Запрос к апстриму сейчас недоступен.".to_string(),
+        _ => "The upstream request is currently unavailable.".to_string(),
     }
 }
 

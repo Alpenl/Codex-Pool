@@ -1576,6 +1576,21 @@ impl PostgresStore {
 
         sqlx::query(
             r#"
+            CREATE TABLE IF NOT EXISTS builtin_error_template_overrides (
+                template_kind TEXT NOT NULL,
+                template_code TEXT NOT NULL,
+                templates_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                updated_at TIMESTAMPTZ NOT NULL,
+                PRIMARY KEY (template_kind, template_code)
+            )
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create builtin_error_template_overrides table")?;
+
+        sqlx::query(
+            r#"
             CREATE TABLE IF NOT EXISTS routing_plan_versions (
                 id UUID PRIMARY KEY,
                 reason TEXT NULL,

@@ -29,11 +29,31 @@ impl InMemoryStore {
             )),
             upstream_error_templates: Arc::new(RwLock::new(HashMap::new())),
             upstream_error_template_index: Arc::new(RwLock::new(HashMap::new())),
+            builtin_error_template_overrides: Arc::new(RwLock::new(HashMap::new())),
             routing_plan_versions: Arc::new(RwLock::new(Vec::new())),
             revision: Arc::new(AtomicU64::new(1)),
             oauth_client,
             credential_cipher,
         }
+    }
+
+    fn list_builtin_error_templates_inner(&self) -> Vec<BuiltinErrorTemplateRecord> {
+        let mut templates = default_builtin_error_templates();
+        let overrides = self.builtin_error_template_overrides.read().unwrap();
+        for template in &mut templates {
+            if let Some(record) = overrides.get(&(template.kind, template.code.clone())) {
+                template.templates =
+                    merge_localized_error_templates(&template.default_templates, &record.templates);
+                template.is_overridden = true;
+                template.updated_at = Some(record.updated_at);
+            }
+        }
+        templates.sort_by(|left, right| {
+            left.kind
+                .cmp(&right.kind)
+                .then_with(|| left.code.cmp(&right.code))
+        });
+        templates
     }
 
     fn create_tenant_inner(&self, req: CreateTenantRequest) -> Tenant {

@@ -346,3 +346,132 @@ async fn ai_error_learning_internal_resolve_uses_sanitized_raw_hint_for_heuristi
         "The requested model is not available."
     );
 }
+
+#[tokio::test]
+async fn ai_error_learning_admin_builtin_templates_support_update_rewrite_and_reset() {
+    let app = build_app();
+    let admin_token = login_admin_token(&app).await;
+
+    let list_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/admin/model-routing/builtin-error-templates")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(list_response.status(), StatusCode::OK);
+    let list_body = to_bytes(list_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let list_json: Value = serde_json::from_slice(&list_body).unwrap();
+    assert!(
+        list_json["templates"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty())
+    );
+    assert_eq!(
+        list_json["templates"][0]["kind"].as_str(),
+        Some("gateway_error")
+    );
+    assert_eq!(
+        list_json["templates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["kind"] == "heuristic_upstream" && item["code"] == "unsupported_model")
+            .and_then(|item| item["templates"]["en"].as_str()),
+        Some("The requested model is not available.")
+    );
+
+    let update_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(
+                    "/api/v1/admin/model-routing/builtin-error-templates/heuristic_upstream/unsupported_model",
+                )
+                .header("authorization", format!("Bearer {admin_token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "templates": {
+                            "en": "The requested model is unavailable on the selected upstream account.",
+                            "zh-CN": "当前上游账号暂不支持该模型。"
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(update_response.status(), StatusCode::OK);
+    let update_body = to_bytes(update_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let update_json: Value = serde_json::from_slice(&update_body).unwrap();
+    assert_eq!(
+        update_json["template"]["templates"]["zh-CN"].as_str(),
+        Some("当前上游账号暂不支持该模型。")
+    );
+    assert_eq!(
+        update_json["template"]["default_templates"]["en"].as_str(),
+        Some("The requested model is not available.")
+    );
+    assert_eq!(
+        update_json["template"]["action"].as_str(),
+        Some("return_failure")
+    );
+
+    let rewrite_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(
+                    "/api/v1/admin/model-routing/builtin-error-templates/gateway_error/no_upstream_account/rewrite",
+                )
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rewrite_response.status(), StatusCode::OK);
+    let rewrite_body = to_bytes(rewrite_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let rewrite_json: Value = serde_json::from_slice(&rewrite_body).unwrap();
+    assert_eq!(rewrite_json["template"]["kind"].as_str(), Some("gateway_error"));
+    assert!(rewrite_json["template"]["templates"]["ja"].is_string());
+
+    let reset_response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(
+                    "/api/v1/admin/model-routing/builtin-error-templates/heuristic_upstream/unsupported_model/reset",
+                )
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(reset_response.status(), StatusCode::OK);
+    let reset_body = to_bytes(reset_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let reset_json: Value = serde_json::from_slice(&reset_body).unwrap();
+    assert_eq!(
+        reset_json["template"]["templates"]["en"].as_str(),
+        Some("The requested model is not available.")
+    );
+    assert_eq!(reset_json["template"]["is_overridden"], Value::Bool(false));
+}

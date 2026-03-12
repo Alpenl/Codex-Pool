@@ -17,25 +17,28 @@ use axum::{response::IntoResponse, Router};
 use chrono::{DateTime, Utc};
 use codex_pool_core::api::{
     AccountUsageLeaderboardResponse, AdminLoginRequest, AdminMeResponse,
-    AiErrorLearningSettingsResponse, ApiKeyUsageLeaderboardResponse, CreateApiKeyRequest,
-    CreateTenantRequest, CreateUpstreamAccountRequest, ErrorEnvelope, HourlyAccountUsagePoint,
+    AiErrorLearningSettingsResponse, ApiKeyUsageLeaderboardResponse, BuiltinErrorTemplateResponse,
+    BuiltinErrorTemplatesResponse, CreateApiKeyRequest, CreateTenantRequest,
+    CreateUpstreamAccountRequest, ErrorEnvelope, HourlyAccountUsagePoint,
     HourlyTenantApiKeyUsagePoint, ImportOAuthRefreshTokenRequest, ModelRoutingPoliciesResponse,
     ModelRoutingSettingsResponse, OAuthAccountStatusResponse, OAuthFamilyActionResponse,
     OAuthImportItemStatus, OAuthImportJobActionResponse, OAuthImportJobItemsResponse,
     OAuthImportJobSummary, OAuthRateLimitRefreshJobStatus, OAuthRateLimitRefreshJobSummary,
     PolicyResponse, ResolveUpstreamErrorTemplateRequest, ResolveUpstreamErrorTemplateResponse,
     RoutingPlanVersionsResponse, RoutingProfilesResponse, TenantUsageLeaderboardResponse,
-    UpdateAiErrorLearningSettingsRequest, UpdateModelRoutingSettingsRequest,
-    UpdateUpstreamErrorTemplateRequest, UpsertModelRoutingPolicyRequest, UpsertRetryPolicyRequest,
-    UpsertRoutingPolicyRequest, UpsertRoutingProfileRequest, UpsertStreamRetryPolicyRequest,
-    UpstreamErrorTemplateResponse, UpstreamErrorTemplatesResponse, UsageHourlyTenantTrendsResponse,
-    UsageHourlyTrendsResponse, UsageLeaderboardOverviewResponse, UsageQueryResponse,
-    UsageSummaryQueryResponse, ValidateApiKeyRequest, ValidateApiKeyResponse,
-    ValidateOAuthRefreshTokenRequest, ValidateOAuthRefreshTokenResponse,
+    UpdateAiErrorLearningSettingsRequest, UpdateBuiltinErrorTemplateRequest,
+    UpdateModelRoutingSettingsRequest, UpdateUpstreamErrorTemplateRequest,
+    UpsertModelRoutingPolicyRequest, UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest,
+    UpsertRoutingProfileRequest, UpsertStreamRetryPolicyRequest, UpstreamErrorTemplateResponse,
+    UpstreamErrorTemplatesResponse, UsageHourlyTenantTrendsResponse, UsageHourlyTrendsResponse,
+    UsageLeaderboardOverviewResponse, UsageQueryResponse, UsageSummaryQueryResponse,
+    ValidateApiKeyRequest, ValidateApiKeyResponse, ValidateOAuthRefreshTokenRequest,
+    ValidateOAuthRefreshTokenResponse,
 };
 use codex_pool_core::model::{
-    ApiKey, LocalizedErrorTemplates, ModelRoutingPolicy, RoutingProfile, UpstreamAccount,
-    UpstreamErrorTemplateRecord, UpstreamErrorTemplateStatus,
+    ApiKey, BuiltinErrorTemplateKind, BuiltinErrorTemplateOverrideRecord,
+    BuiltinErrorTemplateRecord, LocalizedErrorTemplates, ModelRoutingPolicy, RoutingProfile,
+    UpstreamAccount, UpstreamErrorTemplateRecord, UpstreamErrorTemplateStatus,
 };
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -1183,8 +1186,16 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
             get(list_admin_upstream_error_templates),
         )
         .route(
+            "/api/v1/admin/model-routing/builtin-error-templates",
+            get(list_admin_builtin_error_templates),
+        )
+        .route(
             "/api/v1/admin/model-routing/upstream-errors/{template_id}",
             put(update_admin_upstream_error_template),
+        )
+        .route(
+            "/api/v1/admin/model-routing/builtin-error-templates/{template_kind}/{template_code}",
+            put(update_admin_builtin_error_template),
         )
         .route(
             "/api/v1/admin/model-routing/upstream-errors/{template_id}/approve",
@@ -1197,6 +1208,14 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
         .route(
             "/api/v1/admin/model-routing/upstream-errors/{template_id}/rewrite",
             post(rewrite_admin_upstream_error_template),
+        )
+        .route(
+            "/api/v1/admin/model-routing/builtin-error-templates/{template_kind}/{template_code}/rewrite",
+            post(rewrite_admin_builtin_error_template),
+        )
+        .route(
+            "/api/v1/admin/model-routing/builtin-error-templates/{template_kind}/{template_code}/reset",
+            post(reset_admin_builtin_error_template),
         )
         .route(
             "/api/v1/admin/model-routing/versions",

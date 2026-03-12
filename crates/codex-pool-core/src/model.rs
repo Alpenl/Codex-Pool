@@ -213,6 +213,13 @@ pub enum UpstreamErrorRetryScope {
     CrossAccount,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum BuiltinErrorTemplateKind {
+    GatewayError,
+    HeuristicUpstream,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum UpstreamErrorTemplateStatus {
@@ -241,6 +248,257 @@ pub struct UpstreamErrorTemplateRecord {
     pub first_seen_at: DateTime<Utc>,
     pub last_seen_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BuiltinErrorTemplateOverrideRecord {
+    pub kind: BuiltinErrorTemplateKind,
+    pub code: String,
+    #[serde(default)]
+    pub templates: LocalizedErrorTemplates,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BuiltinErrorTemplateRecord {
+    pub kind: BuiltinErrorTemplateKind,
+    pub code: String,
+    #[serde(default)]
+    pub templates: LocalizedErrorTemplates,
+    #[serde(default)]
+    pub default_templates: LocalizedErrorTemplates,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<UpstreamErrorAction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_scope: Option<UpstreamErrorRetryScope>,
+    #[serde(default)]
+    pub is_overridden: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+fn localized_templates(
+    en: &str,
+    zh_cn: &str,
+    zh_tw: &str,
+    ja: &str,
+    ru: &str,
+) -> LocalizedErrorTemplates {
+    LocalizedErrorTemplates {
+        en: Some(en.to_string()),
+        zh_cn: Some(zh_cn.to_string()),
+        zh_tw: Some(zh_tw.to_string()),
+        ja: Some(ja.to_string()),
+        ru: Some(ru.to_string()),
+    }
+}
+
+fn builtin_template_record(
+    kind: BuiltinErrorTemplateKind,
+    code: &str,
+    templates: LocalizedErrorTemplates,
+    action: Option<UpstreamErrorAction>,
+    retry_scope: Option<UpstreamErrorRetryScope>,
+) -> BuiltinErrorTemplateRecord {
+    BuiltinErrorTemplateRecord {
+        kind,
+        code: code.to_string(),
+        templates: templates.clone(),
+        default_templates: templates,
+        action,
+        retry_scope,
+        is_overridden: false,
+        updated_at: None,
+    }
+}
+
+pub fn default_builtin_error_templates() -> Vec<BuiltinErrorTemplateRecord> {
+    let mut templates = vec![
+        builtin_template_record(
+            BuiltinErrorTemplateKind::GatewayError,
+            "invalid_request_body",
+            localized_templates(
+                "Could not parse the request body.",
+                "请求体解析失败。",
+                "請求體解析失敗。",
+                "リクエスト本文を解析できませんでした。",
+                "Не удалось разобрать тело запроса.",
+            ),
+            None,
+            None,
+        ),
+        builtin_template_record(
+            BuiltinErrorTemplateKind::GatewayError,
+            "invalid_request_rate_limited",
+            localized_templates(
+                "Too many invalid requests. Please retry later.",
+                "无效请求过多，请稍后再试。",
+                "無效請求過多，請稍後再試。",
+                "無効なリクエストが多すぎます。しばらくしてから再試行してください。",
+                "Слишком много некорректных запросов, попробуйте позже.",
+            ),
+            None,
+            None,
+        ),
+        builtin_template_record(
+            BuiltinErrorTemplateKind::GatewayError,
+            "invalid_upstream_url",
+            localized_templates(
+                "The upstream URL is invalid.",
+                "上游地址无效。",
+                "上游位址無效。",
+                "上流 URL が無効です。",
+                "Некорректный upstream URL.",
+            ),
+            None,
+            None,
+        ),
+        builtin_template_record(
+            BuiltinErrorTemplateKind::GatewayError,
+            "invalid_websocket_upgrade",
+            localized_templates(
+                "Invalid WebSocket upgrade request.",
+                "无效的 WebSocket 升级请求。",
+                "無效的 WebSocket 升級請求。",
+                "無効な WebSocket アップグレード要求です。",
+                "Некорректный запрос на обновление WebSocket.",
+            ),
+            None,
+            None,
+        ),
+        builtin_template_record(
+            BuiltinErrorTemplateKind::GatewayError,
+            "no_upstream_account",
+            localized_templates(
+                "No upstream accounts are currently available.",
+                "当前没有可用的上游账号。",
+                "目前沒有可用的上游帳號。",
+                "利用可能な上流アカウントがありません。",
+                "Сейчас нет доступных upstream-аккаунтов.",
+            ),
+            None,
+            None,
+        ),
+        builtin_template_record(
+            BuiltinErrorTemplateKind::GatewayError,
+            "payload_too_large",
+            localized_templates(
+                "The request body exceeds the server limit.",
+                "请求体超过了服务端限制。",
+                "請求體超過了伺服器限制。",
+                "リクエスト本文がサーバー制限を超えています。",
+                "Тело запроса превышает лимит сервера.",
+            ),
+            None,
+            None,
+        ),
+        builtin_template_record(
+            BuiltinErrorTemplateKind::GatewayError,
+            "upstream_transport_error",
+            localized_templates(
+                "The upstream request failed.",
+                "上游请求失败。",
+                "上游請求失敗。",
+                "上流リクエストに失敗しました。",
+                "Ошибка запроса к upstream.",
+            ),
+            None,
+            None,
+        ),
+        builtin_template_record(
+            BuiltinErrorTemplateKind::GatewayError,
+            "upstream_websocket_connect_error",
+            localized_templates(
+                "Failed to connect to the upstream WebSocket.",
+                "连接上游 WebSocket 失败。",
+                "連接上游 WebSocket 失敗。",
+                "上流 WebSocket への接続に失敗しました。",
+                "Не удалось подключиться к upstream WebSocket.",
+            ),
+            None,
+            None,
+        ),
+        builtin_template_record(
+            BuiltinErrorTemplateKind::GatewayError,
+            "websocket_handshake_error",
+            localized_templates(
+                "The upstream WebSocket handshake failed.",
+                "上游 WebSocket 握手失败。",
+                "上游 WebSocket 握手失敗。",
+                "上流 WebSocket ハンドシェイクに失敗しました。",
+                "Ошибка рукопожатия upstream WebSocket.",
+            ),
+            None,
+            None,
+        ),
+        builtin_template_record(
+            BuiltinErrorTemplateKind::GatewayError,
+            "websocket_upgrade_required",
+            localized_templates(
+                "The upstream requires a WebSocket upgrade.",
+                "上游要求使用 WebSocket 协议升级。",
+                "上游要求使用 WebSocket 協議升級。",
+                "上流は WebSocket アップグレードを要求しています。",
+                "Upstream требует обновления до WebSocket.",
+            ),
+            None,
+            None,
+        ),
+        builtin_template_record(
+            BuiltinErrorTemplateKind::HeuristicUpstream,
+            "quota_exhausted",
+            localized_templates(
+                "The upstream quota is exhausted. Please retry shortly.",
+                "上游额度已耗尽，请稍后重试。",
+                "上游額度已耗盡，請稍後重試。",
+                "上流のクォータが尽きています。しばらくしてから再試行してください。",
+                "Квота на стороне апстрима исчерпана. Повторите попытку позже.",
+            ),
+            Some(UpstreamErrorAction::RetryCrossAccount),
+            Some(UpstreamErrorRetryScope::CrossAccount),
+        ),
+        builtin_template_record(
+            BuiltinErrorTemplateKind::HeuristicUpstream,
+            "unsupported_model",
+            localized_templates(
+                "The requested model is not available.",
+                "请求的模型当前不可用。",
+                "請求的模型目前不可用。",
+                "要求されたモデルは現在利用できません。",
+                "Запрошенная модель сейчас недоступна.",
+            ),
+            Some(UpstreamErrorAction::ReturnFailure),
+            Some(UpstreamErrorRetryScope::None),
+        ),
+        builtin_template_record(
+            BuiltinErrorTemplateKind::HeuristicUpstream,
+            "upstream_request_failed",
+            localized_templates(
+                "The upstream request failed. Please retry later.",
+                "上游请求失败，请稍后重试。",
+                "上游請求失敗，請稍後重試。",
+                "上流リクエストに失敗しました。しばらくしてから再試行してください。",
+                "Ошибка запроса к апстриму. Повторите попытку позже.",
+            ),
+            Some(UpstreamErrorAction::ReturnFailure),
+            Some(UpstreamErrorRetryScope::None),
+        ),
+    ];
+    templates.sort_by(|left, right| {
+        left.kind
+            .cmp(&right.kind)
+            .then_with(|| left.code.cmp(&right.code))
+    });
+    templates
+}
+
+pub fn default_builtin_error_template(
+    kind: BuiltinErrorTemplateKind,
+    code: &str,
+) -> Option<BuiltinErrorTemplateRecord> {
+    default_builtin_error_templates()
+        .into_iter()
+        .find(|template| template.kind == kind && template.code == code)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

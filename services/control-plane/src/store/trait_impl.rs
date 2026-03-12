@@ -343,6 +343,53 @@ impl ControlPlaneStore for InMemoryStore {
         Ok(template)
     }
 
+    async fn list_builtin_error_template_overrides(
+        &self,
+    ) -> Result<Vec<BuiltinErrorTemplateOverrideRecord>> {
+        let mut records = self
+            .builtin_error_template_overrides
+            .read()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        records.sort_by(|left, right| {
+            left.kind
+                .cmp(&right.kind)
+                .then_with(|| left.code.cmp(&right.code))
+        });
+        Ok(records)
+    }
+
+    async fn save_builtin_error_template_override(
+        &self,
+        record: BuiltinErrorTemplateOverrideRecord,
+    ) -> Result<BuiltinErrorTemplateOverrideRecord> {
+        self.builtin_error_template_overrides
+            .write()
+            .unwrap()
+            .insert((record.kind, record.code.clone()), record.clone());
+        self.revision.fetch_add(1, Ordering::Relaxed);
+        Ok(record)
+    }
+
+    async fn delete_builtin_error_template_override(
+        &self,
+        kind: BuiltinErrorTemplateKind,
+        code: &str,
+    ) -> Result<()> {
+        self.builtin_error_template_overrides
+            .write()
+            .unwrap()
+            .remove(&(kind, code.to_string()));
+        self.revision.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    async fn list_builtin_error_templates(&self) -> Result<Vec<BuiltinErrorTemplateRecord>> {
+        Ok(self.list_builtin_error_templates_inner())
+    }
+
     async fn list_routing_plan_versions(&self) -> Result<Vec<RoutingPlanVersion>> {
         Ok(self.routing_plan_versions.read().unwrap().clone())
     }

@@ -16,11 +16,12 @@ use codex_pool_core::api::{
     ValidateOAuthRefreshTokenResponse,
 };
 use codex_pool_core::model::{
-    AccountRoutingTraits, AiErrorLearningSettings, ApiKey, ModelRoutingSettings,
-    ModelRoutingTriggerMode, CompiledModelRoutingPolicy, CompiledRoutingPlan,
-    CompiledRoutingProfile, ModelRoutingPolicy, RoutingPlanVersion, RoutingPolicy,
-    RoutingProfile, RoutingStrategy, Tenant, UpstreamAccount, UpstreamAuthProvider,
-    UpstreamErrorTemplateRecord, UpstreamErrorTemplateStatus, UpstreamMode,
+    default_builtin_error_templates, AccountRoutingTraits, AiErrorLearningSettings, ApiKey,
+    BuiltinErrorTemplateKind, BuiltinErrorTemplateOverrideRecord, BuiltinErrorTemplateRecord,
+    ModelRoutingSettings, ModelRoutingTriggerMode, CompiledModelRoutingPolicy,
+    CompiledRoutingPlan, CompiledRoutingProfile, LocalizedErrorTemplates, ModelRoutingPolicy,
+    RoutingPlanVersion, RoutingPolicy, RoutingProfile, RoutingStrategy, Tenant, UpstreamAccount,
+    UpstreamAuthProvider, UpstreamErrorTemplateRecord, UpstreamErrorTemplateStatus, UpstreamMode,
 };
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -45,6 +46,19 @@ const OAUTH_REFRESH_CONCURRENCY_ENV: &str = "CONTROL_PLANE_OAUTH_REFRESH_CONCURR
 const DEFAULT_OAUTH_REFRESH_CONCURRENCY: usize = 8;
 const MIN_OAUTH_REFRESH_CONCURRENCY: usize = 1;
 const MAX_OAUTH_REFRESH_CONCURRENCY: usize = 64;
+
+fn merge_localized_error_templates(
+    base: &LocalizedErrorTemplates,
+    override_templates: &LocalizedErrorTemplates,
+) -> LocalizedErrorTemplates {
+    LocalizedErrorTemplates {
+        en: override_templates.en.clone().or_else(|| base.en.clone()),
+        zh_cn: override_templates.zh_cn.clone().or_else(|| base.zh_cn.clone()),
+        zh_tw: override_templates.zh_tw.clone().or_else(|| base.zh_tw.clone()),
+        ja: override_templates.ja.clone().or_else(|| base.ja.clone()),
+        ru: override_templates.ru.clone().or_else(|| base.ru.clone()),
+    }
+}
 
 fn oauth_refresh_batch_size_from_env() -> usize {
     std::env::var(OAUTH_REFRESH_BATCH_SIZE_ENV)
@@ -284,6 +298,65 @@ pub trait ControlPlaneStore: Send + Sync {
         Err(anyhow!(
             "upstream error template repository is not implemented"
         ))
+    }
+    async fn list_builtin_error_template_overrides(
+        &self,
+    ) -> Result<Vec<BuiltinErrorTemplateOverrideRecord>> {
+        Err(anyhow!(
+            "builtin error template override repository is not implemented"
+        ))
+    }
+    async fn save_builtin_error_template_override(
+        &self,
+        _record: BuiltinErrorTemplateOverrideRecord,
+    ) -> Result<BuiltinErrorTemplateOverrideRecord> {
+        Err(anyhow!(
+            "builtin error template override repository is not implemented"
+        ))
+    }
+    async fn delete_builtin_error_template_override(
+        &self,
+        _kind: BuiltinErrorTemplateKind,
+        _code: &str,
+    ) -> Result<()> {
+        Err(anyhow!(
+            "builtin error template override repository is not implemented"
+        ))
+    }
+    async fn list_builtin_error_templates(&self) -> Result<Vec<BuiltinErrorTemplateRecord>> {
+        let mut templates = default_builtin_error_templates();
+        let overrides = self.list_builtin_error_template_overrides().await?;
+        let overrides = overrides
+            .into_iter()
+            .map(|record| ((record.kind, record.code.clone()), record))
+            .collect::<HashMap<_, _>>();
+
+        for template in &mut templates {
+            if let Some(record) = overrides.get(&(template.kind, template.code.clone())) {
+                template.templates =
+                    merge_localized_error_templates(&template.default_templates, &record.templates);
+                template.is_overridden = true;
+                template.updated_at = Some(record.updated_at);
+            }
+        }
+
+        templates.sort_by(|left, right| {
+            left.kind
+                .cmp(&right.kind)
+                .then_with(|| left.code.cmp(&right.code))
+        });
+        Ok(templates)
+    }
+    async fn builtin_error_template(
+        &self,
+        kind: BuiltinErrorTemplateKind,
+        code: &str,
+    ) -> Result<Option<BuiltinErrorTemplateRecord>> {
+        Ok(self
+            .list_builtin_error_templates()
+            .await?
+            .into_iter()
+            .find(|template| template.kind == kind && template.code == code))
     }
     async fn list_routing_plan_versions(&self) -> Result<Vec<RoutingPlanVersion>> {
         Err(anyhow!("routing plan version repository is not implemented"))
@@ -576,6 +649,8 @@ pub struct InMemoryStore {
     upstream_error_learning_settings: Arc<RwLock<AiErrorLearningSettings>>,
     upstream_error_templates: Arc<RwLock<HashMap<Uuid, UpstreamErrorTemplateRecord>>>,
     upstream_error_template_index: Arc<RwLock<HashMap<String, Uuid>>>,
+    builtin_error_template_overrides:
+        Arc<RwLock<HashMap<(BuiltinErrorTemplateKind, String), BuiltinErrorTemplateOverrideRecord>>>,
     routing_plan_versions: Arc<RwLock<Vec<RoutingPlanVersion>>>,
     revision: Arc<AtomicU64>,
     oauth_client: Arc<dyn OAuthTokenClient>,

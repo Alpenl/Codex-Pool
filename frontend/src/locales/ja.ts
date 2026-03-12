@@ -1854,7 +1854,7 @@ export default {
             triggerMode: "Trigger mode",
             plannerModelChain: "Planner model chain",
             plannerModelChainPlaceholder: "gpt-5.2-codex, gpt-4.1-mini",
-            plannerModelChainHint: "Use commas or new lines to order planner fallbacks.",
+            plannerModelChainHint: "モデルプールからプランナーのフォールバックモデルを選び、優先度順を保持します。",
             updatedAt: "Updated at {{value}}"
         },
         versions: {
@@ -1863,7 +1863,9 @@ export default {
             empty: "No published routing plan versions yet.",
             noReason: "No publish reason recorded.",
             defaultSegments: "Default segments {{count}}",
-            policyCount: "Policies {{count}}"
+            policyCount: "Policies {{count}}",
+            showMore: "Show {{count}} older versions",
+            showLess: "Show fewer versions"
         },
         profiles: {
             title: "Routing Profiles",
@@ -1907,8 +1909,10 @@ export default {
             familyPlaceholder: "gpt-5",
             exactModels: "Exact models",
             exactModelsPlaceholder: "gpt-5.4, gpt-5.2-codex",
+            exactModelsHint: "モデルプールから正確なモデル ID を選択し、可用性と価格を確認しながら設定します。",
             modelPrefixes: "Model prefixes",
             modelPrefixesPlaceholder: "gpt-5, o3",
+            modelPrefixesHint: "gpt-5 や o3 のようなワイルドカード接頭辞は自由入力のまま保持します。",
             fallbackProfiles: "Fallback profiles",
             noProfilesAvailable: "Create a routing profile first."
         },
@@ -1932,7 +1936,13 @@ export default {
             templateRejected: "上流エラーテンプレートを却下しました。",
             templateRejectFailed: "上流エラーテンプレートの却下に失敗しました。",
             templateRewritten: "AI で上流エラーテンプレートを書き直しました。",
-            templateRewriteFailed: "AI による上流エラーテンプレートの書き直しに失敗しました。"
+            templateRewriteFailed: "AI による上流エラーテンプレートの書き直しに失敗しました。",
+            builtinTemplateSaved: "内蔵エラーテンプレートを保存しました。",
+            builtinTemplateSaveFailed: "内蔵エラーテンプレートの保存に失敗しました。",
+            builtinTemplateRewritten: "AI で内蔵エラーテンプレートを書き直しました。",
+            builtinTemplateRewriteFailed: "AI による内蔵エラーテンプレートの書き直しに失敗しました。",
+            builtinTemplateReset: "内蔵エラーテンプレートを既定値に戻しました。",
+            builtinTemplateResetFailed: "内蔵エラーテンプレートを既定値に戻せませんでした。"
         },
         status: {
             enabled: "Enabled",
@@ -1954,6 +1964,17 @@ export default {
         authProviders: {
             legacyBearer: "Legacy bearer",
             oauthRefreshToken: "OAuth refresh token"
+        },
+        modelSelector: {
+            addModel: "Add model",
+            searchPlaceholder: "Search models by ID or title",
+            emptyCatalog: "No models are available from the model pool yet.",
+            emptySelection: "No models selected yet.",
+            noMatches: "No matching models found.",
+            unknownModel: "Saved model not in pool",
+            moveUp: "Move up",
+            moveDown: "Move down",
+            remove: "Remove model"
         },
         errorLearning: {
             settings: {
@@ -1984,6 +2005,26 @@ export default {
                 samplesEmpty: "正規化サンプルはまだありません。",
                 localizedTemplates: "多言語テンプレート",
                 localeEmpty: "この言語のテンプレートはまだありません。"
+            },
+            builtinTemplates: {
+                title: "内蔵テンプレート",
+                description: "アルゴリズム既定文言とゲートウェイのエラー文言を確認し、編集・AI 再生成・既定値への復元を行います。",
+                empty: "利用可能な内蔵テンプレートはありません。",
+                kind: "テンプレート種別",
+                code: "テンプレートコード",
+                scope: "適用範囲",
+                gatewayOnly: "ゲートウェイのローカル応答のみ",
+                overridden: "上書き済み",
+                defaultState: "既定",
+                updatedAt: "上書き更新日時 {{value}}",
+                localizedTemplates: "現在の有効テンプレート",
+                defaultTemplates: "システム既定テンプレート",
+                save: "内蔵テンプレートを保存",
+                reset: "既定値に戻す",
+                kinds: {
+                    gatewayError: "ゲートウェイエラー",
+                    heuristicUpstream: "ヒューリスティック上流エラー"
+                }
             },
             actions: {
                 saveSettings: "エラー学習設定を保存",

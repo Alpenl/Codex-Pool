@@ -351,14 +351,16 @@ pub async fn proxy_handler(
                 "failed to read request body"
             );
             if is_body_too_large_error(&err) {
-                return localized_json_error(
+                return localized_json_error_with_state(
+                    state.as_ref(),
                     header_locale.as_str(),
                     StatusCode::PAYLOAD_TOO_LARGE,
                     "payload_too_large",
                     "request body exceeds the configured limit",
                 );
             }
-            return localized_json_error(
+            return localized_json_error_with_state(
+                state.as_ref(),
                 header_locale.as_str(),
                 StatusCode::BAD_REQUEST,
                 "invalid_request_body",
@@ -505,7 +507,8 @@ pub async fn proxy_handler(
                     }),
                 )
                 .await;
-                return localized_json_error(
+                return localized_json_error_with_state(
+                    state.as_ref(),
                     parsed_policy_context.detected_locale.as_str(),
                     StatusCode::SERVICE_UNAVAILABLE,
                     "no_upstream_account",
@@ -541,7 +544,8 @@ pub async fn proxy_handler(
                 Ok(url) => url,
                 Err(err) => {
                     warn!(error = %err, "failed to build upstream url");
-                    let response = localized_json_error(
+                    let response = localized_json_error_with_state(
+                        state.as_ref(),
                         parsed_policy_context.detected_locale.as_str(),
                         StatusCode::BAD_GATEWAY,
                         "invalid_upstream_url",
@@ -691,7 +695,8 @@ pub async fn proxy_handler(
                             .await;
                     }
 
-                    let response = localized_json_error(
+                    let response = localized_json_error_with_state(
+                        state.as_ref(),
                         parsed_policy_context.detected_locale.as_str(),
                         StatusCode::BAD_GATEWAY,
                         "upstream_transport_error",
@@ -1187,7 +1192,8 @@ pub async fn proxy_handler(
                     Err(err) => {
                         let mut error_context: Option<UpstreamErrorContext> = None;
                         let mut status = StatusCode::BAD_GATEWAY;
-                        let mut response = localized_json_error(
+                        let mut response = localized_json_error_with_state(
+                            state.as_ref(),
                             parsed_policy_context.detected_locale.as_str(),
                             StatusCode::BAD_GATEWAY,
                             "upstream_transport_error",
@@ -1890,7 +1896,8 @@ pub async fn proxy_websocket_handler(
                 request.headers(),
                 &bytes::Bytes::new(),
             );
-            return localized_json_error(
+            return localized_json_error_with_state(
+                state.as_ref(),
                 locale.as_str(),
                 StatusCode::BAD_REQUEST,
                 "invalid_websocket_upgrade",
@@ -1955,7 +1962,8 @@ pub async fn proxy_websocket_handler(
                     return response;
                 }
                 record_failover_exhausted_if_needed(&state, did_cross_account_failover);
-                return localized_json_error(
+                return localized_json_error_with_state(
+                    state.as_ref(),
                     detected_locale.as_str(),
                     StatusCode::SERVICE_UNAVAILABLE,
                     "no_upstream_account",
@@ -2010,7 +2018,8 @@ pub async fn proxy_websocket_handler(
                     )
                     .await;
 
-                    let response = localized_json_error(
+                    let response = localized_json_error_with_state(
+                        state.as_ref(),
                         detected_locale.as_str(),
                         StatusCode::BAD_GATEWAY,
                         "invalid_upstream_url",
@@ -2056,7 +2065,8 @@ pub async fn proxy_websocket_handler(
 
                     let mut status = StatusCode::BAD_GATEWAY;
                     let mut error_context: Option<UpstreamErrorContext> = None;
-                    let mut response = localized_json_error(
+                    let mut response = localized_json_error_with_state(
+                        state.as_ref(),
                         detected_locale.as_str(),
                         StatusCode::BAD_GATEWAY,
                         "upstream_websocket_connect_error",
@@ -2071,7 +2081,8 @@ pub async fn proxy_websocket_handler(
                             let upstream_body =
                                 upstream_response.body().clone().unwrap_or_default();
                             if status == StatusCode::UPGRADE_REQUIRED {
-                                response = localized_json_error(
+                                response = localized_json_error_with_state(
+                                    state.as_ref(),
                                     detected_locale.as_str(),
                                     StatusCode::UPGRADE_REQUIRED,
                                     "websocket_upgrade_required",
@@ -2535,6 +2546,7 @@ mod entry_route_selection_tests {
             approved_upstream_error_templates: std::sync::RwLock::new(
                 HashMap::<String, UpstreamErrorTemplateRecord>::new(),
             ),
+            builtin_error_templates: std::sync::RwLock::new(HashMap::new()),
             max_request_body_bytes: 10 * 1024 * 1024,
             failover_attempt_total: AtomicU64::new(0),
             failover_success_total: AtomicU64::new(0),

@@ -1854,7 +1854,7 @@ export default {
             triggerMode: "Trigger mode",
             plannerModelChain: "Planner model chain",
             plannerModelChainPlaceholder: "gpt-5.2-codex, gpt-4.1-mini",
-            plannerModelChainHint: "Use commas or new lines to order planner fallbacks.",
+            plannerModelChainHint: "Выбирайте fallback-модели планировщика из пула моделей и сохраняйте порядок от более высокого приоритета к более низкому.",
             updatedAt: "Updated at {{value}}"
         },
         versions: {
@@ -1863,7 +1863,9 @@ export default {
             empty: "No published routing plan versions yet.",
             noReason: "No publish reason recorded.",
             defaultSegments: "Default segments {{count}}",
-            policyCount: "Policies {{count}}"
+            policyCount: "Policies {{count}}",
+            showMore: "Show {{count}} older versions",
+            showLess: "Show fewer versions"
         },
         profiles: {
             title: "Routing Profiles",
@@ -1907,8 +1909,10 @@ export default {
             familyPlaceholder: "gpt-5",
             exactModels: "Exact models",
             exactModelsPlaceholder: "gpt-5.4, gpt-5.2-codex",
+            exactModelsHint: "Выбирайте точные model ID из пула моделей и сразу видьте доступность и цены.",
             modelPrefixes: "Model prefixes",
             modelPrefixesPlaceholder: "gpt-5, o3",
+            modelPrefixesHint: "Свободный ввод сохраняется для префиксных правил вроде gpt-5 или o3.",
             fallbackProfiles: "Fallback profiles",
             noProfilesAvailable: "Create a routing profile first."
         },
@@ -1932,7 +1936,13 @@ export default {
             templateRejected: "Шаблон ошибки апстрима отклонён.",
             templateRejectFailed: "Не удалось отклонить шаблон ошибки апстрима.",
             templateRewritten: "Шаблон ошибки апстрима переписан с помощью AI.",
-            templateRewriteFailed: "Не удалось переписать шаблон ошибки апстрима с помощью AI."
+            templateRewriteFailed: "Не удалось переписать шаблон ошибки апстрима с помощью AI.",
+            builtinTemplateSaved: "Встроенный шаблон ошибки сохранён.",
+            builtinTemplateSaveFailed: "Не удалось сохранить встроенный шаблон ошибки.",
+            builtinTemplateRewritten: "Встроенный шаблон ошибки переписан с помощью AI.",
+            builtinTemplateRewriteFailed: "Не удалось переписать встроенный шаблон ошибки с помощью AI.",
+            builtinTemplateReset: "Встроенный шаблон ошибки восстановлен по умолчанию.",
+            builtinTemplateResetFailed: "Не удалось восстановить встроенный шаблон ошибки по умолчанию."
         },
         status: {
             enabled: "Enabled",
@@ -1954,6 +1964,17 @@ export default {
         authProviders: {
             legacyBearer: "Legacy bearer",
             oauthRefreshToken: "OAuth refresh token"
+        },
+        modelSelector: {
+            addModel: "Add model",
+            searchPlaceholder: "Search models by ID or title",
+            emptyCatalog: "No models are available from the model pool yet.",
+            emptySelection: "No models selected yet.",
+            noMatches: "No matching models found.",
+            unknownModel: "Saved model not in pool",
+            moveUp: "Move up",
+            moveDown: "Move down",
+            remove: "Remove model"
         },
         errorLearning: {
             settings: {
@@ -1984,6 +2005,26 @@ export default {
                 samplesEmpty: "Нормализованные примеры пока не сохранены.",
                 localizedTemplates: "Локализованные шаблоны",
                 localeEmpty: "Для этой локали шаблон ещё не создан."
+            },
+            builtinTemplates: {
+                title: "Встроенные шаблоны",
+                description: "Проверяйте системные тексты алгоритма и шлюза, затем редактируйте, переписывайте их через AI или возвращайте к значениям по умолчанию.",
+                empty: "Встроенные шаблоны недоступны.",
+                kind: "Тип шаблона",
+                code: "Код шаблона",
+                scope: "Область действия",
+                gatewayOnly: "Только локальный ответ шлюза",
+                overridden: "Переопределён",
+                defaultState: "По умолчанию",
+                updatedAt: "Переопределение обновлено {{value}}",
+                localizedTemplates: "Текущие шаблоны",
+                defaultTemplates: "Шаблоны по умолчанию",
+                save: "Сохранить встроенный шаблон",
+                reset: "Вернуть по умолчанию",
+                kinds: {
+                    gatewayError: "Ошибка шлюза",
+                    heuristicUpstream: "Эвристическая ошибка апстрима"
+                }
             },
             actions: {
                 saveSettings: "Сохранить настройки обучения",

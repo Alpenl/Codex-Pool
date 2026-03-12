@@ -1,19 +1,34 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Ban, Check, RotateCw, Save, Sparkles, SquarePen, Trash2, X } from 'lucide-react'
+import {
+  Ban,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  RotateCw,
+  Save,
+  Sparkles,
+  SquarePen,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import {
   aiErrorLearningApi,
   type AiErrorLearningSettings,
+  type BuiltinErrorTemplateKind,
+  type BuiltinErrorTemplateRecord,
   type LocalizedErrorTemplates,
   type SupportedErrorTemplateLocale,
+  type UpdateBuiltinErrorTemplateRequest,
   type UpdateUpstreamErrorTemplateRequest,
   type UpstreamErrorAction,
   type UpstreamErrorRetryScope,
   type UpstreamErrorTemplateRecord,
   type UpstreamErrorTemplateStatus,
 } from '@/api/aiErrorLearning'
+import { modelsApi, type ModelSchema } from '@/api/models'
 import {
   modelRoutingApi,
   type ModelRoutingSettings,
@@ -24,6 +39,8 @@ import {
   type UpstreamMode,
 } from '@/api/modelRouting'
 import { localizeApiErrorDisplay } from '@/api/errorI18n'
+import { ModelSelector } from '@/components/model-routing/model-selector'
+import { getPublishedVersionWindow } from '@/components/model-routing/model-selector-utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -64,7 +81,7 @@ type PolicyFormState = {
   id?: string
   name: string
   family: string
-  exactModels: string
+  exactModels: string[]
   modelPrefixes: string
   fallbackProfileIds: string[]
   enabled: boolean
@@ -74,7 +91,7 @@ type PolicyFormState = {
 type SettingsFormState = {
   enabled: boolean
   autoPublish: boolean
-  plannerModelChain: string
+  plannerModelChain: string[]
   triggerMode: ModelRoutingTriggerMode
   killSwitch: boolean
 }
@@ -85,16 +102,28 @@ type ErrorLearningSettingsFormState = {
   reviewHitThreshold: string
 }
 
+type TemplateLocaleDraft = Record<SupportedErrorTemplateLocale, string>
+
 type UpstreamErrorTemplateDraft = {
   semanticErrorCode: string
   action: UpstreamErrorAction
   retryScope: UpstreamErrorRetryScope
-  templates: Record<SupportedErrorTemplateLocale, string>
+  templates: TemplateLocaleDraft
+}
+
+type BuiltinErrorTemplateDraft = {
+  templates: TemplateLocaleDraft
 }
 
 type UpdateTemplateMutationPayload = {
   templateId: string
   payload: UpdateUpstreamErrorTemplateRequest
+}
+
+type UpdateBuiltinTemplateMutationPayload = {
+  kind: BuiltinErrorTemplateKind
+  code: string
+  payload: UpdateBuiltinErrorTemplateRequest
 }
 
 const DEFAULT_PROFILE_FORM: ProfileFormState = {
@@ -112,7 +141,7 @@ const DEFAULT_PROFILE_FORM: ProfileFormState = {
 const DEFAULT_POLICY_FORM: PolicyFormState = {
   name: '',
   family: '',
-  exactModels: '',
+  exactModels: [],
   modelPrefixes: '',
   fallbackProfileIds: [],
   enabled: true,
@@ -220,7 +249,7 @@ function createSettingsDraft(settings: ModelRoutingSettings): SettingsFormState 
   return {
     enabled: settings.enabled,
     autoPublish: settings.auto_publish,
-    plannerModelChain: (settings.planner_model_chain ?? []).join(', '),
+    plannerModelChain: settings.planner_model_chain ?? [],
     triggerMode: settings.trigger_mode,
     killSwitch: settings.kill_switch,
   }
@@ -253,15 +282,27 @@ function createUpstreamErrorTemplateDraft(
   }
 }
 
-function createLocalizedErrorTemplatesPayload(
-  draft: UpstreamErrorTemplateDraft,
-): LocalizedErrorTemplates {
+function createBuiltinErrorTemplateDraft(
+  template: BuiltinErrorTemplateRecord,
+): BuiltinErrorTemplateDraft {
   return {
-    en: draft.templates.en.trim() || null,
-    'zh-CN': draft.templates['zh-CN'].trim() || null,
-    'zh-TW': draft.templates['zh-TW'].trim() || null,
-    ja: draft.templates.ja.trim() || null,
-    ru: draft.templates.ru.trim() || null,
+    templates: {
+      en: template.templates.en ?? '',
+      'zh-CN': template.templates['zh-CN'] ?? '',
+      'zh-TW': template.templates['zh-TW'] ?? '',
+      ja: template.templates.ja ?? '',
+      ru: template.templates.ru ?? '',
+    },
+  }
+}
+
+function createLocalizedErrorTemplatesPayload(templates: TemplateLocaleDraft): LocalizedErrorTemplates {
+  return {
+    en: templates.en.trim() || null,
+    'zh-CN': templates['zh-CN'].trim() || null,
+    'zh-TW': templates['zh-TW'].trim() || null,
+    ja: templates.ja.trim() || null,
+    ru: templates.ru.trim() || null,
   }
 }
 
@@ -318,6 +359,20 @@ function localeLabel(locale: SupportedErrorTemplateLocale, t: ReturnType<typeof 
   return t('modelRoutingPage.errorLearning.locales.en')
 }
 
+function builtinErrorTemplateKindLabel(
+  kind: BuiltinErrorTemplateKind,
+  t: ReturnType<typeof useTranslation>['t'],
+) {
+  if (kind === 'gateway_error') {
+    return t('modelRoutingPage.errorLearning.builtinTemplates.kinds.gatewayError')
+  }
+  return t('modelRoutingPage.errorLearning.builtinTemplates.kinds.heuristicUpstream')
+}
+
+function builtinErrorTemplateKey(template: BuiltinErrorTemplateRecord) {
+  return `${template.kind}:${template.code}`
+}
+
 export default function ModelRouting() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -334,6 +389,10 @@ export default function ModelRouting() {
   const [editingTemplateDraft, setEditingTemplateDraft] = useState<UpstreamErrorTemplateDraft | null>(
     null,
   )
+  const [editingBuiltinTemplateKey, setEditingBuiltinTemplateKey] = useState<string | null>(null)
+  const [editingBuiltinTemplateDraft, setEditingBuiltinTemplateDraft] =
+    useState<BuiltinErrorTemplateDraft | null>(null)
+  const [versionsExpanded, setVersionsExpanded] = useState(false)
 
   const resolveErrorLabel = useCallback(
     (err: unknown, fallback: string) => localizeApiErrorDisplay(t, err, fallback).label,
@@ -350,6 +409,7 @@ export default function ModelRouting() {
         versionsPayload,
         errorLearningSettingsPayload,
         upstreamErrorTemplatesPayload,
+        builtinErrorTemplatesPayload,
       ] =
         await Promise.all([
           modelRoutingApi.listProfiles(),
@@ -358,6 +418,7 @@ export default function ModelRouting() {
           modelRoutingApi.listVersions(),
           aiErrorLearningApi.getSettings(),
           aiErrorLearningApi.listTemplates(),
+          aiErrorLearningApi.listBuiltinTemplates(),
         ])
       return {
         profiles: profilesPayload.profiles ?? [],
@@ -366,15 +427,22 @@ export default function ModelRouting() {
         versions: versionsPayload.versions ?? [],
         errorLearningSettings: errorLearningSettingsPayload.settings,
         upstreamErrorTemplates: upstreamErrorTemplatesPayload.templates ?? [],
+        builtinErrorTemplates: builtinErrorTemplatesPayload.templates ?? [],
       }
     },
     staleTime: 30_000,
+  })
+  const { data: modelsPayload } = useQuery({
+    queryKey: ['models'],
+    queryFn: modelsApi.listModels,
+    staleTime: 60_000,
   })
 
   const profiles = useMemo(() => data?.profiles ?? [], [data?.profiles])
   const policies = useMemo(() => data?.policies ?? [], [data?.policies])
   const settings = data?.settings ?? null
   const versions = useMemo(() => data?.versions ?? [], [data?.versions])
+  const availableModels = useMemo<ModelSchema[]>(() => modelsPayload?.data ?? [], [modelsPayload?.data])
   const errorLearningSettings = data?.errorLearningSettings ?? null
   const upstreamErrorTemplates = useMemo(() => {
     const items = [...(data?.upstreamErrorTemplates ?? [])]
@@ -395,6 +463,19 @@ export default function ModelRouting() {
     })
     return items
   }, [data?.upstreamErrorTemplates])
+  const builtinErrorTemplates = useMemo(() => {
+    const items = [...(data?.builtinErrorTemplates ?? [])]
+    items.sort((left, right) => {
+      if (left.kind !== right.kind) {
+        return left.kind.localeCompare(right.kind)
+      }
+      if (left.is_overridden !== right.is_overridden) {
+        return left.is_overridden ? -1 : 1
+      }
+      return left.code.localeCompare(right.code)
+    })
+    return items
+  }, [data?.builtinErrorTemplates])
   const settingsDraft = useMemo(
     () => settingsDraftOverride ?? (settings ? createSettingsDraft(settings) : null),
     [settingsDraftOverride, settings],
@@ -404,6 +485,27 @@ export default function ModelRouting() {
       errorLearningDraftOverride ??
       (errorLearningSettings ? createErrorLearningSettingsDraft(errorLearningSettings) : null),
     [errorLearningDraftOverride, errorLearningSettings],
+  )
+  const visibleVersions = useMemo(
+    () => getPublishedVersionWindow(versions, versionsExpanded, 5),
+    [versions, versionsExpanded],
+  )
+  const modelSelectorLabels = useMemo(
+    () => ({
+      addModel: t('modelRoutingPage.modelSelector.addModel'),
+      searchPlaceholder: t('modelRoutingPage.modelSelector.searchPlaceholder'),
+      emptyCatalog: t('modelRoutingPage.modelSelector.emptyCatalog'),
+      emptySelection: t('modelRoutingPage.modelSelector.emptySelection'),
+      noMatches: t('modelRoutingPage.modelSelector.noMatches'),
+      unknownModel: t('modelRoutingPage.modelSelector.unknownModel'),
+      moveUp: t('modelRoutingPage.modelSelector.moveUp'),
+      moveDown: t('modelRoutingPage.modelSelector.moveDown'),
+      remove: t('modelRoutingPage.modelSelector.remove'),
+      available: t('models.availability.available'),
+      unavailable: t('models.availability.unavailable'),
+      unknown: t('models.availability.unknown'),
+    }),
+    [t],
   )
 
   const updateSettingsDraft = useCallback(
@@ -442,7 +544,7 @@ export default function ModelRouting() {
       return modelRoutingApi.updateSettings({
         enabled: settingsDraft.enabled,
         auto_publish: settingsDraft.autoPublish,
-        planner_model_chain: parseCsvInput(settingsDraft.plannerModelChain),
+        planner_model_chain: settingsDraft.plannerModelChain,
         trigger_mode: settingsDraft.triggerMode,
         kill_switch: settingsDraft.killSwitch,
       })
@@ -534,7 +636,7 @@ export default function ModelRouting() {
         id: policyForm.id,
         name: policyForm.name.trim(),
         family: policyForm.family.trim(),
-        exact_models: parseCsvInput(policyForm.exactModels),
+        exact_models: policyForm.exactModels,
         model_prefixes: parseCsvInput(policyForm.modelPrefixes),
         fallback_profile_ids: policyForm.fallbackProfileIds,
         enabled: policyForm.enabled,
@@ -623,6 +725,53 @@ export default function ModelRouting() {
     },
   })
 
+  const updateBuiltinTemplateMutation = useMutation({
+    mutationFn: ({ kind, code, payload }: UpdateBuiltinTemplateMutationPayload) =>
+      aiErrorLearningApi.updateBuiltinTemplate(kind, code, payload),
+    onSuccess: () => {
+      setError(null)
+      setNotice(t('modelRoutingPage.messages.builtinTemplateSaved'))
+      setEditingBuiltinTemplateKey(null)
+      setEditingBuiltinTemplateDraft(null)
+      queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
+    },
+    onError: (err) => {
+      setError(resolveErrorLabel(err, t('modelRoutingPage.messages.builtinTemplateSaveFailed')))
+    },
+  })
+
+  const rewriteBuiltinTemplateMutation = useMutation({
+    mutationFn: ({ kind, code }: { kind: BuiltinErrorTemplateKind; code: string }) =>
+      aiErrorLearningApi.rewriteBuiltinTemplate(kind, code),
+    onSuccess: ({ template }) => {
+      setError(null)
+      setNotice(t('modelRoutingPage.messages.builtinTemplateRewritten'))
+      setEditingBuiltinTemplateKey(builtinErrorTemplateKey(template))
+      setEditingBuiltinTemplateDraft(createBuiltinErrorTemplateDraft(template))
+      queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
+    },
+    onError: (err) => {
+      setError(
+        resolveErrorLabel(err, t('modelRoutingPage.messages.builtinTemplateRewriteFailed')),
+      )
+    },
+  })
+
+  const resetBuiltinTemplateMutation = useMutation({
+    mutationFn: ({ kind, code }: { kind: BuiltinErrorTemplateKind; code: string }) =>
+      aiErrorLearningApi.resetBuiltinTemplate(kind, code),
+    onSuccess: () => {
+      setError(null)
+      setNotice(t('modelRoutingPage.messages.builtinTemplateReset'))
+      setEditingBuiltinTemplateKey(null)
+      setEditingBuiltinTemplateDraft(null)
+      queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
+    },
+    onError: (err) => {
+      setError(resolveErrorLabel(err, t('modelRoutingPage.messages.builtinTemplateResetFailed')))
+    },
+  })
+
   const openCreateProfileDialog = () => {
     setProfileForm(DEFAULT_PROFILE_FORM)
     setProfileDialogOpen(true)
@@ -654,7 +803,7 @@ export default function ModelRouting() {
       id: policy.id,
       name: policy.name,
       family: policy.family,
-      exactModels: policy.exact_models.join(', '),
+      exactModels: policy.exact_models,
       modelPrefixes: policy.model_prefixes.join(', '),
       fallbackProfileIds: policy.fallback_profile_ids,
       enabled: policy.enabled,
@@ -680,6 +829,23 @@ export default function ModelRouting() {
     [],
   )
 
+  const openBuiltinTemplateEditor = (template: BuiltinErrorTemplateRecord) => {
+    setEditingBuiltinTemplateKey(builtinErrorTemplateKey(template))
+    setEditingBuiltinTemplateDraft(createBuiltinErrorTemplateDraft(template))
+  }
+
+  const cancelBuiltinTemplateEditor = () => {
+    setEditingBuiltinTemplateKey(null)
+    setEditingBuiltinTemplateDraft(null)
+  }
+
+  const updateBuiltinTemplateDraft = useCallback(
+    (updater: (current: BuiltinErrorTemplateDraft) => BuiltinErrorTemplateDraft) => {
+      setEditingBuiltinTemplateDraft((current) => (current ? updater(current) : current))
+    },
+    [],
+  )
+
   const modeOptions: UpstreamMode[] = ['codex_oauth', 'chat_gpt_session', 'open_ai_api_key']
   const authProviderOptions: UpstreamAuthProvider[] = ['oauth_refresh_token', 'legacy_bearer']
   const triggerModeOptions: ModelRoutingTriggerMode[] = ['hybrid', 'scheduled_only', 'event_only']
@@ -688,6 +854,10 @@ export default function ModelRouting() {
     approveTemplateMutation.isPending ||
     rejectTemplateMutation.isPending ||
     rewriteTemplateMutation.isPending
+  const anyBuiltinTemplateMutationPending =
+    updateBuiltinTemplateMutation.isPending ||
+    rewriteBuiltinTemplateMutation.isPending ||
+    resetBuiltinTemplateMutation.isPending
 
   return (
     <div className="flex-1 overflow-y-auto p-8">
@@ -703,7 +873,10 @@ export default function ModelRouting() {
         <div className="flex flex-wrap gap-3">
           <Button
             variant="outline"
-            onClick={() => queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })}
+            onClick={() => {
+              queryClient.invalidateQueries({ queryKey: ['adminModelRouting'] })
+              queryClient.invalidateQueries({ queryKey: ['models'] })
+            }}
             disabled={isFetching}
           >
             <RotateCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
@@ -846,16 +1019,17 @@ export default function ModelRouting() {
               <label className="mb-2 block font-medium">
                 {t('modelRoutingPage.settings.plannerModelChain')}
               </label>
-              <Textarea
-                value={settingsDraft?.plannerModelChain ?? ''}
-                onChange={(event) =>
+              <ModelSelector
+                catalog={availableModels}
+                value={settingsDraft?.plannerModelChain ?? []}
+                onChange={(next) =>
                   updateSettingsDraft((prev) => ({
                     ...prev,
-                    plannerModelChain: event.target.value,
+                    plannerModelChain: next,
                   }))
                 }
-                rows={4}
-                placeholder={t('modelRoutingPage.settings.plannerModelChainPlaceholder')}
+                reorderable
+                labels={modelSelectorLabels}
               />
               <p className="mt-2 text-xs text-muted-foreground">
                 {t('modelRoutingPage.settings.plannerModelChainHint')}
@@ -882,32 +1056,57 @@ export default function ModelRouting() {
                 {t('modelRoutingPage.versions.empty')}
               </div>
             ) : (
-              versions.map((version) => {
-                const reason = version.reason || version.compiled_plan.trigger_reason
-                return (
-                  <div key={version.id} className={POOL_SECTION_CLASS_NAME}>
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="font-medium">{formatDateTime(version.published_at)}</div>
-                      <Badge variant="outline">{version.id.slice(0, 8)}</Badge>
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      {reason?.trim() || t('modelRoutingPage.versions.noReason')}
-                    </div>
-                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                      <span>
-                        {t('modelRoutingPage.versions.defaultSegments', {
-                          count: version.compiled_plan.default_route.length,
-                        })}
-                      </span>
-                      <span>
-                        {t('modelRoutingPage.versions.policyCount', {
-                          count: version.compiled_plan.policies.length,
-                        })}
-                      </span>
-                    </div>
+              <>
+                <div className={versionsExpanded ? 'max-h-[30rem] space-y-3 overflow-y-auto pr-2' : 'space-y-3'}>
+                  {visibleVersions.visibleItems.map((version) => {
+                    const reason = version.reason || version.compiled_plan.trigger_reason
+                    return (
+                      <div key={version.id} className={POOL_SECTION_CLASS_NAME}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="font-medium">{formatDateTime(version.published_at)}</div>
+                          <Badge variant="outline">{version.id.slice(0, 8)}</Badge>
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {reason?.trim() || t('modelRoutingPage.versions.noReason')}
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                          <span>
+                            {t('modelRoutingPage.versions.defaultSegments', {
+                              count: version.compiled_plan.default_route.length,
+                            })}
+                          </span>
+                          <span>
+                            {t('modelRoutingPage.versions.policyCount', {
+                              count: version.compiled_plan.policies.length,
+                            })}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+                {visibleVersions.canToggle ? (
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setVersionsExpanded((current) => !current)}
+                    >
+                      {versionsExpanded ? (
+                        <ChevronUp className="mr-2 h-4 w-4" />
+                      ) : (
+                        <ChevronDown className="mr-2 h-4 w-4" />
+                      )}
+                      {versionsExpanded
+                        ? t('modelRoutingPage.versions.showLess')
+                        : t('modelRoutingPage.versions.showMore', {
+                            count: visibleVersions.hiddenCount,
+                          })}
+                    </Button>
                   </div>
-                )
-              })
+                ) : null}
+              </>
             )}
           </CardContent>
         </Card>
@@ -933,8 +1132,8 @@ export default function ModelRouting() {
               </Badge>
             </div>
 
-            <label className={POOL_SECTION_CLASS_NAME}>
-              <div className="flex items-center justify-between gap-3">
+            <div className="space-y-5 rounded-xl bg-muted/20 p-4">
+              <div className="flex items-start justify-between gap-3 rounded-lg bg-background/80 px-4 py-3">
                 <div>
                   <div className="font-medium">{t('modelRoutingPage.errorLearning.settings.enabled')}</div>
                   <div className="text-sm text-muted-foreground">
@@ -951,45 +1150,45 @@ export default function ModelRouting() {
                   }
                 />
               </div>
-            </label>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  {t('modelRoutingPage.errorLearning.settings.firstSeenTimeoutMs')}
-                </label>
-                <Input
-                  type="number"
-                  value={errorLearningSettingsDraft?.firstSeenTimeoutMs ?? ''}
-                  onChange={(event) =>
-                    updateErrorLearningDraft((prev) => ({
-                      ...prev,
-                      firstSeenTimeoutMs: event.target.value,
-                    }))
-                  }
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t('modelRoutingPage.errorLearning.settings.firstSeenTimeoutMsHint')}
-                </p>
-              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    {t('modelRoutingPage.errorLearning.settings.firstSeenTimeoutMs')}
+                  </label>
+                  <Input
+                    type="number"
+                    value={errorLearningSettingsDraft?.firstSeenTimeoutMs ?? ''}
+                    onChange={(event) =>
+                      updateErrorLearningDraft((prev) => ({
+                        ...prev,
+                        firstSeenTimeoutMs: event.target.value,
+                      }))
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('modelRoutingPage.errorLearning.settings.firstSeenTimeoutMsHint')}
+                  </p>
+                </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  {t('modelRoutingPage.errorLearning.settings.reviewHitThreshold')}
-                </label>
-                <Input
-                  type="number"
-                  value={errorLearningSettingsDraft?.reviewHitThreshold ?? ''}
-                  onChange={(event) =>
-                    updateErrorLearningDraft((prev) => ({
-                      ...prev,
-                      reviewHitThreshold: event.target.value,
-                    }))
-                  }
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t('modelRoutingPage.errorLearning.settings.reviewHitThresholdHint')}
-                </p>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    {t('modelRoutingPage.errorLearning.settings.reviewHitThreshold')}
+                  </label>
+                  <Input
+                    type="number"
+                    value={errorLearningSettingsDraft?.reviewHitThreshold ?? ''}
+                    onChange={(event) =>
+                      updateErrorLearningDraft((prev) => ({
+                        ...prev,
+                        reviewHitThreshold: event.target.value,
+                      }))
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('modelRoutingPage.errorLearning.settings.reviewHitThresholdHint')}
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -1276,7 +1475,9 @@ export default function ModelRouting() {
                                   editingTemplateDraft.semanticErrorCode.trim(),
                                 action: editingTemplateDraft.action,
                                 retry_scope: editingTemplateDraft.retryScope,
-                                templates: createLocalizedErrorTemplatesPayload(editingTemplateDraft),
+                                templates: createLocalizedErrorTemplatesPayload(
+                                  editingTemplateDraft.templates,
+                                ),
                               },
                             })
                           }}
@@ -1284,6 +1485,229 @@ export default function ModelRouting() {
                         >
                           <Save className="mr-2 h-4 w-4" />
                           {t('modelRoutingPage.errorLearning.actions.saveTemplate')}
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/60">
+          <CardHeader>
+            <CardTitle>{t('modelRoutingPage.errorLearning.builtinTemplates.title')}</CardTitle>
+            <CardDescription>
+              {t('modelRoutingPage.errorLearning.builtinTemplates.description')}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {builtinErrorTemplates.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                {t('modelRoutingPage.errorLearning.builtinTemplates.empty')}
+              </div>
+            ) : (
+              builtinErrorTemplates.map((template) => {
+                const templateKey = builtinErrorTemplateKey(template)
+                const isEditing =
+                  editingBuiltinTemplateKey === templateKey && editingBuiltinTemplateDraft !== null
+
+                return (
+                  <div key={templateKey} className={POOL_SECTION_CLASS_NAME}>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline">
+                            {builtinErrorTemplateKindLabel(template.kind, t)}
+                          </Badge>
+                          <Badge variant={template.is_overridden ? 'warning' : 'secondary'}>
+                            {template.is_overridden
+                              ? t('modelRoutingPage.errorLearning.builtinTemplates.overridden')
+                              : t('modelRoutingPage.errorLearning.builtinTemplates.defaultState')}
+                          </Badge>
+                          <Badge variant="secondary">{template.code}</Badge>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {t('modelRoutingPage.errorLearning.builtinTemplates.updatedAt', {
+                            value: formatDateTime(template.updated_at),
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openBuiltinTemplateEditor(template)}
+                          disabled={anyBuiltinTemplateMutationPending}
+                        >
+                          <SquarePen className="mr-2 h-4 w-4" />
+                          {t('modelRoutingPage.actions.edit')}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            rewriteBuiltinTemplateMutation.mutate({
+                              kind: template.kind,
+                              code: template.code,
+                            })
+                          }
+                          disabled={anyBuiltinTemplateMutationPending}
+                        >
+                          <Sparkles className="mr-2 h-4 w-4" />
+                          {t('modelRoutingPage.errorLearning.actions.rewrite')}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            resetBuiltinTemplateMutation.mutate({
+                              kind: template.kind,
+                              code: template.code,
+                            })
+                          }
+                          disabled={anyBuiltinTemplateMutationPending || !template.is_overridden}
+                        >
+                          <RotateCw className="mr-2 h-4 w-4" />
+                          {t('modelRoutingPage.errorLearning.builtinTemplates.reset')}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 text-sm text-muted-foreground md:grid-cols-3">
+                      <div>
+                        <div className="text-xs font-medium uppercase tracking-wide">
+                          {t('modelRoutingPage.errorLearning.builtinTemplates.kind')}
+                        </div>
+                        <div className="mt-1 text-foreground">
+                          {builtinErrorTemplateKindLabel(template.kind, t)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-medium uppercase tracking-wide">
+                          {t('modelRoutingPage.errorLearning.builtinTemplates.code')}
+                        </div>
+                        <div className="mt-1 font-mono text-foreground">{template.code}</div>
+                      </div>
+                      {template.kind === 'heuristic_upstream' ? (
+                        <div className="grid gap-3 md:grid-cols-2 md:col-span-1">
+                          <div>
+                            <div className="text-xs font-medium uppercase tracking-wide">
+                              {t('modelRoutingPage.errorLearning.templates.action')}
+                            </div>
+                            <div className="mt-1 text-foreground">
+                              {template.action
+                                ? upstreamErrorActionLabel(template.action, t)
+                                : t('modelRoutingPage.common.none')}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs font-medium uppercase tracking-wide">
+                              {t('modelRoutingPage.errorLearning.templates.retryScope')}
+                            </div>
+                            <div className="mt-1 text-foreground">
+                              {template.retry_scope
+                                ? upstreamErrorRetryScopeLabel(template.retry_scope, t)
+                                : t('modelRoutingPage.common.none')}
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="text-xs font-medium uppercase tracking-wide">
+                            {t('modelRoutingPage.errorLearning.builtinTemplates.scope')}
+                          </div>
+                          <div className="mt-1 text-foreground">
+                            {t('modelRoutingPage.errorLearning.builtinTemplates.gatewayOnly')}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        {t('modelRoutingPage.errorLearning.builtinTemplates.localizedTemplates')}
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        {ERROR_TEMPLATE_LOCALES.map((key) => (
+                          <div key={`${templateKey}-${key}`} className="space-y-2">
+                            <div className="text-xs font-medium text-muted-foreground">
+                              {localeLabel(key, t)}
+                            </div>
+                            {isEditing ? (
+                              <Textarea
+                                rows={3}
+                                value={editingBuiltinTemplateDraft.templates[key]}
+                                onChange={(event) =>
+                                  updateBuiltinTemplateDraft((prev) => ({
+                                    ...prev,
+                                    templates: {
+                                      ...prev.templates,
+                                      [key]: event.target.value,
+                                    },
+                                  }))
+                                }
+                              />
+                            ) : (
+                              <div className="min-h-24 whitespace-pre-wrap rounded-lg border bg-muted/30 p-3 text-sm text-foreground">
+                                {template.templates[key]?.trim() ||
+                                  t('modelRoutingPage.errorLearning.templates.localeEmpty')}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        {t('modelRoutingPage.errorLearning.builtinTemplates.defaultTemplates')}
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        {ERROR_TEMPLATE_LOCALES.map((key) => (
+                          <div key={`${templateKey}-default-${key}`} className="space-y-2">
+                            <div className="text-xs font-medium text-muted-foreground">
+                              {localeLabel(key, t)}
+                            </div>
+                            <div className="min-h-24 whitespace-pre-wrap rounded-lg border border-dashed bg-muted/20 p-3 text-sm text-foreground">
+                              {template.default_templates[key]?.trim() ||
+                                t('modelRoutingPage.errorLearning.templates.localeEmpty')}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {isEditing ? (
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={cancelBuiltinTemplateEditor}
+                          disabled={updateBuiltinTemplateMutation.isPending}
+                        >
+                          <X className="mr-2 h-4 w-4" />
+                          {t('modelRoutingPage.errorLearning.actions.cancel')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() =>
+                            updateBuiltinTemplateMutation.mutate({
+                              kind: template.kind,
+                              code: template.code,
+                              payload: {
+                                templates: createLocalizedErrorTemplatesPayload(
+                                  editingBuiltinTemplateDraft.templates,
+                                ),
+                              },
+                            })
+                          }
+                          disabled={updateBuiltinTemplateMutation.isPending}
+                        >
+                          <Save className="mr-2 h-4 w-4" />
+                          {t('modelRoutingPage.errorLearning.builtinTemplates.save')}
                         </Button>
                       </div>
                     ) : null}
@@ -1654,18 +2078,21 @@ export default function ModelRouting() {
                 />
               </div>
             </label>
-            <div className="space-y-2">
+            <div className="space-y-2 md:col-span-2">
               <label className="text-sm font-medium">{t('modelRoutingPage.form.exactModels')}</label>
-              <Textarea
+              <ModelSelector
+                catalog={availableModels}
                 value={policyForm.exactModels}
-                onChange={(event) =>
-                  setPolicyForm((prev) => ({ ...prev, exactModels: event.target.value }))
+                onChange={(next) =>
+                  setPolicyForm((prev) => ({ ...prev, exactModels: next }))
                 }
-                rows={4}
-                placeholder={t('modelRoutingPage.form.exactModelsPlaceholder')}
+                labels={modelSelectorLabels}
               />
+              <p className="text-xs text-muted-foreground">
+                {t('modelRoutingPage.form.exactModelsHint')}
+              </p>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 md:col-span-2">
               <label className="text-sm font-medium">{t('modelRoutingPage.form.modelPrefixes')}</label>
               <Textarea
                 value={policyForm.modelPrefixes}
@@ -1675,6 +2102,9 @@ export default function ModelRouting() {
                 rows={4}
                 placeholder={t('modelRoutingPage.form.modelPrefixesPlaceholder')}
               />
+              <p className="text-xs text-muted-foreground">
+                {t('modelRoutingPage.form.modelPrefixesHint')}
+              </p>
             </div>
             <div className="space-y-2 md:col-span-2">
               <div className="text-sm font-medium">{t('modelRoutingPage.form.fallbackProfiles')}</div>

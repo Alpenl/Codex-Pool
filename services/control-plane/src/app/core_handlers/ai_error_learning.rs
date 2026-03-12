@@ -10,6 +10,29 @@ fn upstream_error_template_not_found() -> (StatusCode, Json<ErrorEnvelope>) {
     )
 }
 
+fn parse_builtin_error_template_kind(
+    raw: &str,
+) -> Result<BuiltinErrorTemplateKind, (StatusCode, Json<ErrorEnvelope>)> {
+    match raw.trim() {
+        "gateway_error" => Ok(BuiltinErrorTemplateKind::GatewayError),
+        "heuristic_upstream" => Ok(BuiltinErrorTemplateKind::HeuristicUpstream),
+        _ => Err(invalid_request_error("invalid builtin error template kind")),
+    }
+}
+
+async fn builtin_error_template_or_404(
+    state: &AppState,
+    kind: BuiltinErrorTemplateKind,
+    code: &str,
+) -> Result<BuiltinErrorTemplateRecord, (StatusCode, Json<ErrorEnvelope>)> {
+    state
+        .store
+        .builtin_error_template(kind, code)
+        .await
+        .map_err(map_tenant_error)?
+        .ok_or_else(upstream_error_template_not_found)
+}
+
 fn all_supported_error_template_locales() -> Vec<String> {
     vec![
         "en".to_string(),
@@ -92,6 +115,31 @@ fn template_generation_context_from_record(
     }
 }
 
+async fn apply_builtin_heuristic_template_if_known(
+    state: &AppState,
+    template: &mut UpstreamErrorTemplateRecord,
+) -> Result<(), (StatusCode, Json<ErrorEnvelope>)> {
+    let Some(builtin) = state
+        .store
+        .builtin_error_template(
+            BuiltinErrorTemplateKind::HeuristicUpstream,
+            &template.semantic_error_code,
+        )
+        .await
+        .map_err(map_tenant_error)?
+    else {
+        return Ok(());
+    };
+    if let Some(action) = builtin.action {
+        template.action = action;
+    }
+    if let Some(retry_scope) = builtin.retry_scope {
+        template.retry_scope = retry_scope;
+    }
+    template.templates = builtin.templates;
+    Ok(())
+}
+
 async fn get_admin_upstream_error_learning_settings(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -156,6 +204,19 @@ async fn list_admin_upstream_error_templates(
     Ok(Json(UpstreamErrorTemplatesResponse { templates }))
 }
 
+async fn list_admin_builtin_error_templates(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<BuiltinErrorTemplatesResponse>, (StatusCode, Json<ErrorEnvelope>)> {
+    let _principal = require_admin_principal(&state, &headers)?;
+    let templates = state
+        .store
+        .list_builtin_error_templates()
+        .await
+        .map_err(map_tenant_error)?;
+    Ok(Json(BuiltinErrorTemplatesResponse { templates }))
+}
+
 async fn update_admin_upstream_error_template(
     Path(template_id): Path<Uuid>,
     State(state): State<AppState>,
@@ -204,6 +265,52 @@ async fn update_admin_upstream_error_template(
     )
     .await;
     Ok(Json(UpstreamErrorTemplateResponse { template }))
+}
+
+async fn update_admin_builtin_error_template(
+    Path((template_kind, template_code)): Path<(String, String)>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    payload: Result<Json<UpdateBuiltinErrorTemplateRequest>, JsonRejection>,
+) -> Result<Json<BuiltinErrorTemplateResponse>, (StatusCode, Json<ErrorEnvelope>)> {
+    let principal = require_admin_principal(&state, &headers)?;
+    let kind = parse_builtin_error_template_kind(&template_kind)?;
+    let Json(req) =
+        payload.map_err(|_| invalid_request_error("invalid builtin error template"))?;
+    let template = builtin_error_template_or_404(&state, kind, &template_code).await?;
+    let updated_at = Utc::now();
+    state
+        .store
+        .save_builtin_error_template_override(BuiltinErrorTemplateOverrideRecord {
+            kind,
+            code: template.code.clone(),
+            templates: req.templates,
+            updated_at,
+        })
+        .await
+        .map_err(map_tenant_error)?;
+    let template = builtin_error_template_or_404(&state, kind, &template_code).await?;
+    write_audit_log_best_effort(
+        &state,
+        crate::tenant::AuditLogWriteRequest {
+            actor_type: "admin_user".to_string(),
+            actor_id: Some(principal.user_id),
+            tenant_id: None,
+            action: "admin.model_routing.builtin_error_template.update".to_string(),
+            reason: None,
+            request_ip: crate::tenant::extract_client_ip(&headers),
+            user_agent: extract_user_agent(&headers),
+            target_type: Some("builtin_error_template".to_string()),
+            target_id: Some(format!("{template_kind}:{template_code}")),
+            payload_json: json!({
+                "kind": kind,
+                "code": template.code,
+            }),
+            result_status: "ok".to_string(),
+        },
+    )
+    .await;
+    Ok(Json(BuiltinErrorTemplateResponse { template }))
 }
 
 async fn approve_admin_upstream_error_template(
@@ -340,6 +447,83 @@ async fn rewrite_admin_upstream_error_template(
     Ok(Json(UpstreamErrorTemplateResponse { template }))
 }
 
+async fn rewrite_admin_builtin_error_template(
+    Path((template_kind, template_code)): Path<(String, String)>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<BuiltinErrorTemplateResponse>, (StatusCode, Json<ErrorEnvelope>)> {
+    let principal = require_admin_principal(&state, &headers)?;
+    let kind = parse_builtin_error_template_kind(&template_kind)?;
+    let template = builtin_error_template_or_404(&state, kind, &template_code).await?;
+    let generated = state
+        .upstream_error_learning_runtime
+        .rewrite_builtin_templates(&template, &all_supported_error_template_locales())
+        .await;
+    state
+        .store
+        .save_builtin_error_template_override(BuiltinErrorTemplateOverrideRecord {
+            kind,
+            code: template.code.clone(),
+            templates: generated,
+            updated_at: Utc::now(),
+        })
+        .await
+        .map_err(map_tenant_error)?;
+    let template = builtin_error_template_or_404(&state, kind, &template_code).await?;
+    write_audit_log_best_effort(
+        &state,
+        crate::tenant::AuditLogWriteRequest {
+            actor_type: "admin_user".to_string(),
+            actor_id: Some(principal.user_id),
+            tenant_id: None,
+            action: "admin.model_routing.builtin_error_template.rewrite".to_string(),
+            reason: None,
+            request_ip: crate::tenant::extract_client_ip(&headers),
+            user_agent: extract_user_agent(&headers),
+            target_type: Some("builtin_error_template".to_string()),
+            target_id: Some(format!("{template_kind}:{template_code}")),
+            payload_json: json!({}),
+            result_status: "ok".to_string(),
+        },
+    )
+    .await;
+    Ok(Json(BuiltinErrorTemplateResponse { template }))
+}
+
+async fn reset_admin_builtin_error_template(
+    Path((template_kind, template_code)): Path<(String, String)>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<BuiltinErrorTemplateResponse>, (StatusCode, Json<ErrorEnvelope>)> {
+    let principal = require_admin_principal(&state, &headers)?;
+    let kind = parse_builtin_error_template_kind(&template_kind)?;
+    let _template = builtin_error_template_or_404(&state, kind, &template_code).await?;
+    state
+        .store
+        .delete_builtin_error_template_override(kind, &template_code)
+        .await
+        .map_err(map_tenant_error)?;
+    let template = builtin_error_template_or_404(&state, kind, &template_code).await?;
+    write_audit_log_best_effort(
+        &state,
+        crate::tenant::AuditLogWriteRequest {
+            actor_type: "admin_user".to_string(),
+            actor_id: Some(principal.user_id),
+            tenant_id: None,
+            action: "admin.model_routing.builtin_error_template.reset".to_string(),
+            reason: None,
+            request_ip: crate::tenant::extract_client_ip(&headers),
+            user_agent: extract_user_agent(&headers),
+            target_type: Some("builtin_error_template".to_string()),
+            target_id: Some(format!("{template_kind}:{template_code}")),
+            payload_json: json!({}),
+            result_status: "ok".to_string(),
+        },
+    )
+    .await;
+    Ok(Json(BuiltinErrorTemplateResponse { template }))
+}
+
 async fn internal_resolve_upstream_error_template(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -380,7 +564,7 @@ async fn internal_resolve_upstream_error_template(
                     true,
                 )
                 .await;
-            UpstreamErrorTemplateRecord {
+            let mut template = UpstreamErrorTemplateRecord {
                 id: Uuid::new_v4(),
                 fingerprint: req.fingerprint.clone(),
                 provider: req.provider.clone(),
@@ -395,7 +579,9 @@ async fn internal_resolve_upstream_error_template(
                 first_seen_at: now,
                 last_seen_at: now,
                 updated_at: now,
-            }
+            };
+            apply_builtin_heuristic_template_if_known(&state, &mut template).await?;
+            template
         }
     };
 
@@ -430,6 +616,7 @@ async fn internal_resolve_upstream_error_template(
         template.action = generated.action;
         template.retry_scope = generated.retry_scope;
         merge_localized_templates(&mut template.templates, &generated.templates);
+        apply_builtin_heuristic_template_if_known(&state, &mut template).await?;
     }
 
     if template.status == UpstreamErrorTemplateStatus::ProvisionalLive

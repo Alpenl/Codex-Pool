@@ -11,6 +11,7 @@ export type UpstreamErrorTemplateStatus =
   | 'review_pending'
   | 'approved'
   | 'rejected'
+export type BuiltinErrorTemplateKind = 'gateway_error' | 'heuristic_upstream'
 
 export type SupportedErrorTemplateLocale = 'en' | 'zh-CN' | 'zh-TW' | 'ja' | 'ru'
 
@@ -46,6 +47,17 @@ export interface UpstreamErrorTemplateRecord {
   updated_at: string
 }
 
+export interface BuiltinErrorTemplateRecord {
+  kind: BuiltinErrorTemplateKind
+  code: string
+  templates: LocalizedErrorTemplates
+  default_templates: LocalizedErrorTemplates
+  action?: UpstreamErrorAction | null
+  retry_scope?: UpstreamErrorRetryScope | null
+  is_overridden: boolean
+  updated_at?: string | null
+}
+
 export interface AiErrorLearningSettingsResponse {
   settings: AiErrorLearningSettings
 }
@@ -60,14 +72,26 @@ export interface UpstreamErrorTemplatesResponse {
   templates?: UpstreamErrorTemplateRecord[]
 }
 
+export interface BuiltinErrorTemplatesResponse {
+  templates?: BuiltinErrorTemplateRecord[]
+}
+
 export interface UpstreamErrorTemplateResponse {
   template: UpstreamErrorTemplateRecord
+}
+
+export interface BuiltinErrorTemplateResponse {
+  template: BuiltinErrorTemplateRecord
 }
 
 export interface UpdateUpstreamErrorTemplateRequest {
   semantic_error_code: string
   action: UpstreamErrorAction
   retry_scope: UpstreamErrorRetryScope
+  templates: LocalizedErrorTemplates
+}
+
+export interface UpdateBuiltinErrorTemplateRequest {
   templates: LocalizedErrorTemplates
 }
 
@@ -104,6 +128,18 @@ function normalizeTemplate(record: UpstreamErrorTemplateRecord): UpstreamErrorTe
   }
 }
 
+function normalizeBuiltinTemplate(record: BuiltinErrorTemplateRecord): BuiltinErrorTemplateRecord {
+  return {
+    ...record,
+    templates: normalizeLocalizedTemplates(record.templates),
+    default_templates: normalizeLocalizedTemplates(record.default_templates),
+    updated_at: normalizeString(record.updated_at),
+    action: record.action ?? null,
+    retry_scope: record.retry_scope ?? null,
+    is_overridden: Boolean(record.is_overridden),
+  }
+}
+
 export const aiErrorLearningApi = {
   getSettings: async () => {
     const response = await apiClient.get<AiErrorLearningSettingsResponse>(
@@ -133,6 +169,16 @@ export const aiErrorLearningApi = {
         : [],
     }
   },
+  listBuiltinTemplates: async () => {
+    const response = await apiClient.get<BuiltinErrorTemplatesResponse>(
+      '/admin/model-routing/builtin-error-templates',
+    )
+    return {
+      templates: Array.isArray(response.templates)
+        ? response.templates.map(normalizeBuiltinTemplate)
+        : [],
+    }
+  },
   updateTemplate: async (templateId: string, payload: UpdateUpstreamErrorTemplateRequest) => {
     const response = await apiClient.put<UpstreamErrorTemplateResponse>(
       `/admin/model-routing/upstream-errors/${templateId}`,
@@ -140,6 +186,19 @@ export const aiErrorLearningApi = {
     )
     return {
       template: normalizeTemplate(response.template),
+    }
+  },
+  updateBuiltinTemplate: async (
+    kind: BuiltinErrorTemplateKind,
+    code: string,
+    payload: UpdateBuiltinErrorTemplateRequest,
+  ) => {
+    const response = await apiClient.put<BuiltinErrorTemplateResponse>(
+      `/admin/model-routing/builtin-error-templates/${encodeURIComponent(kind)}/${encodeURIComponent(code)}`,
+      payload,
+    )
+    return {
+      template: normalizeBuiltinTemplate(response.template),
     }
   },
   approveTemplate: async (templateId: string) => {
@@ -164,6 +223,22 @@ export const aiErrorLearningApi = {
     )
     return {
       template: normalizeTemplate(response.template),
+    }
+  },
+  rewriteBuiltinTemplate: async (kind: BuiltinErrorTemplateKind, code: string) => {
+    const response = await apiClient.post<BuiltinErrorTemplateResponse>(
+      `/admin/model-routing/builtin-error-templates/${encodeURIComponent(kind)}/${encodeURIComponent(code)}/rewrite`,
+    )
+    return {
+      template: normalizeBuiltinTemplate(response.template),
+    }
+  },
+  resetBuiltinTemplate: async (kind: BuiltinErrorTemplateKind, code: string) => {
+    const response = await apiClient.post<BuiltinErrorTemplateResponse>(
+      `/admin/model-routing/builtin-error-templates/${encodeURIComponent(kind)}/${encodeURIComponent(code)}/reset`,
+    )
+    return {
+      template: normalizeBuiltinTemplate(response.template),
     }
   },
 }

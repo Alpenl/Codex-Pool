@@ -539,6 +539,28 @@ impl ControlPlaneStore for PostgresStore {
         self.save_upstream_error_template_inner(template).await
     }
 
+    async fn list_builtin_error_template_overrides(
+        &self,
+    ) -> Result<Vec<BuiltinErrorTemplateOverrideRecord>> {
+        self.list_builtin_error_template_overrides_inner().await
+    }
+
+    async fn save_builtin_error_template_override(
+        &self,
+        record: BuiltinErrorTemplateOverrideRecord,
+    ) -> Result<BuiltinErrorTemplateOverrideRecord> {
+        self.save_builtin_error_template_override_inner(record).await
+    }
+
+    async fn delete_builtin_error_template_override(
+        &self,
+        kind: BuiltinErrorTemplateKind,
+        code: &str,
+    ) -> Result<()> {
+        self.delete_builtin_error_template_override_inner(kind, code)
+            .await
+    }
+
     async fn list_routing_plan_versions(&self) -> Result<Vec<RoutingPlanVersion>> {
         self.list_routing_plan_versions_inner().await
     }

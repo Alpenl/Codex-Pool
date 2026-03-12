@@ -6,10 +6,19 @@ use anyhow::{anyhow, Context};
 use codex_pool_core::api::{
     DataPlaneSnapshot, DataPlaneSnapshotEventType, DataPlaneSnapshotEventsResponse,
 };
+use codex_pool_core::model::BuiltinErrorTemplateKind;
 use reqwest::StatusCode;
 use tracing::warn;
 
 use crate::app::AppState;
+
+fn builtin_error_template_key(kind: BuiltinErrorTemplateKind, code: &str) -> String {
+    let kind = match kind {
+        BuiltinErrorTemplateKind::GatewayError => "gateway_error",
+        BuiltinErrorTemplateKind::HeuristicUpstream => "heuristic_upstream",
+    };
+    format!("{kind}:{code}")
+}
 
 const SNAPSHOT_RETRY_INTERVAL_MS_ENV: &str = "SNAPSHOT_POLL_INTERVAL_MS";
 const SNAPSHOT_EVENTS_WAIT_MS_ENV: &str = "SNAPSHOT_EVENTS_WAIT_MS";
@@ -41,6 +50,7 @@ impl AppState {
             compiled_routing_plan,
             ai_error_learning_settings,
             approved_upstream_error_templates,
+            builtin_error_templates,
             ..
         } = snapshot;
 
@@ -60,6 +70,17 @@ impl AppState {
                 .into_iter()
                 .map(|template| (template.fingerprint.clone(), template)),
         );
+        let mut builtin_templates = self
+            .builtin_error_templates
+            .write()
+            .expect("builtin error templates lock");
+        builtin_templates.clear();
+        builtin_templates.extend(builtin_error_templates.into_iter().map(|template| {
+            (
+                builtin_error_template_key(template.kind, &template.code),
+                template,
+            )
+        }));
         self.snapshot_revision
             .store(revision, Ordering::Relaxed);
         self.snapshot_cursor.store(cursor, Ordering::Relaxed);
@@ -95,6 +116,20 @@ impl AppState {
                         .into_iter()
                         .map(|template| (template.fingerprint.clone(), template)),
                 );
+                routing_changed = true;
+            }
+            if let Some(templates) = event.builtin_error_templates {
+                let mut builtin = self
+                    .builtin_error_templates
+                    .write()
+                    .expect("builtin error templates lock");
+                builtin.clear();
+                builtin.extend(templates.into_iter().map(|template| {
+                    (
+                        builtin_error_template_key(template.kind, &template.code),
+                        template,
+                    )
+                }));
                 routing_changed = true;
             }
             match event.event_type {

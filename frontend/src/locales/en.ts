@@ -1854,7 +1854,7 @@ export default {
             triggerMode: "Trigger mode",
             plannerModelChain: "Planner model chain",
             plannerModelChainPlaceholder: "gpt-5.2-codex, gpt-4.1-mini",
-            plannerModelChainHint: "Use commas or new lines to order planner fallbacks from highest to lowest priority.",
+            plannerModelChainHint: "Select planner fallbacks from the model pool and keep them ordered from highest to lowest priority.",
             updatedAt: "Updated at {{value}}"
         },
         versions: {
@@ -1863,7 +1863,9 @@ export default {
             empty: "No published plan versions yet.",
             noReason: "No publish reason recorded.",
             defaultSegments: "Default segments {{count}}",
-            policyCount: "Policies {{count}}"
+            policyCount: "Policies {{count}}",
+            showMore: "Show {{count}} older versions",
+            showLess: "Show fewer versions"
         },
         profiles: {
             title: "Routing Profiles",
@@ -1907,8 +1909,10 @@ export default {
             familyPlaceholder: "gpt-5",
             exactModels: "Exact models",
             exactModelsPlaceholder: "gpt-5.4, gpt-5.2-codex",
+            exactModelsHint: "Choose exact model IDs from the model pool so availability and pricing are visible while you configure the rule.",
             modelPrefixes: "Model prefixes",
             modelPrefixesPlaceholder: "gpt-5, o3",
+            modelPrefixesHint: "Keep wildcard prefix rules here as free-form text, such as gpt-5 or o3.",
             fallbackProfiles: "Fallback profiles",
             noProfilesAvailable: "Create a routing profile first so policies have somewhere to point."
         },
@@ -1932,7 +1936,13 @@ export default {
             templateRejected: "Upstream error template rejected.",
             templateRejectFailed: "Failed to reject upstream error template.",
             templateRewritten: "Upstream error template rewritten by AI.",
-            templateRewriteFailed: "Failed to rewrite upstream error template."
+            templateRewriteFailed: "Failed to rewrite upstream error template.",
+            builtinTemplateSaved: "Built-in error template saved.",
+            builtinTemplateSaveFailed: "Failed to save built-in error template.",
+            builtinTemplateRewritten: "Built-in error template rewritten by AI.",
+            builtinTemplateRewriteFailed: "Failed to rewrite built-in error template.",
+            builtinTemplateReset: "Built-in error template restored to default.",
+            builtinTemplateResetFailed: "Failed to restore the built-in error template."
         },
         status: {
             enabled: "Enabled",
@@ -1954,6 +1964,17 @@ export default {
         authProviders: {
             legacyBearer: "Legacy bearer",
             oauthRefreshToken: "OAuth refresh token"
+        },
+        modelSelector: {
+            addModel: "Add model",
+            searchPlaceholder: "Search models by ID or title",
+            emptyCatalog: "No models are available from the model pool yet.",
+            emptySelection: "No models selected yet.",
+            noMatches: "No matching models found.",
+            unknownModel: "Saved model not in pool",
+            moveUp: "Move up",
+            moveDown: "Move down",
+            remove: "Remove model"
         },
         errorLearning: {
             settings: {
@@ -1984,6 +2005,26 @@ export default {
                 samplesEmpty: "No normalized samples captured yet.",
                 localizedTemplates: "Localized templates",
                 localeEmpty: "No template yet for this locale."
+            },
+            builtinTemplates: {
+                title: "Built-in Templates",
+                description: "Review default algorithm and gateway error copy, then edit, rewrite, or restore it to the system default.",
+                empty: "No built-in templates available.",
+                kind: "Template kind",
+                code: "Template code",
+                scope: "Scope",
+                gatewayOnly: "Gateway-local response",
+                overridden: "Overridden",
+                defaultState: "Default",
+                updatedAt: "Override updated at {{value}}",
+                localizedTemplates: "Effective templates",
+                defaultTemplates: "Default templates",
+                save: "Save built-in template",
+                reset: "Restore default",
+                kinds: {
+                    gatewayError: "Gateway error",
+                    heuristicUpstream: "Heuristic upstream"
+                }
             },
             actions: {
                 saveSettings: "Save error-learning settings",

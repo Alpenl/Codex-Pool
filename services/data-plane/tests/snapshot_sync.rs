@@ -56,6 +56,7 @@ fn snapshot_with_revision(revision: u64, accounts: Vec<UpstreamAccount>) -> Data
         compiled_routing_plan: None,
         ai_error_learning_settings: AiErrorLearningSettings::default(),
         approved_upstream_error_templates: Vec::new(),
+        builtin_error_templates: Vec::new(),
         issued_at: chrono::Utc::now(),
     }
 }
@@ -92,6 +93,7 @@ fn upsert_event(account: UpstreamAccount, id: u64) -> DataPlaneSnapshotEvent {
         compiled_routing_plan: None,
         ai_error_learning_settings: None,
         approved_upstream_error_templates: None,
+        builtin_error_templates: None,
         created_at: chrono::Utc::now(),
     }
 }
@@ -105,6 +107,7 @@ fn delete_event(account_id: Uuid, id: u64) -> DataPlaneSnapshotEvent {
         compiled_routing_plan: None,
         ai_error_learning_settings: None,
         approved_upstream_error_templates: None,
+        builtin_error_templates: None,
         created_at: chrono::Utc::now(),
     }
 }
@@ -135,6 +138,7 @@ fn routing_plan_refresh_event(model: &str, account_id: Uuid, id: u64) -> DataPla
         }),
         ai_error_learning_settings: None,
         approved_upstream_error_templates: None,
+        builtin_error_templates: None,
         created_at: chrono::Utc::now(),
     }
 }
@@ -152,6 +156,7 @@ fn ai_error_learning_refresh_event(
         compiled_routing_plan: None,
         ai_error_learning_settings: Some(settings),
         approved_upstream_error_templates: Some(templates),
+        builtin_error_templates: Some(Vec::new()),
         created_at: chrono::Utc::now(),
     }
 }
@@ -199,6 +204,7 @@ fn test_state() -> AppState {
         route_update_notify: Arc::new(tokio::sync::Notify::new()),
         ai_error_learning_settings: std::sync::RwLock::new(AiErrorLearningSettings::default()),
         approved_upstream_error_templates: std::sync::RwLock::new(std::collections::HashMap::new()),
+        builtin_error_templates: std::sync::RwLock::new(std::collections::HashMap::new()),
         max_request_body_bytes: 10 * 1024 * 1024,
         failover_attempt_total: AtomicU64::new(0),
         failover_success_total: AtomicU64::new(0),
@@ -372,7 +378,10 @@ async fn applies_ai_error_learning_updates_from_routing_refresh_event() {
         .read()
         .expect("ai error learning settings");
     assert!(stored_settings.enabled);
-    assert_eq!(stored_settings.first_seen_timeout_ms, settings.first_seen_timeout_ms);
+    assert_eq!(
+        stored_settings.first_seen_timeout_ms,
+        settings.first_seen_timeout_ms
+    );
     drop(stored_settings);
 
     let templates = state

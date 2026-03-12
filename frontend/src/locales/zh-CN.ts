@@ -1854,7 +1854,7 @@ export default {
             triggerMode: "触发模式",
             plannerModelChain: "规划模型链",
             plannerModelChainPlaceholder: "gpt-5.2-codex, gpt-4.1-mini",
-            plannerModelChainHint: "使用逗号或换行排列模型，顺序从高优先级到低优先级。",
+            plannerModelChainHint: "从模型池中选择规划兜底模型，并按从高优先级到低优先级保留顺序。",
             updatedAt: "更新时间 {{value}}"
         },
         versions: {
@@ -1863,7 +1863,9 @@ export default {
             empty: "暂未发布任何路由计划版本。",
             noReason: "未记录发布原因。",
             defaultSegments: "默认分段 {{count}}",
-            policyCount: "策略 {{count}} 条"
+            policyCount: "策略 {{count}} 条",
+            showMore: "展开另外 {{count}} 个旧版本",
+            showLess: "收起旧版本"
         },
         profiles: {
             title: "路由画像",
@@ -1907,8 +1909,10 @@ export default {
             familyPlaceholder: "gpt-5",
             exactModels: "精确模型",
             exactModelsPlaceholder: "gpt-5.4, gpt-5.2-codex",
+            exactModelsHint: "从模型池中选择精确模型 ID，配置时可同时看到可用状态和价格摘要。",
             modelPrefixes: "模型前缀",
             modelPrefixesPlaceholder: "gpt-5, o3",
+            modelPrefixesHint: "这里保留自由输入，用于像 gpt-5 或 o3 这样的前缀匹配规则。",
             fallbackProfiles: "回退画像",
             noProfilesAvailable: "请先创建路由画像，再为策略配置回退链。"
         },
@@ -1932,7 +1936,13 @@ export default {
             templateRejected: "上游错误模板已拒绝。",
             templateRejectFailed: "拒绝上游错误模板失败。",
             templateRewritten: "已使用 AI 重写上游错误模板。",
-            templateRewriteFailed: "AI 重写上游错误模板失败。"
+            templateRewriteFailed: "AI 重写上游错误模板失败。",
+            builtinTemplateSaved: "内置错误模板已保存。",
+            builtinTemplateSaveFailed: "保存内置错误模板失败。",
+            builtinTemplateRewritten: "已使用 AI 重写内置错误模板。",
+            builtinTemplateRewriteFailed: "AI 重写内置错误模板失败。",
+            builtinTemplateReset: "内置错误模板已恢复默认。",
+            builtinTemplateResetFailed: "恢复内置错误模板默认值失败。"
         },
         status: {
             enabled: "已启用",
@@ -1954,6 +1964,17 @@ export default {
         authProviders: {
             legacyBearer: "传统 Bearer",
             oauthRefreshToken: "OAuth Refresh Token"
+        },
+        modelSelector: {
+            addModel: "添加模型",
+            searchPlaceholder: "按模型 ID 或标题搜索",
+            emptyCatalog: "模型池里还没有可选模型。",
+            emptySelection: "暂未选择任何模型。",
+            noMatches: "没有匹配的模型。",
+            unknownModel: "已保存但不在模型池中",
+            moveUp: "上移",
+            moveDown: "下移",
+            remove: "移除模型"
         },
         errorLearning: {
             settings: {
@@ -1984,6 +2005,26 @@ export default {
                 samplesEmpty: "尚未记录归一化样本。",
                 localizedTemplates: "多语言模板",
                 localeEmpty: "该语言暂未生成模板。"
+            },
+            builtinTemplates: {
+                title: "内置模板",
+                description: "查看算法默认文案和网关错误文案，并支持编辑、AI 重写或恢复系统默认值。",
+                empty: "暂无内置模板。",
+                kind: "模板类型",
+                code: "模板代码",
+                scope: "作用范围",
+                gatewayOnly: "仅网关本地返回",
+                overridden: "已覆盖",
+                defaultState: "默认",
+                updatedAt: "覆盖更新时间 {{value}}",
+                localizedTemplates: "当前生效模板",
+                defaultTemplates: "系统默认模板",
+                save: "保存内置模板",
+                reset: "恢复默认",
+                kinds: {
+                    gatewayError: "网关错误",
+                    heuristicUpstream: "启发式上游错误"
+                }
             },
             actions: {
                 saveSettings: "保存错误学习设置",

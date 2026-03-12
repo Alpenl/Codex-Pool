@@ -352,6 +352,121 @@ impl PostgresStore {
 
         rows.iter().map(parse_upstream_error_template_row).collect()
     }
+
+    async fn list_builtin_error_template_overrides_inner(
+        &self,
+    ) -> Result<Vec<BuiltinErrorTemplateOverrideRecord>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                template_kind,
+                template_code,
+                templates_json::text AS templates_json_text,
+                updated_at
+            FROM builtin_error_template_overrides
+            ORDER BY template_kind ASC, template_code ASC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("failed to list builtin error template overrides")?;
+
+        rows.iter()
+            .map(parse_builtin_error_template_override_row)
+            .collect()
+    }
+
+    async fn save_builtin_error_template_override_inner(
+        &self,
+        record: BuiltinErrorTemplateOverrideRecord,
+    ) -> Result<BuiltinErrorTemplateOverrideRecord> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("failed to start builtin error template override transaction")?;
+
+        let row = sqlx::query(
+            r#"
+            INSERT INTO builtin_error_template_overrides (
+                template_kind,
+                template_code,
+                templates_json,
+                updated_at
+            )
+            VALUES ($1, $2, $3::jsonb, $4)
+            ON CONFLICT (template_kind, template_code) DO UPDATE
+            SET
+                templates_json = EXCLUDED.templates_json,
+                updated_at = EXCLUDED.updated_at
+            RETURNING
+                template_kind,
+                template_code,
+                templates_json::text AS templates_json_text,
+                updated_at
+            "#,
+        )
+        .bind(builtin_error_template_kind_to_db(record.kind))
+        .bind(record.code.trim())
+        .bind(
+            serde_json::to_string(&record.templates)
+                .context("failed to encode builtin error template override json")?,
+        )
+        .bind(record.updated_at)
+        .fetch_one(tx.as_mut())
+        .await
+        .context("failed to save builtin error template override")?;
+
+        self.bump_revision_tx(&mut tx).await?;
+        self.append_data_plane_outbox_event_tx(
+            &mut tx,
+            DataPlaneSnapshotEventType::RoutingPlanRefresh,
+            Uuid::nil(),
+        )
+        .await?;
+        tx.commit()
+            .await
+            .context("failed to commit builtin error template override transaction")?;
+
+        parse_builtin_error_template_override_row(&row)
+    }
+
+    async fn delete_builtin_error_template_override_inner(
+        &self,
+        kind: BuiltinErrorTemplateKind,
+        code: &str,
+    ) -> Result<()> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("failed to start builtin error template override delete transaction")?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM builtin_error_template_overrides
+            WHERE template_kind = $1 AND template_code = $2
+            "#,
+        )
+        .bind(builtin_error_template_kind_to_db(kind))
+        .bind(code.trim())
+        .execute(tx.as_mut())
+        .await
+        .context("failed to delete builtin error template override")?;
+
+        self.bump_revision_tx(&mut tx).await?;
+        self.append_data_plane_outbox_event_tx(
+            &mut tx,
+            DataPlaneSnapshotEventType::RoutingPlanRefresh,
+            Uuid::nil(),
+        )
+        .await?;
+        tx.commit()
+            .await
+            .context("failed to commit builtin error template override delete transaction")?;
+
+        Ok(())
+    }
 }
 
 fn parse_upstream_error_template_row(row: &sqlx_postgres::PgRow) -> Result<UpstreamErrorTemplateRecord> {
@@ -379,6 +494,34 @@ fn parse_upstream_error_template_row(row: &sqlx_postgres::PgRow) -> Result<Upstr
             .context("upstream error template hit count must be non-negative")?,
         first_seen_at: row.try_get("first_seen_at")?,
         last_seen_at: row.try_get("last_seen_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+fn builtin_error_template_kind_to_db(kind: BuiltinErrorTemplateKind) -> &'static str {
+    match kind {
+        BuiltinErrorTemplateKind::GatewayError => "gateway_error",
+        BuiltinErrorTemplateKind::HeuristicUpstream => "heuristic_upstream",
+    }
+}
+
+fn parse_builtin_error_template_kind(raw: &str) -> Result<BuiltinErrorTemplateKind> {
+    match raw {
+        "gateway_error" => Ok(BuiltinErrorTemplateKind::GatewayError),
+        "heuristic_upstream" => Ok(BuiltinErrorTemplateKind::HeuristicUpstream),
+        _ => Err(anyhow!("unsupported builtin error template kind: {raw}")),
+    }
+}
+
+fn parse_builtin_error_template_override_row(
+    row: &sqlx_postgres::PgRow,
+) -> Result<BuiltinErrorTemplateOverrideRecord> {
+    Ok(BuiltinErrorTemplateOverrideRecord {
+        kind: parse_builtin_error_template_kind(row.try_get::<String, _>("template_kind")?.as_str())?,
+        code: row.try_get("template_code")?,
+        templates: parse_localized_error_templates(
+            row.try_get::<Option<String>, _>("templates_json_text")?,
+        )?,
         updated_at: row.try_get("updated_at")?,
     })
 }

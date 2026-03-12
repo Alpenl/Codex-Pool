@@ -14,12 +14,13 @@ use codex_pool_core::api::{
     ValidateOAuthRefreshTokenResponse,
 };
 use codex_pool_core::model::{
-    AccountRoutingTraits, AiErrorLearningSettings, ApiKey, CompiledModelRoutingPolicy,
-    CompiledRoutingPlan, CompiledRoutingProfile, LocalizedErrorTemplates,
-    ModelRoutingPolicy, ModelRoutingSettings, ModelRoutingTriggerMode, RoutingPlanVersion,
-    RoutingPolicy, RoutingProfile, RoutingProfileSelector, RoutingStrategy, Tenant,
-    UpstreamAccount, UpstreamAuthProvider, UpstreamErrorAction, UpstreamErrorRetryScope,
-    UpstreamErrorTemplateRecord, UpstreamErrorTemplateStatus, UpstreamMode,
+    AccountRoutingTraits, AiErrorLearningSettings, ApiKey, BuiltinErrorTemplateKind,
+    BuiltinErrorTemplateOverrideRecord, CompiledModelRoutingPolicy, CompiledRoutingPlan,
+    CompiledRoutingProfile, LocalizedErrorTemplates, ModelRoutingPolicy, ModelRoutingSettings,
+    ModelRoutingTriggerMode, RoutingPlanVersion, RoutingPolicy, RoutingProfile,
+    RoutingProfileSelector, RoutingStrategy, Tenant, UpstreamAccount, UpstreamAuthProvider,
+    UpstreamErrorAction, UpstreamErrorRetryScope, UpstreamErrorTemplateRecord,
+    UpstreamErrorTemplateStatus, UpstreamMode,
 };
 use futures_util::StreamExt;
 use sha2::{Digest, Sha256};

@@ -273,6 +273,14 @@ impl PostgresStore {
             } else {
                 None
             };
+            let builtin_error_templates = if matches!(
+                event_type,
+                DataPlaneSnapshotEventType::RoutingPlanRefresh
+            ) {
+                Some(self.list_builtin_error_templates().await?)
+            } else {
+                None
+            };
             events.push(DataPlaneSnapshotEvent {
                 id,
                 event_type,
@@ -281,6 +289,7 @@ impl PostgresStore {
                 compiled_routing_plan,
                 ai_error_learning_settings,
                 approved_upstream_error_templates,
+                builtin_error_templates,
                 created_at: row.try_get::<DateTime<Utc>, _>("created_at")?,
             });
         }

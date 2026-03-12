@@ -1049,11 +1049,19 @@ async fn postgres_repo_ai_error_learning_changes_are_emitted_to_snapshot_events(
     .await
     .unwrap();
 
-    let settings_events = repo.data_plane_snapshot_events(cursor_before, 50).await.unwrap();
+    let settings_events = repo
+        .data_plane_snapshot_events(cursor_before, 50)
+        .await
+        .unwrap();
     let settings_refresh = settings_events
         .events
         .iter()
-        .find(|event| matches!(event.event_type, DataPlaneSnapshotEventType::RoutingPlanRefresh))
+        .find(|event| {
+            matches!(
+                event.event_type,
+                DataPlaneSnapshotEventType::RoutingPlanRefresh
+            )
+        })
         .expect("expected routing refresh event after ai settings update");
     let settings = settings_refresh
         .ai_error_learning_settings
@@ -1096,17 +1104,20 @@ async fn postgres_repo_ai_error_learning_changes_are_emitted_to_snapshot_events(
     let template_refresh = template_events
         .events
         .iter()
-        .find(|event| matches!(event.event_type, DataPlaneSnapshotEventType::RoutingPlanRefresh))
+        .find(|event| {
+            matches!(
+                event.event_type,
+                DataPlaneSnapshotEventType::RoutingPlanRefresh
+            )
+        })
         .expect("expected routing refresh event after approved template save");
     let templates = template_refresh
         .approved_upstream_error_templates
         .as_ref()
         .expect("routing refresh event should include approved templates");
-    assert!(
-        templates
-            .iter()
-            .any(|template| template.fingerprint == approved_template.fingerprint)
-    );
+    assert!(templates
+        .iter()
+        .any(|template| template.fingerprint == approved_template.fingerprint));
 }
 
 #[tokio::test]

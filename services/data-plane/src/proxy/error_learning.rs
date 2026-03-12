@@ -3,7 +3,8 @@ use codex_pool_core::api::{
     ResolveUpstreamErrorTemplateRequest, ResolveUpstreamErrorTemplateResponse,
 };
 use codex_pool_core::model::{
-    UpstreamErrorAction, UpstreamErrorRetryScope, UpstreamErrorTemplateRecord,
+    BuiltinErrorTemplateKind, UpstreamErrorAction, UpstreamErrorRetryScope,
+    UpstreamErrorTemplateRecord,
 };
 use regex::Regex;
 use std::sync::LazyLock;
@@ -343,6 +344,48 @@ fn upstream_provider_label(_mode: &UpstreamMode) -> &'static str {
     "openai_compatible"
 }
 
+fn builtin_error_template_key(kind: BuiltinErrorTemplateKind, code: &str) -> String {
+    let kind = match kind {
+        BuiltinErrorTemplateKind::GatewayError => "gateway_error",
+        BuiltinErrorTemplateKind::HeuristicUpstream => "heuristic_upstream",
+    };
+    format!("{kind}:{code}")
+}
+
+fn localized_message_from_builtin_template(
+    state: &AppState,
+    code: &str,
+    locale: &str,
+) -> Option<String> {
+    let key = builtin_error_template_key(BuiltinErrorTemplateKind::GatewayError, code);
+    let templates = state.builtin_error_templates.read().ok()?;
+    let template = templates.get(&key)?;
+    localized_message_from_template_like(template, locale)
+}
+
+fn localized_message_from_template_like(
+    template: &impl BuiltinLikeTemplate,
+    locale: &str,
+) -> Option<String> {
+    match canonicalize_locale(locale).as_deref().unwrap_or(DEFAULT_ERROR_LOCALE) {
+        "zh-CN" => template.templates().zh_cn.clone(),
+        "zh-TW" => template.templates().zh_tw.clone(),
+        "ja" => template.templates().ja.clone(),
+        "ru" => template.templates().ru.clone(),
+        _ => template.templates().en.clone(),
+    }
+}
+
+trait BuiltinLikeTemplate {
+    fn templates(&self) -> &codex_pool_core::model::LocalizedErrorTemplates;
+}
+
+impl BuiltinLikeTemplate for codex_pool_core::model::BuiltinErrorTemplateRecord {
+    fn templates(&self) -> &codex_pool_core::model::LocalizedErrorTemplates {
+        &self.templates
+    }
+}
+
 fn localized_gateway_message(code: &str, locale: &str, fallback: &str) -> String {
     let locale = canonicalize_locale(locale).unwrap_or_else(|| DEFAULT_ERROR_LOCALE.to_string());
     match locale.as_str() {
@@ -402,8 +445,24 @@ fn localized_gateway_message(code: &str, locale: &str, fallback: &str) -> String
     }
 }
 
-fn localized_json_error(locale: &str, status: StatusCode, code: &str, fallback: &str) -> Response {
-    let message = localized_gateway_message(code, locale, fallback);
+fn localized_gateway_message_with_state(
+    state: &AppState,
+    code: &str,
+    locale: &str,
+    fallback: &str,
+) -> String {
+    localized_message_from_builtin_template(state, code, locale)
+        .unwrap_or_else(|| localized_gateway_message(code, locale, fallback))
+}
+
+pub(crate) fn localized_json_error_with_state(
+    state: &AppState,
+    locale: &str,
+    status: StatusCode,
+    code: &str,
+    fallback: &str,
+) -> Response {
+    let message = localized_gateway_message_with_state(state, code, locale, fallback);
     json_error(status, code, &message)
 }
 
@@ -537,7 +596,10 @@ mod ai_error_learning_tests {
     use crate::event::NoopEventSink;
     use crate::routing_cache::InMemoryRoutingCache;
     use crate::router::RoundRobinRouter;
-    use codex_pool_core::model::{AiErrorLearningSettings, RoutingStrategy, UpstreamMode};
+    use codex_pool_core::model::{
+        AiErrorLearningSettings, BuiltinErrorTemplateKind, BuiltinErrorTemplateRecord,
+        LocalizedErrorTemplates, RoutingStrategy, UpstreamMode,
+    };
     use serde_json::json;
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::AtomicU64;
@@ -610,6 +672,7 @@ mod ai_error_learning_tests {
                 updated_at: None,
             }),
             approved_upstream_error_templates: std::sync::RwLock::new(HashMap::new()),
+            builtin_error_templates: std::sync::RwLock::new(HashMap::new()),
             max_request_body_bytes: 10 * 1024 * 1024,
             failover_attempt_total: AtomicU64::new(0),
             failover_success_total: AtomicU64::new(0),
@@ -647,6 +710,54 @@ mod ai_error_learning_tests {
             invalid_request_guard: std::sync::RwLock::new(HashMap::new()),
             invalid_request_guard_block_total: AtomicU64::new(0),
         })
+    }
+
+    #[tokio::test]
+    async fn localized_json_error_with_state_prefers_builtin_gateway_templates() {
+        let state = test_state();
+        state
+            .builtin_error_templates
+            .write()
+            .unwrap()
+            .insert(
+                builtin_error_template_key(
+                    BuiltinErrorTemplateKind::GatewayError,
+                    "no_upstream_account",
+                ),
+                BuiltinErrorTemplateRecord {
+                    kind: BuiltinErrorTemplateKind::GatewayError,
+                    code: "no_upstream_account".to_string(),
+                    templates: LocalizedErrorTemplates {
+                        en: Some("No upstream accounts are ready right now.".to_string()),
+                        zh_cn: Some("当前没有就绪的上游账号。".to_string()),
+                        ..LocalizedErrorTemplates::default()
+                    },
+                    default_templates: LocalizedErrorTemplates {
+                        en: Some("No upstream accounts are currently available.".to_string()),
+                        zh_cn: Some("当前没有可用的上游账号。".to_string()),
+                        ..LocalizedErrorTemplates::default()
+                    },
+                    action: None,
+                    retry_scope: None,
+                    is_overridden: true,
+                    updated_at: Some(chrono::Utc::now()),
+                },
+            );
+
+        let response = localized_json_error_with_state(
+            state.as_ref(),
+            "zh-CN",
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "no_upstream_account",
+            "no active upstream accounts",
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(payload["error"]["code"], "no_upstream_account");
+        assert_eq!(payload["error"]["message"], "当前没有就绪的上游账号。");
     }
 
     #[test]

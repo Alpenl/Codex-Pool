@@ -4,11 +4,11 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::model::{
-    AccountRoutingTraits, AiErrorLearningSettings, ApiKey, CompiledRoutingPlan,
-    LocalizedErrorTemplates, ModelRoutingPolicy, ModelRoutingSettings, ModelRoutingTriggerMode,
-    RoutingPlanVersion, RoutingPolicy, RoutingProfile, RoutingProfileSelector, RoutingStrategy,
-    UpstreamAccount, UpstreamAuthProvider, UpstreamErrorAction, UpstreamErrorRetryScope,
-    UpstreamErrorTemplateRecord, UpstreamMode,
+    AccountRoutingTraits, AiErrorLearningSettings, ApiKey, BuiltinErrorTemplateRecord,
+    CompiledRoutingPlan, LocalizedErrorTemplates, ModelRoutingPolicy, ModelRoutingSettings,
+    ModelRoutingTriggerMode, RoutingPlanVersion, RoutingPolicy, RoutingProfile,
+    RoutingProfileSelector, RoutingStrategy, UpstreamAccount, UpstreamAuthProvider,
+    UpstreamErrorAction, UpstreamErrorRetryScope, UpstreamErrorTemplateRecord, UpstreamMode,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -201,6 +201,8 @@ pub struct DataPlaneSnapshot {
     pub ai_error_learning_settings: AiErrorLearningSettings,
     #[serde(default)]
     pub approved_upstream_error_templates: Vec<UpstreamErrorTemplateRecord>,
+    #[serde(default)]
+    pub builtin_error_templates: Vec<BuiltinErrorTemplateRecord>,
     pub issued_at: DateTime<Utc>,
 }
 
@@ -225,6 +227,8 @@ pub struct DataPlaneSnapshotEvent {
     pub ai_error_learning_settings: Option<AiErrorLearningSettings>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approved_upstream_error_templates: Option<Vec<UpstreamErrorTemplateRecord>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builtin_error_templates: Option<Vec<BuiltinErrorTemplateRecord>>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -392,8 +396,19 @@ pub struct UpstreamErrorTemplatesResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuiltinErrorTemplatesResponse {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub templates: Vec<BuiltinErrorTemplateRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpstreamErrorTemplateResponse {
     pub template: UpstreamErrorTemplateRecord,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuiltinErrorTemplateResponse {
+    pub template: BuiltinErrorTemplateRecord,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -402,6 +417,13 @@ pub struct UpdateUpstreamErrorTemplateRequest {
     pub semantic_error_code: String,
     pub action: UpstreamErrorAction,
     pub retry_scope: UpstreamErrorRetryScope,
+    #[serde(default)]
+    pub templates: LocalizedErrorTemplates,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateBuiltinErrorTemplateRequest {
     #[serde(default)]
     pub templates: LocalizedErrorTemplates,
 }

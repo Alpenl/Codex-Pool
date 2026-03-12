@@ -75,6 +75,7 @@ impl SnapshotSource {
                     compiled_routing_plan: None,
                     ai_error_learning_settings: None,
                     approved_upstream_error_templates: None,
+                    builtin_error_templates: None,
                     created_at: chrono::Utc::now(),
                 });
             }
@@ -89,6 +90,7 @@ impl SnapshotSource {
                 compiled_routing_plan: None,
                 ai_error_learning_settings: None,
                 approved_upstream_error_templates: None,
+                builtin_error_templates: None,
                 created_at: chrono::Utc::now(),
             });
         }
@@ -115,6 +117,7 @@ impl SnapshotSource {
             compiled_routing_plan: None,
             ai_error_learning_settings: Default::default(),
             approved_upstream_error_templates: Vec::new(),
+            builtin_error_templates: Vec::new(),
             issued_at: chrono::Utc::now(),
         }
     }
