@@ -16,6 +16,7 @@ import {
   LogsFilterInput,
   LogsFilterSelect,
 } from '@/features/logs/filter-controls'
+import { formatUtcDateTime, getUserTimeZone } from '@/lib/i18n-format'
 import { formatDateTime, currentRangeByDays } from '@/tenant/lib/format'
 
 type RangePreset = 1 | 7 | 30
@@ -28,6 +29,30 @@ function parseRangePreset(raw: string | null): RangePreset {
 
 function normalizeAuditValue(value?: string | null): string {
   return (value ?? '').trim().toLowerCase()
+}
+
+function formatUtcLogDateTime(
+  value: string | number | Date,
+  locale?: string,
+) {
+  return formatUtcDateTime(value, {
+    locale,
+    preset: 'datetime',
+    fallback: '-',
+    timeZoneName: 'short',
+  })
+}
+
+function buildTenantLogTimeTooltip(
+  t: TFunction,
+  locale: string | undefined,
+  value: string,
+) {
+  return t('tenantLogs.time.tooltip', {
+    defaultValue: 'Local: {{local}} | UTC: {{utc}}',
+    local: formatDateTime(value),
+    utc: formatUtcLogDateTime(value, locale),
+  })
 }
 
 function localizeTenantAuditActorType(actorType: string | undefined, t: TFunction): string {
@@ -81,7 +106,7 @@ function localizeTenantAuditAction(action: string | undefined, t: TFunction): st
 }
 
 export function TenantLogsPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [searchParams] = useSearchParams()
   const [tab, setTab] = useState<'request' | 'audit'>(() =>
     searchParams.get('tab') === 'audit' ? 'audit' : 'request',
@@ -114,6 +139,8 @@ export function TenantLogsPage() {
   const [auditKeyword, setAuditKeyword] = useState(
     () => searchParams.get('audit_keyword') || '',
   )
+  const currentTimeZone = useMemo(() => getUserTimeZone(), [])
+  const locale = i18n.resolvedLanguage
 
   const parsedStatusCode = Number(statusCode)
   const hasStatusCode = Number.isInteger(parsedStatusCode) && parsedStatusCode > 0
@@ -164,7 +191,11 @@ export function TenantLogsPage() {
         id: 'createdAt',
         header: t('tenantLogs.request.columns.time', { defaultValue: 'Time' }),
         accessorFn: (row) => new Date(row.created_at).getTime(),
-        cell: ({ row }) => <span className="font-mono text-xs">{formatDateTime(row.original.created_at)}</span>,
+        cell: ({ row }) => (
+          <span className="font-mono text-xs" title={buildTenantLogTimeTooltip(t, locale, row.original.created_at)}>
+            {formatDateTime(row.original.created_at)}
+          </span>
+        ),
       },
       {
         id: 'requestId',
@@ -230,7 +261,7 @@ export function TenantLogsPage() {
         },
       },
     ],
-    [t],
+    [t, locale],
   )
 
   const auditColumns = useMemo<ColumnDef<AuditLogItem>[]>(
@@ -239,7 +270,11 @@ export function TenantLogsPage() {
         id: 'createdAt',
         header: t('tenantLogs.audit.columns.time', { defaultValue: 'Time' }),
         accessorFn: (row) => new Date(row.created_at).getTime(),
-        cell: ({ row }) => <span className="font-mono text-xs">{formatDateTime(row.original.created_at)}</span>,
+        cell: ({ row }) => (
+          <span className="font-mono text-xs" title={buildTenantLogTimeTooltip(t, locale, row.original.created_at)}>
+            {formatDateTime(row.original.created_at)}
+          </span>
+        ),
       },
       {
         id: 'actor',
@@ -307,7 +342,7 @@ export function TenantLogsPage() {
         ),
       },
     ],
-    [t],
+    [t, locale],
   )
 
   const rangeOptions = [
@@ -324,6 +359,12 @@ export function TenantLogsPage() {
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
           {t('tenantLogs.scope', { defaultValue: 'Scope: current tenant only' })}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {t('tenantLogs.time.displayMode', {
+            defaultValue: 'Displayed in local time ({{timezone}}). UTC is preserved in tooltips.',
+            timezone: currentTimeZone,
+          })}
         </p>
       </div>
 

@@ -1028,6 +1028,10 @@ export default {
         },
         search: "搜索载荷或服务名…",
         subtitle: "实时的审计追踪与运行时上下文。",
+        time: {
+            displayMode: "当前按本地时间（{{timezone}}）显示，悬浮提示和导出中保留 UTC 原值。",
+            tooltip: "本地时间：{{local}} | UTC：{{utc}}"
+        },
         tabs: {
             audit: "审计日志",
             request: "请求日志",
@@ -2265,6 +2269,10 @@ export default {
             title: "请求日志"
         },
         scope: "范围：仅限当前租户",
+        time: {
+            displayMode: "当前按本地时间（{{timezone}}）显示，悬浮提示中保留 UTC 原值。",
+            tooltip: "本地时间：{{local}} | UTC：{{utc}}"
+        },
         tabs: {
             audit: "审计日志",
             request: "请求日志"

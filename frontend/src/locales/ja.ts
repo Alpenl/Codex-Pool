@@ -1028,6 +1028,10 @@ export default {
         },
         search: "ペイロードまたはサービスを検索…",
         subtitle: "リアルタイムの監査証跡と操作コンテキスト。",
+        time: {
+            displayMode: "現在はローカル時刻（{{timezone}}）で表示しています。UTC はツールチップとエクスポートに保持されます。",
+            tooltip: "ローカル: {{local}} | UTC: {{utc}}"
+        },
         tabs: {
             audit: "監査ログ",
             request: "リクエストログ",
@@ -2265,6 +2269,10 @@ export default {
             title: "リクエストログ"
         },
         scope: "範囲: 現在のテナントのみ",
+        time: {
+            displayMode: "現在はローカル時刻（{{timezone}}）で表示しています。UTC はツールチップに保持されます。",
+            tooltip: "ローカル: {{local}} | UTC: {{utc}}"
+        },
         tabs: {
             audit: "監査ログ",
             request: "リクエストログ"

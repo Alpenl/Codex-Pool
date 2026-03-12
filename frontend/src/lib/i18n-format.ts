@@ -1,6 +1,6 @@
 import i18n from '@/i18n'
 
-type DateTimePreset = 'date' | 'time' | 'datetime'
+type DateTimePreset = 'date' | 'time' | 'timeWithSeconds' | 'datetime'
 
 const DATE_TIME_PRESET_OPTIONS: Record<DateTimePreset, Intl.DateTimeFormatOptions> = {
   date: {
@@ -11,6 +11,12 @@ const DATE_TIME_PRESET_OPTIONS: Record<DateTimePreset, Intl.DateTimeFormatOption
   time: {
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
+  },
+  timeWithSeconds: {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
     hour12: false,
   },
   datetime: {
@@ -51,6 +57,8 @@ export function formatDateTime(
     locale?: string
     preset?: DateTimePreset
     fallback?: string
+    timeZone?: string
+    timeZoneName?: 'short' | 'long' | 'shortOffset' | 'longOffset' | 'shortGeneric' | 'longGeneric'
   } = {},
 ): string {
   const date = toValidDate(value)
@@ -58,11 +66,35 @@ export function formatDateTime(
     return options.fallback ?? '-'
   }
 
+  const presetOptions = DATE_TIME_PRESET_OPTIONS[options.preset ?? 'datetime']
   const formatter = new Intl.DateTimeFormat(
     resolveLocale(options.locale),
-    DATE_TIME_PRESET_OPTIONS[options.preset ?? 'datetime'],
+    {
+      ...presetOptions,
+      ...(options.timeZone ? { timeZone: options.timeZone } : {}),
+      ...(options.timeZoneName ? { timeZoneName: options.timeZoneName } : {}),
+    },
   )
   return formatter.format(date)
+}
+
+export function formatUtcDateTime(
+  value: string | number | Date,
+  options: {
+    locale?: string
+    preset?: DateTimePreset
+    fallback?: string
+    timeZoneName?: 'short' | 'long' | 'shortOffset' | 'longOffset' | 'shortGeneric' | 'longGeneric'
+  } = {},
+): string {
+  return formatDateTime(value, {
+    ...options,
+    timeZone: 'UTC',
+  })
+}
+
+export function getUserTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 }
 
 export function formatNumber(

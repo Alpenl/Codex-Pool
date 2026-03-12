@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use control_plane::store::postgres::PostgresStore;
-use tracing_subscriber::EnvFilter;
 
 const BATCH_SIZE_ENV: &str = "CONTROL_PLANE_API_KEY_HASH_MIGRATION_BATCH_SIZE";
 const DEFAULT_BATCH_SIZE: usize = 500;
@@ -17,9 +16,7 @@ fn batch_size_from_env() -> usize {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .init();
+    codex_pool_core::logging::init_local_tracing();
 
     control_plane::security::ensure_api_key_hasher_configured()?;
     let database_url = std::env::var("CONTROL_PLANE_DATABASE_URL")

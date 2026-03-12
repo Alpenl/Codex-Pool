@@ -1028,6 +1028,10 @@ export default {
         },
         search: "Search payload or service…",
         subtitle: "Real-time audit trails and operational context.",
+        time: {
+            displayMode: "Displayed in local time ({{timezone}}). UTC is preserved in tooltips and exports.",
+            tooltip: "Local: {{local}} | UTC: {{utc}}"
+        },
         tabs: {
             audit: "Audit Logs",
             request: "Request Logs",
@@ -2265,6 +2269,10 @@ export default {
             title: "Request Logs"
         },
         scope: "Scope: current tenant only",
+        time: {
+            displayMode: "Displayed in local time ({{timezone}}). UTC is preserved in tooltips.",
+            tooltip: "Local: {{local}} | UTC: {{utc}}"
+        },
         tabs: {
             audit: "Audit Logs",
             request: "Request Logs"

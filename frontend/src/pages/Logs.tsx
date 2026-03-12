@@ -29,6 +29,7 @@ import {
   LogsFilterInput,
   LogsFilterSelect,
 } from '@/features/logs/filter-controls'
+import { formatDateTime as formatI18nDateTime, formatUtcDateTime, getUserTimeZone } from '@/lib/i18n-format'
 import { cn } from '@/lib/utils'
 
 type LogLevelFilter = 'all' | 'error' | 'warn' | 'info'
@@ -42,6 +43,41 @@ function currentRangeByDays(days: number) {
   const endTs = Math.floor(Date.now() / 1000)
   const startTs = endTs - days * 24 * 60 * 60
   return { start_ts: startTs, end_ts: endTs }
+}
+
+function formatLocalLogDateTime(
+  value: string | number | Date,
+  locale?: string,
+) {
+  return formatI18nDateTime(value, {
+    locale,
+    preset: 'datetime',
+    fallback: '-',
+  })
+}
+
+function formatUtcLogDateTime(
+  value: string | number | Date,
+  locale?: string,
+) {
+  return formatUtcDateTime(value, {
+    locale,
+    preset: 'datetime',
+    fallback: '-',
+    timeZoneName: 'short',
+  })
+}
+
+function buildLogTimeTooltip(
+  t: TFunction,
+  locale: string | undefined,
+  value: string | number | Date,
+) {
+  return t('logs.time.tooltip', {
+    defaultValue: 'Local: {{local}} | UTC: {{utc}}',
+    local: formatLocalLogDateTime(value, locale),
+    utc: formatUtcLogDateTime(value, locale),
+  })
 }
 
 function normalizeLogLevel(level: string): Exclude<LogLevelFilter, 'all'> {
@@ -220,7 +256,7 @@ function localizeAuditAction(action: string | undefined, t: TFunction): string {
 }
 
 export default function Logs() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [searchParams] = useSearchParams()
   const [levelFilter, setLevelFilter] = useState<LogLevelFilter>('all')
   const [tab, setTab] = useState<'request' | 'system' | 'audit'>(() => {
@@ -260,6 +296,8 @@ export default function Logs() {
   const [auditKeyword, setAuditKeyword] = useState(
     () => searchParams.get('audit_keyword') || '',
   )
+  const currentTimeZone = useMemo(() => getUserTimeZone(), [])
+  const locale = i18n.resolvedLanguage
 
   const { data: tenants = [] } = useQuery({
     queryKey: ['adminTenants', 'logs'],
@@ -346,8 +384,11 @@ export default function Logs() {
         accessorFn: (row) => new Date(row.ts).getTime(),
         header: t('logs.columns.timestamp'),
         cell: ({ row }) => (
-          <span className="font-mono text-xs text-muted-foreground">
-            {format(new Date(row.original.ts), 'HH:mm:ss.SSS')}
+          <span
+            className="font-mono text-xs text-muted-foreground"
+            title={buildLogTimeTooltip(t, locale, row.original.ts)}
+          >
+            {format(new Date(row.original.ts), 'MM-dd HH:mm:ss.SSS')}
           </span>
         ),
       },
@@ -395,12 +436,13 @@ export default function Logs() {
         ),
       },
     ],
-    [t],
+    [t, locale],
   )
 
   const handleExport = () => {
     const payload = filteredLogs.map((item) => ({
-      ts: item.ts,
+      ts_utc: item.ts,
+      ts_local: formatLocalLogDateTime(item.ts, locale),
       level: item.level,
       action: item.action,
       action_localized: localizeLogAction(item.action, t),
@@ -423,8 +465,11 @@ export default function Logs() {
         header: t('logs.request.columns.createdAt', { defaultValue: 'Time' }),
         accessorFn: (row) => new Date(row.created_at).getTime(),
         cell: ({ row }) => (
-          <span className="font-mono text-xs text-muted-foreground">
-            {format(new Date(row.original.created_at), 'MM-dd HH:mm:ss')}
+          <span
+            className="font-mono text-xs text-muted-foreground"
+            title={buildLogTimeTooltip(t, locale, row.original.created_at)}
+          >
+            {formatLocalLogDateTime(row.original.created_at, locale)}
           </span>
         ),
       },
@@ -504,7 +549,7 @@ export default function Logs() {
         },
       },
     ],
-    [t],
+    [t, locale],
   )
 
   const rangeOptions = [
@@ -597,8 +642,11 @@ export default function Logs() {
         header: t('logs.audit.columns.createdAt', { defaultValue: 'Time' }),
         accessorFn: (row) => new Date(row.created_at).getTime(),
         cell: ({ row }) => (
-          <span className="font-mono text-xs text-muted-foreground">
-            {format(new Date(row.original.created_at), 'MM-dd HH:mm:ss')}
+          <span
+            className="font-mono text-xs text-muted-foreground"
+            title={buildLogTimeTooltip(t, locale, row.original.created_at)}
+          >
+            {formatLocalLogDateTime(row.original.created_at, locale)}
           </span>
         ),
       },
@@ -674,7 +722,7 @@ export default function Logs() {
         ),
       },
     ],
-    [t],
+    [t, locale],
   )
 
   const auditLogsPanel = (
@@ -761,6 +809,12 @@ export default function Logs() {
             <span className="h-2 w-2 animate-pulse rounded-full bg-success" />
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">{t('logs.subtitle')}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t('logs.time.displayMode', {
+              defaultValue: 'Displayed in local time ({{timezone}}). UTC is preserved in tooltips and exports.',
+              timezone: currentTimeZone,
+            })}
+          </p>
         </div>
 
         <div className="flex items-center gap-2">

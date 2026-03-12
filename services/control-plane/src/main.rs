@@ -269,9 +269,7 @@ fn merge_reconcile_stats(total: &mut BillingReconcileStats, delta: &BillingRecon
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+    codex_pool_core::logging::init_local_tracing();
 
     let config = ControlPlaneConfig::from_env(DEFAULT_AUTH_VALIDATE_CACHE_TTL_SEC)?;
     config.apply_runtime_env_defaults();

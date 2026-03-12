@@ -38,9 +38,7 @@ enum WorkerMode {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+    codex_pool_core::logging::init_local_tracing();
 
     if wants_help() {
         print_help();

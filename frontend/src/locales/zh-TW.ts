@@ -1028,6 +1028,10 @@ export default {
         },
         search: "搜尋負載或服務名…",
         subtitle: "即時的審計追蹤與運行時上下文。",
+        time: {
+            displayMode: "目前以本地時間（{{timezone}}）顯示，懸浮提示與匯出中保留 UTC 原值。",
+            tooltip: "本地時間：{{local}} | UTC：{{utc}}"
+        },
         tabs: {
             audit: "審計日誌",
             request: "請求日誌",
@@ -2265,6 +2269,10 @@ export default {
             title: "請求日誌"
         },
         scope: "範圍：僅限目前租戶",
+        time: {
+            displayMode: "目前以本地時間（{{timezone}}）顯示，懸浮提示中保留 UTC 原值。",
+            tooltip: "本地時間：{{local}} | UTC：{{utc}}"
+        },
         tabs: {
             audit: "審計日誌",
             request: "請求日誌"
