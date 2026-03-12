@@ -569,11 +569,9 @@ fn set_env_if_absent(key: &str, value: Option<String>) {
 #[cfg(test)]
 mod tests {
     use super::{apply_usage_worker_runtime_env_defaults_from_config, ControlPlaneConfig};
+    use crate::test_support::{set_env, ENV_LOCK};
     use std::path::PathBuf;
-    use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn unique_temp_path(prefix: &str) -> PathBuf {
         let nanos = SystemTime::now()
@@ -612,17 +610,37 @@ admin_jwt_ttl_sec = 600
         )
         .expect("write toml");
 
-        std::env::set_var("CONTROL_PLANE_CONFIG_FILE", path.display().to_string());
-        std::env::set_var("CONTROL_PLANE_LISTEN", "127.0.0.1:29090");
-        std::env::set_var("CLICKHOUSE_DATABASE", "env_db");
-        std::env::set_var("ADMIN_USERNAME", "admin-from-env");
+        let old_config_file = set_env(
+            "CONTROL_PLANE_CONFIG_FILE",
+            Some(path.display().to_string().as_str()),
+        );
+        let old_listen = set_env("CONTROL_PLANE_LISTEN", Some("127.0.0.1:29090"));
+        let old_clickhouse_database = set_env("CLICKHOUSE_DATABASE", Some("env_db"));
+        let old_admin_username = set_env("ADMIN_USERNAME", Some("admin-from-env"));
+        let old_admin_password = set_env("ADMIN_PASSWORD", None);
+        let old_admin_jwt_secret = set_env("ADMIN_JWT_SECRET", None);
+        let old_admin_jwt_ttl = set_env("ADMIN_JWT_TTL_SEC", None);
+        let old_oauth_refresh_enabled = set_env("CONTROL_PLANE_OAUTH_REFRESH_ENABLED", None);
+        let old_oauth_refresh_interval =
+            set_env("CONTROL_PLANE_OAUTH_REFRESH_INTERVAL_SEC", None);
 
         let cfg = ControlPlaneConfig::from_env(30).expect("load config");
 
-        std::env::remove_var("CONTROL_PLANE_CONFIG_FILE");
-        std::env::remove_var("CONTROL_PLANE_LISTEN");
-        std::env::remove_var("CLICKHOUSE_DATABASE");
-        std::env::remove_var("ADMIN_USERNAME");
+        set_env("CONTROL_PLANE_CONFIG_FILE", old_config_file.as_deref());
+        set_env("CONTROL_PLANE_LISTEN", old_listen.as_deref());
+        set_env("CLICKHOUSE_DATABASE", old_clickhouse_database.as_deref());
+        set_env("ADMIN_USERNAME", old_admin_username.as_deref());
+        set_env("ADMIN_PASSWORD", old_admin_password.as_deref());
+        set_env("ADMIN_JWT_SECRET", old_admin_jwt_secret.as_deref());
+        set_env("ADMIN_JWT_TTL_SEC", old_admin_jwt_ttl.as_deref());
+        set_env(
+            "CONTROL_PLANE_OAUTH_REFRESH_ENABLED",
+            old_oauth_refresh_enabled.as_deref(),
+        );
+        set_env(
+            "CONTROL_PLANE_OAUTH_REFRESH_INTERVAL_SEC",
+            old_oauth_refresh_interval.as_deref(),
+        );
         std::fs::remove_file(path).expect("cleanup toml");
 
         assert_eq!(cfg.listen_addr, "127.0.0.1:29090".parse().unwrap());
@@ -671,11 +689,17 @@ admin_jwt_ttl_sec = 900
         )
         .expect("write toml");
 
-        std::env::set_var("CONTROL_PLANE_CONFIG_FILE", path.display().to_string());
-        std::env::remove_var("ADMIN_USERNAME");
-        std::env::set_var("ADMIN_PASSWORD", "password-from-env");
-        std::env::remove_var("ADMIN_JWT_SECRET");
-        std::env::remove_var("ADMIN_JWT_TTL_SEC");
+        let old_config_file = set_env(
+            "CONTROL_PLANE_CONFIG_FILE",
+            Some(path.display().to_string().as_str()),
+        );
+        let old_admin_username = set_env("ADMIN_USERNAME", None);
+        let old_admin_password = set_env("ADMIN_PASSWORD", Some("password-from-env"));
+        let old_admin_jwt_secret = set_env("ADMIN_JWT_SECRET", None);
+        let old_admin_jwt_ttl = set_env("ADMIN_JWT_TTL_SEC", None);
+        let old_oauth_refresh_enabled = set_env("CONTROL_PLANE_OAUTH_REFRESH_ENABLED", None);
+        let old_oauth_refresh_interval =
+            set_env("CONTROL_PLANE_OAUTH_REFRESH_INTERVAL_SEC", None);
 
         let cfg = ControlPlaneConfig::from_env(30).expect("load config");
         cfg.apply_runtime_env_defaults();
@@ -697,13 +721,19 @@ admin_jwt_ttl_sec = 900
             Some("900"),
         );
 
-        std::env::remove_var("CONTROL_PLANE_CONFIG_FILE");
-        std::env::remove_var("ADMIN_USERNAME");
-        std::env::remove_var("ADMIN_PASSWORD");
-        std::env::remove_var("ADMIN_JWT_SECRET");
-        std::env::remove_var("ADMIN_JWT_TTL_SEC");
-        std::env::remove_var("CONTROL_PLANE_OAUTH_REFRESH_ENABLED");
-        std::env::remove_var("CONTROL_PLANE_OAUTH_REFRESH_INTERVAL_SEC");
+        set_env("CONTROL_PLANE_CONFIG_FILE", old_config_file.as_deref());
+        set_env("ADMIN_USERNAME", old_admin_username.as_deref());
+        set_env("ADMIN_PASSWORD", old_admin_password.as_deref());
+        set_env("ADMIN_JWT_SECRET", old_admin_jwt_secret.as_deref());
+        set_env("ADMIN_JWT_TTL_SEC", old_admin_jwt_ttl.as_deref());
+        set_env(
+            "CONTROL_PLANE_OAUTH_REFRESH_ENABLED",
+            old_oauth_refresh_enabled.as_deref(),
+        );
+        set_env(
+            "CONTROL_PLANE_OAUTH_REFRESH_INTERVAL_SEC",
+            old_oauth_refresh_interval.as_deref(),
+        );
         std::fs::remove_file(path).expect("cleanup toml");
     }
 
@@ -723,11 +753,14 @@ stream_read_count = 222
         )
         .expect("write toml");
 
-        std::env::set_var("USAGE_WORKER_CONFIG_FILE", path.display().to_string());
-        std::env::set_var("REDIS_URL", "redis://env:6379");
-        std::env::remove_var("CLICKHOUSE_URL");
-        std::env::remove_var("REQUEST_LOG_STREAM");
-        std::env::remove_var("STREAM_READ_COUNT");
+        let old_config_file = set_env(
+            "USAGE_WORKER_CONFIG_FILE",
+            Some(path.display().to_string().as_str()),
+        );
+        let old_redis_url = set_env("REDIS_URL", Some("redis://env:6379"));
+        let old_clickhouse_url = set_env("CLICKHOUSE_URL", None);
+        let old_request_log_stream = set_env("REQUEST_LOG_STREAM", None);
+        let old_stream_read_count = set_env("STREAM_READ_COUNT", None);
 
         apply_usage_worker_runtime_env_defaults_from_config().expect("apply config defaults");
 
@@ -748,11 +781,11 @@ stream_read_count = 222
             Some("222")
         );
 
-        std::env::remove_var("USAGE_WORKER_CONFIG_FILE");
-        std::env::remove_var("REDIS_URL");
-        std::env::remove_var("CLICKHOUSE_URL");
-        std::env::remove_var("REQUEST_LOG_STREAM");
-        std::env::remove_var("STREAM_READ_COUNT");
+        set_env("USAGE_WORKER_CONFIG_FILE", old_config_file.as_deref());
+        set_env("REDIS_URL", old_redis_url.as_deref());
+        set_env("CLICKHOUSE_URL", old_clickhouse_url.as_deref());
+        set_env("REQUEST_LOG_STREAM", old_request_log_stream.as_deref());
+        set_env("STREAM_READ_COUNT", old_stream_read_count.as_deref());
         std::fs::remove_file(path).expect("cleanup toml");
     }
 }

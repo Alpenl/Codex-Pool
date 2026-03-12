@@ -267,18 +267,7 @@ fn required_non_empty_env(key: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::AdminAuthService;
-    use std::sync::{LazyLock, Mutex};
-
-    static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
-
-    fn set_env(key: &str, value: Option<&str>) -> Option<String> {
-        let previous = std::env::var(key).ok();
-        match value {
-            Some(v) => std::env::set_var(key, v),
-            None => std::env::remove_var(key),
-        }
-        previous
-    }
+    use crate::test_support::{set_env, ENV_LOCK};
 
     #[test]
     fn from_env_fails_when_admin_username_missing() {

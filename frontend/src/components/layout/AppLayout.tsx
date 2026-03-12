@@ -29,6 +29,7 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 import { LanguageToggle } from '@/components/LanguageToggle'
 import { ParallaxBackground } from '@/components/ui/parallax-background'
 import { Button } from '@/components/ui/button'
+import type { SystemCapabilitiesResponse } from '@/api/types'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import codexPoolLogo from '@/assets/codex-pool-logo.png'
 
@@ -53,6 +54,7 @@ interface AppLayoutProps {
     onLogout: () => Promise<void>
     appName?: string
     menuGroups?: AppLayoutMenuGroup[]
+    capabilities?: SystemCapabilitiesResponse
     role?: AppRole
 }
 
@@ -72,6 +74,7 @@ export function AppLayout({
     onLogout,
     appName = 'Codex Pool',
     menuGroups,
+    capabilities,
     role = 'admin',
 }: AppLayoutProps) {
     const { t } = useTranslation()
@@ -190,14 +193,27 @@ export function AppLayout({
         }
     ]
     const resolvedMenuGroups = menuGroups ?? defaultAdminMenuGroups
-    const visibleMenuGroups = useMemo(() => {
+    const capabilityScopedMenuGroups = useMemo(() => {
         return resolvedMenuGroups
+            .map((group) => ({
+                ...group,
+                items: group.items.filter((item) => {
+                    if (item.path === '/tenants') {
+                        return capabilities?.features.multi_tenant ?? true
+                    }
+                    return true
+                }),
+            }))
+            .filter((group) => group.items.length > 0)
+    }, [capabilities, resolvedMenuGroups])
+    const visibleMenuGroups = useMemo(() => {
+        return capabilityScopedMenuGroups
             .map((group) => ({
                 ...group,
                 items: group.items.filter((item) => canAccessByRole(item.roles, role)),
             }))
             .filter((group) => group.items.length > 0)
-    }, [resolvedMenuGroups, role])
+    }, [capabilityScopedMenuGroups, role])
 
     return (
         <>

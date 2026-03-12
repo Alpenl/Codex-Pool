@@ -15,6 +15,8 @@ pub mod oauth;
 pub mod security;
 pub mod store;
 pub mod tenant;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod upstream_api;
 pub mod upstream_error_learning;
 pub mod usage;

@@ -638,6 +638,38 @@ pub struct AdminMeResponse {
     pub username: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProductEdition {
+    Personal,
+    Team,
+    Business,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BillingMode {
+    CostReportOnly,
+    CreditEnforced,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EditionFeatures {
+    pub multi_tenant: bool,
+    pub tenant_portal: bool,
+    pub tenant_self_service: bool,
+    pub tenant_recharge: bool,
+    pub credit_billing: bool,
+    pub cost_reports: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SystemCapabilitiesResponse {
+    pub edition: ProductEdition,
+    pub billing_mode: BillingMode,
+    pub features: EditionFeatures,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum OAuthImportJobStatus {

@@ -1335,24 +1335,30 @@ mod models_probe_tests {
         }
     }
 
-    fn ensure_test_admin_env() {
-        std::env::set_var("ADMIN_USERNAME", "admin");
-        std::env::set_var("ADMIN_PASSWORD", "admin123456");
-        std::env::set_var("ADMIN_JWT_SECRET", "control-plane-test-jwt-secret");
-    }
-
     fn test_app_state_with_usage_rows(rows: Vec<crate::usage::RequestLogRow>) -> AppState {
-        ensure_test_admin_env();
+        let _guard = crate::test_support::ENV_LOCK.lock().expect("lock env");
+        let old_username = crate::test_support::set_env("ADMIN_USERNAME", Some("admin"));
+        let old_password =
+            crate::test_support::set_env("ADMIN_PASSWORD", Some("admin123456"));
+        let old_secret = crate::test_support::set_env(
+            "ADMIN_JWT_SECRET",
+            Some("control-plane-test-jwt-secret"),
+        );
         let store: std::sync::Arc<dyn crate::store::ControlPlaneStore> =
             std::sync::Arc::new(crate::store::InMemoryStore::default());
+        let admin_auth = crate::admin_auth::AdminAuthService::from_env()
+            .expect("admin auth env must be set");
+        crate::test_support::set_env("ADMIN_USERNAME", old_username.as_deref());
+        crate::test_support::set_env("ADMIN_PASSWORD", old_password.as_deref());
+        crate::test_support::set_env("ADMIN_JWT_SECRET", old_secret.as_deref());
 
         AppState {
             store: store.clone(),
             usage_repo: Some(std::sync::Arc::new(TestUsageRepo { rows })),
             tenant_auth_service: None,
             auth_validate_cache_ttl_sec: DEFAULT_AUTH_VALIDATE_CACHE_TTL_SEC,
-            admin_auth: crate::admin_auth::AdminAuthService::from_env()
-                .expect("admin auth env must be set"),
+            system_capabilities: system_capabilities_from_env(),
+            admin_auth,
             internal_auth_token: std::sync::Arc::<str>::from("test-internal-auth-token"),
             import_job_manager: crate::import_jobs::OAuthImportJobManager::new(
                 store,

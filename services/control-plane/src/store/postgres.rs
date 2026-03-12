@@ -248,29 +248,17 @@ include!("postgres/helpers_trait.rs");
 
 #[cfg(test)]
 mod postgres_env_tests {
-    use std::sync::{LazyLock, Mutex};
-
     use super::{
         is_blocking_rate_limit_error, oauth_effective_enabled, oauth_refresh_batch_size_from_env,
         oauth_refresh_concurrency_from_env, oauth_refresh_max_rps_from_env,
         rate_limit_failure_backoff_seconds, rate_limit_refresh_max_rps_from_env,
         postgres_max_connections_from_env,
     };
+    use crate::test_support::{set_env, ENV_LOCK};
     use chrono::{Duration, Utc};
     use codex_pool_core::api::OAuthRefreshStatus;
-    use codex_pool_core::model::UpstreamAuthProvider;
     use codex_pool_core::api::SessionCredentialKind;
-
-    static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
-
-    fn set_env(key: &str, value: Option<&str>) -> Option<String> {
-        let previous = std::env::var(key).ok();
-        match value {
-            Some(v) => std::env::set_var(key, v),
-            None => std::env::remove_var(key),
-        }
-        previous
-    }
+    use codex_pool_core::model::UpstreamAuthProvider;
 
     #[test]
     fn postgres_max_connections_uses_safe_default() {

@@ -18,6 +18,7 @@ import { AppLayout, type AppLayoutMenuGroup } from '@/components/layout/AppLayou
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { tenantAuthApi } from '@/api/tenantAuth'
+import type { SystemCapabilitiesResponse } from '@/api/types'
 import {
   TENANT_AUTH_REQUIRED_EVENT,
   TENANT_LOGIN_FAILED_EVENT,
@@ -65,9 +66,14 @@ const TAB_ACTIVE_CLASS_NAME =
 const TAB_INACTIVE_CLASS_NAME =
   'bg-transparent text-slate-600 hover:bg-slate-200/70 dark:text-slate-300 dark:hover:bg-slate-700/60'
 
-export function TenantApp() {
+interface TenantAppProps {
+  capabilities: SystemCapabilitiesResponse
+}
+
+export function TenantApp({ capabilities }: TenantAppProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const allowTenantSelfService = capabilities.features.tenant_self_service
   const [authChecked, setAuthChecked] = useState(false)
   const [authenticated, setAuthenticated] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -107,7 +113,7 @@ export function TenantApp() {
 
   const openAuthScreen = (mode: AuthMode = 'login') => {
     setAuthScreen('auth')
-    setAuthMode(mode)
+    setAuthMode(allowTenantSelfService ? mode : 'login')
     setForgotStep('request')
     clearFeedback()
   }
@@ -381,7 +387,7 @@ export function TenantApp() {
     <div className={CARD_CLASS_NAME}>
       <div className="space-y-2">
         <h2 className="text-xl font-semibold text-slate-950 dark:text-slate-50 sm:text-3xl">
-          {authMode === 'login'
+          {authMode === 'login' || !allowTenantSelfService
             ? t('tenantApp.auth.sections.loginTitle')
             : t('tenantApp.auth.sections.registerTitle')}
         </h2>
@@ -390,41 +396,43 @@ export function TenantApp() {
         </p>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl bg-slate-100/90 p-1 dark:bg-slate-800/80 sm:mt-6">
-        <button
-          type="button"
-          className={`min-h-11 rounded-xl px-3 py-2 text-sm font-medium transition ${authMode === 'login'
-            ? TAB_ACTIVE_CLASS_NAME
-            : TAB_INACTIVE_CLASS_NAME}`}
-          onClick={() => {
-            setAuthMode('login')
-            clearFeedback()
-          }}
-        >
-          {t('tenantApp.auth.tabs.login')}
-        </button>
-        <button
-          type="button"
-          className={`min-h-11 rounded-xl px-3 py-2 text-sm font-medium transition ${authMode === 'register'
-            ? TAB_ACTIVE_CLASS_NAME
-            : TAB_INACTIVE_CLASS_NAME}`}
-          onClick={() => {
-            setAuthMode('register')
-            clearFeedback()
-          }}
-        >
-          {t('tenantApp.auth.tabs.register')}
-        </button>
-      </div>
+      {allowTenantSelfService ? (
+        <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl bg-slate-100/90 p-1 dark:bg-slate-800/80 sm:mt-6">
+          <button
+            type="button"
+            className={`min-h-11 rounded-xl px-3 py-2 text-sm font-medium transition ${authMode === 'login'
+              ? TAB_ACTIVE_CLASS_NAME
+              : TAB_INACTIVE_CLASS_NAME}`}
+            onClick={() => {
+              setAuthMode('login')
+              clearFeedback()
+            }}
+          >
+            {t('tenantApp.auth.tabs.login')}
+          </button>
+          <button
+            type="button"
+            className={`min-h-11 rounded-xl px-3 py-2 text-sm font-medium transition ${authMode === 'register'
+              ? TAB_ACTIVE_CLASS_NAME
+              : TAB_INACTIVE_CLASS_NAME}`}
+            onClick={() => {
+              setAuthMode('register')
+              clearFeedback()
+            }}
+          >
+            {t('tenantApp.auth.tabs.register')}
+          </button>
+        </div>
+      ) : null}
 
       <AnimatedContent
-        key={authMode}
+        key={allowTenantSelfService ? authMode : 'login'}
         distance={22}
         duration={0.26}
         ease="power3.out"
         className="mt-4 sm:mt-6"
       >
-        {authMode === 'login' ? (
+        {authMode === 'login' || !allowTenantSelfService ? (
           <form className="space-y-3.5 sm:space-y-4" onSubmit={handleLoginSubmit}>
             <div className="space-y-2">
               <label htmlFor="tenant-login-email" className={LABEL_CLASS_NAME}>
@@ -459,13 +467,15 @@ export function TenantApp() {
               />
             </div>
 
-            <button
-              type="button"
-              className="inline-flex min-h-11 items-center rounded-lg px-1 text-sm font-medium text-slate-600 transition hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
-              onClick={openForgotPassword}
-            >
-              {t('tenantApp.auth.actions.openForgot')}
-            </button>
+            {allowTenantSelfService ? (
+              <button
+                type="button"
+                className="inline-flex min-h-11 items-center rounded-lg px-1 text-sm font-medium text-slate-600 transition hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
+                onClick={openForgotPassword}
+              >
+                {t('tenantApp.auth.actions.openForgot')}
+              </button>
+            ) : null}
 
             <Button
               type="submit"
@@ -576,31 +586,33 @@ export function TenantApp() {
         </div>
       </FadeContent>
 
-      <div className="mt-4 flex justify-center sm:mt-5">
-        {authMode === 'login' ? (
-          <button
-            type="button"
-            className="inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-medium text-slate-600 transition hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
-            onClick={() => {
-              setAuthMode('register')
-              clearFeedback()
-            }}
-          >
-            {t('tenantApp.auth.actions.switchToRegister')}
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-medium text-slate-600 transition hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
-            onClick={() => {
-              setAuthMode('login')
-              clearFeedback()
-            }}
-          >
-            {t('tenantApp.auth.actions.switchToLogin')}
-          </button>
-        )}
-      </div>
+      {allowTenantSelfService ? (
+        <div className="mt-4 flex justify-center sm:mt-5">
+          {authMode === 'login' ? (
+            <button
+              type="button"
+              className="inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-medium text-slate-600 transition hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
+              onClick={() => {
+                setAuthMode('register')
+                clearFeedback()
+              }}
+            >
+              {t('tenantApp.auth.actions.switchToRegister')}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-medium text-slate-600 transition hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
+              onClick={() => {
+                setAuthMode('login')
+                clearFeedback()
+              }}
+            >
+              {t('tenantApp.auth.actions.switchToLogin')}
+            </button>
+          )}
+        </div>
+      ) : null}
 
       <div className="mt-3 sm:mt-4">{statusNode}</div>
     </div>
@@ -847,6 +859,7 @@ export function TenantApp() {
             <AppLayout
               onLogout={handleLogout}
               appName={t('tenantApp.appName')}
+              capabilities={capabilities}
               menuGroups={tenantMenuGroups}
               role="tenant"
             />

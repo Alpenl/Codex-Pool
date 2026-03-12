@@ -292,6 +292,10 @@ async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
     }))
 }
 
+async fn system_capabilities(State(state): State<AppState>) -> impl IntoResponse {
+    Json(state.system_capabilities.clone())
+}
+
 fn localized_message(
     locale: i18n::Locale,
     en: &'static str,

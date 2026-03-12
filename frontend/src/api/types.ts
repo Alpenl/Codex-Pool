@@ -72,6 +72,25 @@ export interface RuntimeConfigSnapshot {
   notes?: string
 }
 
+export type ProductEdition = 'personal' | 'team' | 'business'
+
+export type BillingMode = 'cost_report_only' | 'credit_enforced'
+
+export interface EditionFeatures {
+  multi_tenant: boolean
+  tenant_portal: boolean
+  tenant_self_service: boolean
+  tenant_recharge: boolean
+  credit_billing: boolean
+  cost_reports: boolean
+}
+
+export interface SystemCapabilitiesResponse {
+  edition: ProductEdition
+  billing_mode: BillingMode
+  features: EditionFeatures
+}
+
 export interface RuntimeConfigUpdateRequest {
   data_plane_base_url?: string
   auth_validate_url?: string

@@ -1,5 +1,5 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { HeroUIProvider } from '@heroui/react'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { ThemeProvider } from '@/components/theme-provider'
@@ -11,11 +11,13 @@ import {
   SESSION_EXPIRED_REASON,
 } from '@/api/client'
 import { adminTenantsApi } from '@/api/adminTenants'
+import { systemApi, DEFAULT_SYSTEM_CAPABILITIES } from '@/api/system'
 import { notify } from '@/lib/notification'
 import { clearAdminAccessToken, setAdminAccessToken } from '@/lib/admin-session'
 import { LoadingScreen } from '@/components/ui/loading-overlay'
 import { NotificationCenter } from '@/components/ui/notification-center'
 import { applyRouteSeo } from '@/lib/seo'
+import type { SystemCapabilitiesResponse } from '@/api/types'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -69,7 +71,11 @@ const RouteSeoSync = () => {
   return null
 }
 
-function AdminApp() {
+interface EditionAwareAppProps {
+  capabilities: SystemCapabilitiesResponse
+}
+
+function AdminApp({ capabilities }: EditionAwareAppProps) {
   const { t, i18n } = useTranslation()
   const [authChecked, setAuthChecked] = useState(false)
   const [authenticated, setAuthenticated] = useState(false)
@@ -132,7 +138,7 @@ function AdminApp() {
   }, [t])
 
   useEffect(() => {
-    if (!authenticated) {
+    if (!authenticated || !capabilities.features.multi_tenant) {
       return
     }
     let cancelled = false
@@ -149,7 +155,7 @@ function AdminApp() {
     return () => {
       cancelled = true
     }
-  }, [authenticated])
+  }, [authenticated, capabilities.features.multi_tenant])
 
   useEffect(() => {
     if (!authenticated) {
@@ -185,73 +191,197 @@ function AdminApp() {
     )
   }
 
+  if (!authenticated) {
+    return (
+      <Suspense fallback={<RouteSkeleton />}>
+        <Login onLogin={handleLogin} />
+      </Suspense>
+    )
+  }
+
+  return (
+    <BrowserRouter>
+      <RouteSeoSync />
+      <Routes>
+        <Route
+          element={<AppLayout onLogout={handleLogout} role="admin" capabilities={capabilities} />}
+        >
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route
+            path="/dashboard"
+            element={(
+              <Suspense fallback={<RouteSkeleton />}>
+                <Dashboard />
+              </Suspense>
+            )}
+          />
+          <Route
+            path="/accounts"
+            element={(
+              <Suspense fallback={<RouteSkeleton />}>
+                <Accounts />
+              </Suspense>
+            )}
+          />
+          <Route
+            path="/imports"
+            element={(
+              <Suspense fallback={<RouteSkeleton />}>
+                <ImportJobs />
+              </Suspense>
+            )}
+          />
+          <Route
+            path="/oauth-import"
+            element={(
+              <Suspense fallback={<RouteSkeleton />}>
+                <OAuthImport />
+              </Suspense>
+            )}
+          />
+          <Route
+            path="/groups"
+            element={(
+              <Suspense fallback={<RouteSkeleton />}>
+                <Groups />
+              </Suspense>
+            )}
+          />
+          <Route
+            path="/model-routing"
+            element={(
+              <Suspense fallback={<RouteSkeleton />}>
+                <ModelRouting />
+              </Suspense>
+            )}
+          />
+          <Route
+            path="/models"
+            element={(
+              <Suspense fallback={<RouteSkeleton />}>
+                <Models />
+              </Suspense>
+            )}
+          />
+          <Route
+            path="/usage"
+            element={(
+              <Suspense fallback={<RouteSkeleton />}>
+                <Usage />
+              </Suspense>
+            )}
+          />
+          <Route
+            path="/billing"
+            element={(
+              <Suspense fallback={<RouteSkeleton />}>
+                <Billing />
+              </Suspense>
+            )}
+          />
+          <Route
+            path="/proxies"
+            element={(
+              <Suspense fallback={<RouteSkeleton />}>
+                <Proxies />
+              </Suspense>
+            )}
+          />
+          {capabilities.features.multi_tenant ? (
+            <Route
+              path="/tenants"
+              element={(
+                <Suspense fallback={<RouteSkeleton />}>
+                  <Tenants />
+                </Suspense>
+              )}
+            />
+          ) : null}
+          <Route
+            path="/config"
+            element={(
+              <Suspense fallback={<RouteSkeleton />}>
+                <Config />
+              </Suspense>
+            )}
+          />
+          <Route
+            path="/logs"
+            element={(
+              <Suspense fallback={<RouteSkeleton />}>
+                <Logs />
+              </Suspense>
+            )}
+          />
+          <Route
+            path="/system"
+            element={(
+              <Suspense fallback={<RouteSkeleton />}>
+                <System />
+              </Suspense>
+            )}
+          />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  )
+}
+
+function AppShell() {
+  const { t, i18n } = useTranslation()
+  const isTenantPath =
+    typeof window !== 'undefined' && window.location.pathname.startsWith('/tenant')
+  const capabilitiesQuery = useQuery({
+    queryKey: ['systemCapabilities'],
+    queryFn: systemApi.getCapabilities,
+    staleTime: 60_000,
+  })
+  const capabilities = capabilitiesQuery.data ?? DEFAULT_SYSTEM_CAPABILITIES
+
+  useEffect(() => {
+    if (isTenantPath && capabilities.features.tenant_portal && typeof window !== 'undefined') {
+      applyRouteSeo(window.location.pathname, t)
+    }
+  }, [
+    capabilities.features.tenant_portal,
+    isTenantPath,
+    t,
+    i18n.resolvedLanguage,
+  ])
+
+  if (isTenantPath && capabilitiesQuery.isLoading && !capabilitiesQuery.data) {
+    return (
+      <LoadingScreen
+        title={t('common.routeLoading')}
+        description={t('common.loading')}
+        className="min-h-screen"
+      />
+    )
+  }
+
+  if (isTenantPath && capabilities.features.tenant_portal) {
+    return (
+      <Suspense fallback={<RouteSkeleton />}>
+        <TenantApp capabilities={capabilities} />
+      </Suspense>
+    )
+  }
+
+  return <AdminApp capabilities={capabilities} />
+}
+
+function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="system" storageKey="codex-ui-theme">
         <HeroUIProvider>
           <NotificationCenter />
-          {!authenticated ? (
-            <Suspense fallback={<RouteSkeleton />}>
-              <Login onLogin={handleLogin} />
-            </Suspense>
-          ) : (
-            <BrowserRouter>
-              <RouteSeoSync />
-              <Routes>
-                <Route element={<AppLayout onLogout={handleLogout} role="admin" />}>
-                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                  <Route path="/dashboard" element={<Suspense fallback={<RouteSkeleton />}><Dashboard /></Suspense>} />
-                  <Route path="/accounts" element={<Suspense fallback={<RouteSkeleton />}><Accounts /></Suspense>} />
-                  <Route path="/imports" element={<Suspense fallback={<RouteSkeleton />}><ImportJobs /></Suspense>} />
-                  <Route path="/oauth-import" element={<Suspense fallback={<RouteSkeleton />}><OAuthImport /></Suspense>} />
-                  <Route path="/groups" element={<Suspense fallback={<RouteSkeleton />}><Groups /></Suspense>} />
-                  <Route path="/model-routing" element={<Suspense fallback={<RouteSkeleton />}><ModelRouting /></Suspense>} />
-                  <Route path="/models" element={<Suspense fallback={<RouteSkeleton />}><Models /></Suspense>} />
-                  <Route path="/usage" element={<Suspense fallback={<RouteSkeleton />}><Usage /></Suspense>} />
-                  <Route path="/billing" element={<Suspense fallback={<RouteSkeleton />}><Billing /></Suspense>} />
-                  <Route path="/proxies" element={<Suspense fallback={<RouteSkeleton />}><Proxies /></Suspense>} />
-                  <Route path="/tenants" element={<Suspense fallback={<RouteSkeleton />}><Tenants /></Suspense>} />
-                  <Route path="/config" element={<Suspense fallback={<RouteSkeleton />}><Config /></Suspense>} />
-                  <Route path="/logs" element={<Suspense fallback={<RouteSkeleton />}><Logs /></Suspense>} />
-                  <Route path="/system" element={<Suspense fallback={<RouteSkeleton />}><System /></Suspense>} />
-                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
-                </Route>
-              </Routes>
-            </BrowserRouter>
-          )}
+          <AppShell />
         </HeroUIProvider>
       </ThemeProvider>
     </QueryClientProvider>
   )
-}
-
-function App() {
-  const { t, i18n } = useTranslation()
-  const isTenantPortal =
-    typeof window !== 'undefined' && window.location.pathname.startsWith('/tenant')
-
-  useEffect(() => {
-    if (isTenantPortal && typeof window !== 'undefined') {
-      applyRouteSeo(window.location.pathname, t)
-    }
-  }, [isTenantPortal, t, i18n.resolvedLanguage])
-
-  if (isTenantPortal) {
-    return (
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider defaultTheme="system" storageKey="codex-ui-theme">
-          <HeroUIProvider>
-            <NotificationCenter />
-            <Suspense fallback={<RouteSkeleton />}>
-              <TenantApp />
-            </Suspense>
-          </HeroUIProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
-    )
-  }
-
-  return <AdminApp />
 }
 
 export default App

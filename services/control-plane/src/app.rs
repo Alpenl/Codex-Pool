@@ -17,19 +17,21 @@ use axum::{response::IntoResponse, Router};
 use chrono::{DateTime, Utc};
 use codex_pool_core::api::{
     AccountUsageLeaderboardResponse, AdminLoginRequest, AdminMeResponse,
-    AiErrorLearningSettingsResponse, ApiKeyUsageLeaderboardResponse, BuiltinErrorTemplateResponse,
-    BuiltinErrorTemplatesResponse, CreateApiKeyRequest, CreateTenantRequest,
-    CreateUpstreamAccountRequest, ErrorEnvelope, HourlyAccountUsagePoint,
-    HourlyTenantApiKeyUsagePoint, ImportOAuthRefreshTokenRequest, ModelRoutingPoliciesResponse,
-    ModelRoutingSettingsResponse, OAuthAccountStatusResponse, OAuthFamilyActionResponse,
-    OAuthImportItemStatus, OAuthImportJobActionResponse, OAuthImportJobItemsResponse,
-    OAuthImportJobSummary, OAuthRateLimitRefreshJobStatus, OAuthRateLimitRefreshJobSummary,
-    PolicyResponse, ResolveUpstreamErrorTemplateRequest, ResolveUpstreamErrorTemplateResponse,
-    RoutingPlanVersionsResponse, RoutingProfilesResponse, TenantUsageLeaderboardResponse,
-    UpdateAiErrorLearningSettingsRequest, UpdateBuiltinErrorTemplateRequest,
-    UpdateModelRoutingSettingsRequest, UpdateUpstreamErrorTemplateRequest,
-    UpsertModelRoutingPolicyRequest, UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest,
-    UpsertRoutingProfileRequest, UpsertStreamRetryPolicyRequest, UpstreamErrorTemplateResponse,
+    AiErrorLearningSettingsResponse, ApiKeyUsageLeaderboardResponse, BillingMode,
+    BuiltinErrorTemplateResponse, BuiltinErrorTemplatesResponse, CreateApiKeyRequest,
+    CreateTenantRequest, CreateUpstreamAccountRequest, EditionFeatures, ErrorEnvelope,
+    HourlyAccountUsagePoint, HourlyTenantApiKeyUsagePoint, ImportOAuthRefreshTokenRequest,
+    ModelRoutingPoliciesResponse, ModelRoutingSettingsResponse, OAuthAccountStatusResponse,
+    OAuthFamilyActionResponse, OAuthImportItemStatus, OAuthImportJobActionResponse,
+    OAuthImportJobItemsResponse, OAuthImportJobSummary, OAuthRateLimitRefreshJobStatus,
+    OAuthRateLimitRefreshJobSummary, PolicyResponse, ProductEdition,
+    ResolveUpstreamErrorTemplateRequest, ResolveUpstreamErrorTemplateResponse,
+    RoutingPlanVersionsResponse, RoutingProfilesResponse, SystemCapabilitiesResponse,
+    TenantUsageLeaderboardResponse, UpdateAiErrorLearningSettingsRequest,
+    UpdateBuiltinErrorTemplateRequest, UpdateModelRoutingSettingsRequest,
+    UpdateUpstreamErrorTemplateRequest, UpsertModelRoutingPolicyRequest,
+    UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest, UpsertRoutingProfileRequest,
+    UpsertStreamRetryPolicyRequest, UpstreamErrorTemplateResponse,
     UpstreamErrorTemplatesResponse, UsageHourlyTenantTrendsResponse, UsageHourlyTrendsResponse,
     UsageLeaderboardOverviewResponse, UsageQueryResponse, UsageSummaryQueryResponse,
     ValidateApiKeyRequest, ValidateApiKeyResponse, ValidateOAuthRefreshTokenRequest,
@@ -95,6 +97,7 @@ const DEFAULT_UPSTREAM_ACCOUNT_BATCH_ACTION_CONCURRENCY: usize = 16;
 const MIN_UPSTREAM_ACCOUNT_BATCH_ACTION_CONCURRENCY: usize = 1;
 const MAX_UPSTREAM_ACCOUNT_BATCH_ACTION_CONCURRENCY: usize = 64;
 const REQUEST_ID_HEADER: &str = "x-request-id";
+const CODEX_POOL_EDITION_ENV: &str = "CODEX_POOL_EDITION";
 
 fn read_request_id_from_headers(headers: &HeaderMap) -> Option<String> {
     headers
@@ -609,6 +612,7 @@ pub struct AppState {
     pub usage_repo: Option<Arc<dyn UsageQueryRepository>>,
     pub tenant_auth_service: Option<Arc<TenantAuthService>>,
     pub auth_validate_cache_ttl_sec: u64,
+    pub system_capabilities: SystemCapabilitiesResponse,
     pub admin_auth: AdminAuthService,
     pub internal_auth_token: Arc<str>,
     pub import_job_manager: OAuthImportJobManager,
@@ -658,6 +662,60 @@ fn build_runtime_config_from_env(auth_validate_cache_ttl_sec: u64) -> RuntimeCon
         notes: Some(format!(
             "auth_validate_cache_ttl_sec={auth_validate_cache_ttl_sec}"
         )),
+    }
+}
+
+fn product_edition_from_env() -> ProductEdition {
+    std::env::var(CODEX_POOL_EDITION_ENV)
+        .ok()
+        .map(|raw| raw.trim().to_ascii_lowercase())
+        .and_then(|normalized| match normalized.as_str() {
+            "personal" => Some(ProductEdition::Personal),
+            "team" => Some(ProductEdition::Team),
+            "business" => Some(ProductEdition::Business),
+            _ => None,
+        })
+        .unwrap_or(ProductEdition::Business)
+}
+
+fn system_capabilities_from_env() -> SystemCapabilitiesResponse {
+    match product_edition_from_env() {
+        ProductEdition::Personal => SystemCapabilitiesResponse {
+            edition: ProductEdition::Personal,
+            billing_mode: BillingMode::CostReportOnly,
+            features: EditionFeatures {
+                multi_tenant: false,
+                tenant_portal: false,
+                tenant_self_service: false,
+                tenant_recharge: false,
+                credit_billing: false,
+                cost_reports: true,
+            },
+        },
+        ProductEdition::Team => SystemCapabilitiesResponse {
+            edition: ProductEdition::Team,
+            billing_mode: BillingMode::CostReportOnly,
+            features: EditionFeatures {
+                multi_tenant: true,
+                tenant_portal: true,
+                tenant_self_service: false,
+                tenant_recharge: false,
+                credit_billing: false,
+                cost_reports: true,
+            },
+        },
+        ProductEdition::Business => SystemCapabilitiesResponse {
+            edition: ProductEdition::Business,
+            billing_mode: BillingMode::CreditEnforced,
+            features: EditionFeatures {
+                multi_tenant: true,
+                tenant_portal: true,
+                tenant_self_service: true,
+                tenant_recharge: true,
+                credit_billing: true,
+                cost_reports: true,
+            },
+        },
     }
 }
 
@@ -769,18 +827,7 @@ mod app_env_tests {
         import_job_claim_batch_size_from_env, import_job_concurrency_from_env,
         oauth_import_multipart_max_bytes, resolve_internal_auth_token,
     };
-    use std::sync::{LazyLock, Mutex};
-
-    static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
-
-    fn set_env(key: &str, value: Option<&str>) -> Option<String> {
-        let previous = std::env::var(key).ok();
-        match value {
-            Some(v) => std::env::set_var(key, v),
-            None => std::env::remove_var(key),
-        }
-        previous
-    }
+    use crate::test_support::{set_env, ENV_LOCK};
 
     #[test]
     fn resolve_internal_auth_token_fails_when_missing() {
@@ -857,6 +904,156 @@ mod app_env_tests {
         assert_eq!(import_job_claim_batch_size_from_env(), 2000);
 
         set_env("CONTROL_PLANE_IMPORT_JOB_CLAIM_BATCH_SIZE", old.as_deref());
+    }
+}
+
+#[cfg(test)]
+mod capabilities_tests {
+    use super::build_app_with_store;
+    use crate::store::{ControlPlaneStore, InMemoryStore};
+    use crate::test_support::{set_env, ENV_LOCK};
+    use axum::body::{to_bytes, Body};
+    use axum::http::{Request, StatusCode};
+    use serde_json::Value;
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    const TEST_ADMIN_USERNAME: &str = "admin";
+    const TEST_ADMIN_PASSWORD: &str = "admin123456";
+    const TEST_ADMIN_JWT_SECRET: &str = "control-plane-test-jwt-secret";
+    const TEST_INTERNAL_AUTH_TOKEN: &str = "control-plane-test-internal-auth-token";
+
+    fn build_test_app() -> axum::Router {
+        let store: Arc<dyn ControlPlaneStore> = Arc::new(InMemoryStore::default());
+        build_app_with_store(store)
+    }
+
+    #[tokio::test]
+    async fn system_capabilities_endpoint_defaults_to_business() {
+        let _guard = ENV_LOCK.lock().expect("lock env");
+        let old_username = set_env("ADMIN_USERNAME", Some(TEST_ADMIN_USERNAME));
+        let old_password = set_env("ADMIN_PASSWORD", Some(TEST_ADMIN_PASSWORD));
+        let old_secret = set_env("ADMIN_JWT_SECRET", Some(TEST_ADMIN_JWT_SECRET));
+        let old_internal =
+            set_env("CONTROL_PLANE_INTERNAL_AUTH_TOKEN", Some(TEST_INTERNAL_AUTH_TOKEN));
+        let old_edition = set_env("CODEX_POOL_EDITION", None);
+
+        let response = build_test_app()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/v1/system/capabilities")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        set_env("ADMIN_USERNAME", old_username.as_deref());
+        set_env("ADMIN_PASSWORD", old_password.as_deref());
+        set_env("ADMIN_JWT_SECRET", old_secret.as_deref());
+        set_env(
+            "CONTROL_PLANE_INTERNAL_AUTH_TOKEN",
+            old_internal.as_deref(),
+        );
+        set_env("CODEX_POOL_EDITION", old_edition.as_deref());
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["edition"], "business");
+        assert_eq!(payload["billing_mode"], "credit_enforced");
+        assert_eq!(payload["features"]["multi_tenant"], true);
+        assert_eq!(payload["features"]["tenant_portal"], true);
+        assert_eq!(payload["features"]["tenant_self_service"], true);
+        assert_eq!(payload["features"]["tenant_recharge"], true);
+        assert_eq!(payload["features"]["cost_reports"], true);
+    }
+
+    #[tokio::test]
+    async fn system_capabilities_endpoint_reflects_personal_edition() {
+        let _guard = ENV_LOCK.lock().expect("lock env");
+        let old_username = set_env("ADMIN_USERNAME", Some(TEST_ADMIN_USERNAME));
+        let old_password = set_env("ADMIN_PASSWORD", Some(TEST_ADMIN_PASSWORD));
+        let old_secret = set_env("ADMIN_JWT_SECRET", Some(TEST_ADMIN_JWT_SECRET));
+        let old_internal =
+            set_env("CONTROL_PLANE_INTERNAL_AUTH_TOKEN", Some(TEST_INTERNAL_AUTH_TOKEN));
+        let old_edition = set_env("CODEX_POOL_EDITION", Some("personal"));
+
+        let response = build_test_app()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/v1/system/capabilities")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        set_env("ADMIN_USERNAME", old_username.as_deref());
+        set_env("ADMIN_PASSWORD", old_password.as_deref());
+        set_env("ADMIN_JWT_SECRET", old_secret.as_deref());
+        set_env(
+            "CONTROL_PLANE_INTERNAL_AUTH_TOKEN",
+            old_internal.as_deref(),
+        );
+        set_env("CODEX_POOL_EDITION", old_edition.as_deref());
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["edition"], "personal");
+        assert_eq!(payload["billing_mode"], "cost_report_only");
+        assert_eq!(payload["features"]["multi_tenant"], false);
+        assert_eq!(payload["features"]["tenant_portal"], false);
+        assert_eq!(payload["features"]["tenant_self_service"], false);
+        assert_eq!(payload["features"]["tenant_recharge"], false);
+        assert_eq!(payload["features"]["credit_billing"], false);
+        assert_eq!(payload["features"]["cost_reports"], true);
+    }
+
+    #[tokio::test]
+    async fn system_capabilities_endpoint_reflects_team_edition() {
+        let _guard = ENV_LOCK.lock().expect("lock env");
+        let old_username = set_env("ADMIN_USERNAME", Some(TEST_ADMIN_USERNAME));
+        let old_password = set_env("ADMIN_PASSWORD", Some(TEST_ADMIN_PASSWORD));
+        let old_secret = set_env("ADMIN_JWT_SECRET", Some(TEST_ADMIN_JWT_SECRET));
+        let old_internal =
+            set_env("CONTROL_PLANE_INTERNAL_AUTH_TOKEN", Some(TEST_INTERNAL_AUTH_TOKEN));
+        let old_edition = set_env("CODEX_POOL_EDITION", Some("team"));
+
+        let response = build_test_app()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/v1/system/capabilities")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        set_env("ADMIN_USERNAME", old_username.as_deref());
+        set_env("ADMIN_PASSWORD", old_password.as_deref());
+        set_env("ADMIN_JWT_SECRET", old_secret.as_deref());
+        set_env(
+            "CONTROL_PLANE_INTERNAL_AUTH_TOKEN",
+            old_internal.as_deref(),
+        );
+        set_env("CODEX_POOL_EDITION", old_edition.as_deref());
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["edition"], "team");
+        assert_eq!(payload["billing_mode"], "cost_report_only");
+        assert_eq!(payload["features"]["multi_tenant"], true);
+        assert_eq!(payload["features"]["tenant_portal"], true);
+        assert_eq!(payload["features"]["tenant_self_service"], false);
+        assert_eq!(payload["features"]["tenant_recharge"], false);
+        assert_eq!(payload["features"]["credit_billing"], false);
+        assert_eq!(payload["features"]["cost_reports"], true);
     }
 }
 
@@ -943,6 +1140,7 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
         usage_repo,
         tenant_auth_service,
         auth_validate_cache_ttl_sec,
+        system_capabilities: system_capabilities_from_env(),
         admin_auth,
         internal_auth_token: resolve_internal_auth_token()
             .expect("CONTROL_PLANE_INTERNAL_AUTH_TOKEN must be set"),
@@ -973,6 +1171,7 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
         .route("/health", get(health))
         .route("/livez", get(livez))
         .route("/readyz", get(readyz))
+        .route("/api/v1/system/capabilities", get(system_capabilities))
         .route("/api/v1/tenants", post(create_tenant).get(list_tenants))
         .route("/api/v1/api-keys", post(create_api_key).get(list_api_keys))
         .route(
