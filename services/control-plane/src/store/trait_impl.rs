@@ -995,7 +995,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn in_memory_snapshot_compiles_exact_model_routes_from_profiles_and_support_matrix() {
+    async fn in_memory_snapshot_prefers_manual_model_routes_over_supported_model_probe_results() {
         let store = InMemoryStore::default();
 
         let free_account = store
@@ -1076,11 +1076,11 @@ mod tests {
         store
             .upsert_model_routing_policy(UpsertModelRoutingPolicyRequest {
                 id: None,
-                name: "gpt5-family".to_string(),
-                family: "gpt-5".to_string(),
+                name: "gpt54-paid".to_string(),
+                family: "gpt-5.4".to_string(),
                 exact_models: vec!["gpt-5.4".to_string()],
-                model_prefixes: vec!["gpt-5".to_string()],
-                fallback_profile_ids: vec![free_profile.id, paid_profile.id],
+                model_prefixes: Vec::new(),
+                fallback_profile_ids: vec![paid_profile.id],
                 enabled: true,
                 priority: 80,
             })
@@ -1098,7 +1098,7 @@ mod tests {
         store
             .record_account_model_support(
                 paid_account.id,
-                vec!["gpt-5.4".to_string(), "gpt-5.2-codex".to_string()],
+                vec!["gpt-5.2-codex".to_string()],
                 Utc::now(),
             )
             .await

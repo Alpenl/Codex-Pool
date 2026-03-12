@@ -1104,7 +1104,6 @@ fn compile_routing_plan_from_state(
                 &policy.fallback_profile_ids,
                 &compiled_profiles,
                 Some(model.as_str()),
-                account_traits,
             );
             if fallback_segments.is_empty() {
                 continue;
@@ -1128,7 +1127,6 @@ fn compile_routing_plan_from_state(
                 &policy.fallback_profile_ids,
                 &compiled_profiles,
                 None,
-                account_traits,
             )
         })
         .unwrap_or_default();
@@ -1142,7 +1140,6 @@ fn compile_routing_plan_from_state(
                 &default_policy.fallback_profile_ids,
                 &compiled_profiles,
                 Some(model.as_str()),
-                account_traits,
             );
             if fallback_segments.is_empty() {
                 continue;
@@ -1174,27 +1171,11 @@ fn compile_routing_plan_from_state(
 fn build_compiled_fallback_segments(
     profile_ids: &[Uuid],
     compiled_profiles: &HashMap<Uuid, CompiledRoutingProfile>,
-    model: Option<&str>,
-    account_traits: &HashMap<Uuid, AccountRoutingTraits>,
+    _model: Option<&str>,
 ) -> Vec<CompiledRoutingProfile> {
     profile_ids
         .iter()
         .filter_map(|profile_id| compiled_profiles.get(profile_id).cloned())
-        .map(|profile| {
-            let account_ids = match model {
-                Some(model) => profile
-                    .account_ids
-                    .iter()
-                    .copied()
-                    .filter(|account_id| account_supports_model(account_traits, *account_id, model))
-                    .collect::<Vec<_>>(),
-                None => profile.account_ids.clone(),
-            };
-            CompiledRoutingProfile {
-                account_ids,
-                ..profile
-            }
-        })
         .filter(|profile| !profile.account_ids.is_empty())
         .collect()
 }
@@ -1252,18 +1233,4 @@ fn account_is_routing_blocked(
         .get(&account_id)
         .and_then(|traits| traits.blocked_until)
         .is_some_and(|blocked_until| blocked_until > now)
-}
-
-fn account_supports_model(
-    account_traits: &HashMap<Uuid, AccountRoutingTraits>,
-    account_id: Uuid,
-    model: &str,
-) -> bool {
-    account_traits
-        .get(&account_id)
-        .map(|traits| {
-            traits.supported_models.is_empty()
-                || traits.supported_models.iter().any(|candidate| candidate == model)
-        })
-        .unwrap_or(false)
 }

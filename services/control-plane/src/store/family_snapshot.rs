@@ -221,14 +221,6 @@ impl InMemoryStore {
                     .fallback_profile_ids
                     .iter()
                     .filter_map(|profile_id| compiled_profiles.get(profile_id).cloned())
-                    .map(|profile| CompiledRoutingProfile {
-                        account_ids: profile
-                            .account_ids
-                            .into_iter()
-                            .filter(|account_id| account_supports_model(account_traits, *account_id, &model))
-                            .collect(),
-                        ..profile
-                    })
                     .filter(|profile| !profile.account_ids.is_empty())
                     .collect::<Vec<_>>();
 
@@ -269,16 +261,6 @@ impl InMemoryStore {
                     .fallback_profile_ids
                     .iter()
                     .filter_map(|profile_id| compiled_profiles.get(profile_id).cloned())
-                    .map(|profile| CompiledRoutingProfile {
-                        account_ids: profile
-                            .account_ids
-                            .into_iter()
-                            .filter(|account_id| {
-                                account_supports_model(account_traits, *account_id, &model)
-                            })
-                            .collect(),
-                        ..profile
-                    })
                     .filter(|profile| !profile.account_ids.is_empty())
                     .collect::<Vec<_>>();
 
@@ -419,20 +401,6 @@ fn profile_matches_account(
     }
 
     true
-}
-
-fn account_supports_model(
-    account_traits: &HashMap<Uuid, AccountRoutingTraits>,
-    account_id: Uuid,
-    model: &str,
-) -> bool {
-    account_traits
-        .get(&account_id)
-        .map(|traits| {
-            traits.supported_models.is_empty()
-                || traits.supported_models.iter().any(|candidate| candidate == model)
-        })
-        .unwrap_or(false)
 }
 
 include!("trait_impl.rs");
