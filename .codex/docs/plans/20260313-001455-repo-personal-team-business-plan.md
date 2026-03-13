@@ -85,6 +85,10 @@
 - [x] `data-plane` 在非 `business` 版本强制关闭 credit billing 默认开关
 - [x] `control-plane` 在非 `business` 版本禁用 billing reconcile 后台循环
 - [x] 第二阶段运行时 edition 收口验证通过，并准备进入下一阶段
+- [x] 为 `team` 版新增 PostgreSQL usage/log schema 与 query/ingest repo
+- [x] 新增 `control-plane` 内部 usage ingest 路由与 TDD 回归
+- [x] `data-plane` 在 `team` 且无 Redis 时切换到 control-plane HTTP event sink
+- [x] 第三阶段 team Postgres-only usage pipeline 验证通过，并准备进入下一阶段
 
 ## Progress Notes
 
@@ -100,3 +104,12 @@
 - `/internal/v1/auth/validate` 现在会按 edition 裁剪 `balance_microcredits`，让 `personal/team` 自动退出 data-plane 的 credit enforcement 主链路。
 - `data-plane` 配置已按 edition 强制关闭 metered stream billing / authorize for stream / dynamic preauth，避免非 `business` 版本被环境变量误开启 credit billing。
 - `control-plane` 的 billing reconcile 后台循环已限制为仅 `business` 版本可启动。
+- 第三阶段已打通 `team` 版的无 Redis / 无 ClickHouse usage 主链路：
+  - `control-plane` 新增 `UsageIngestRepository`、`POST /internal/v1/usage/request-logs` 和 `PostgresUsageRepo`
+  - PostgreSQL schema 新增 `usage_request_logs`、`usage_hourly_account`、`usage_hourly_tenant_api_key`、`usage_hourly_tenant_account`
+  - `team` 版启动时会优先把 usage query/ingest 都接到 PostgreSQL，而 `business` 仍保持 ClickHouse 查询链路
+- `data-plane` 现在会在 `team` 且无 Redis 时自动改走 control-plane HTTP sink，把 `RequestLogEvent` 直接投递到 `/internal/v1/usage/request-logs`，并继续保留 Redis 优先策略。
+- 第三阶段验证已覆盖：
+  - `cargo test -p control-plane --lib --bins`
+  - `cargo test -p data-plane --lib --bins`
+  - `cargo test --workspace --lib --bins --locked`

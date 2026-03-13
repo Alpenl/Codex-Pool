@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context};
 use axum::body::Body;
-use bytes::Bytes;
 use axum::extract::{rejection::JsonRejection, Extension, Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Request, StatusCode};
 use axum::middleware;
@@ -13,7 +12,8 @@ use axum::middleware::Next;
 use axum::response::Response;
 use axum::routing::{get, post};
 use axum::Router;
-use codex_pool_core::api::{ErrorEnvelope, UsageSummary};
+use bytes::Bytes;
+use codex_pool_core::api::{ErrorEnvelope, ProductEdition, UsageSummary};
 use codex_pool_core::model::{
     AiErrorLearningSettings, BuiltinErrorTemplateRecord, RoutingStrategy,
     UpstreamErrorTemplateRecord, UpstreamMode,
@@ -27,6 +27,7 @@ use self::snapshot::SnapshotPoller;
 use crate::auth::validator::{AuthCacheLookupResult, AuthCacheStatsSnapshot, AuthValidatorClient};
 use crate::auth::{require_api_key, ApiPrincipal};
 use crate::config::DataPlaneConfig;
+use crate::event::http_sink::ControlPlaneHttpEventSink;
 use crate::event::redis_sink::RedisStreamEventSink;
 use crate::event::{EventSink, NoopEventSink};
 use crate::proxy::{proxy_handler, proxy_websocket_handler};
@@ -64,6 +65,7 @@ const DEFAULT_INVALID_REQUEST_GUARD_BLOCK_SEC: u64 = 120;
 const MIN_INVALID_REQUEST_GUARD_BLOCK_SEC: u64 = 10;
 const MAX_INVALID_REQUEST_GUARD_BLOCK_SEC: u64 = 3_600;
 const DEFAULT_ROUTING_CACHE_REDIS_PREFIX: &str = "codex_pool:data_plane:routing";
+const CODEX_POOL_EDITION_ENV: &str = "CODEX_POOL_EDITION";
 const REQUEST_ID_HEADER: &str = "x-request-id";
 
 type InvalidRequestGuardEntry = (VecDeque<Instant>, Option<Instant>);
@@ -181,13 +183,62 @@ impl AppState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EventSinkKind {
+    Redis,
+    ControlPlaneHttp,
+    Noop,
+}
+
+fn select_event_sink_kind(
+    edition: ProductEdition,
+    redis_url: Option<&str>,
+    control_plane_base_url: Option<&str>,
+) -> EventSinkKind {
+    if redis_url.is_some() {
+        return EventSinkKind::Redis;
+    }
+
+    if matches!(edition, ProductEdition::Team)
+        && control_plane_base_url
+            .map(str::trim)
+            .is_some_and(|base_url| !base_url.is_empty())
+    {
+        return EventSinkKind::ControlPlaneHttp;
+    }
+
+    EventSinkKind::Noop
+}
+
 pub async fn build_app(config: DataPlaneConfig) -> anyhow::Result<Router> {
-    let event_sink: Arc<dyn EventSink> = match config.redis_url.as_deref() {
-        Some(redis_url) => Arc::new(RedisStreamEventSink::new(
-            redis_url,
-            config.request_log_stream(),
-        )),
-        None => Arc::new(NoopEventSink),
+    let control_plane_base_url = resolve_control_plane_base_url(&config);
+    let edition = ProductEdition::from_env_var(CODEX_POOL_EDITION_ENV);
+    let event_sink: Arc<dyn EventSink> = match select_event_sink_kind(
+        edition,
+        config.redis_url.as_deref(),
+        control_plane_base_url.as_deref(),
+    ) {
+        EventSinkKind::Redis => {
+            let Some(redis_url) = config.redis_url.as_deref() else {
+                return Err(anyhow!("redis event sink selected without redis_url"));
+            };
+            Arc::new(RedisStreamEventSink::new(
+                redis_url,
+                config.request_log_stream(),
+            ))
+        }
+        EventSinkKind::ControlPlaneHttp => {
+            let Some(base_url) = control_plane_base_url.as_deref() else {
+                return Err(anyhow!(
+                    "control plane http event sink selected without control_plane_base_url"
+                ));
+            };
+            Arc::new(ControlPlaneHttpEventSink::new(
+                base_url,
+                resolve_internal_auth_token()?,
+            ))
+        }
+        EventSinkKind::Noop => Arc::new(NoopEventSink),
     };
 
     build_app_with_event_sink_and_allowed_keys(config, event_sink, allowed_api_keys_from_env())
@@ -474,7 +525,8 @@ fn read_request_id_from_headers(headers: &HeaderMap) -> Option<String> {
 }
 
 fn ensure_request_id(headers: &mut HeaderMap) -> String {
-    let request_id = read_request_id_from_headers(headers).unwrap_or_else(|| Uuid::new_v4().to_string());
+    let request_id =
+        read_request_id_from_headers(headers).unwrap_or_else(|| Uuid::new_v4().to_string());
     if let Ok(header_value) = HeaderValue::from_str(&request_id) {
         headers.insert(HeaderName::from_static(REQUEST_ID_HEADER), header_value);
     }
@@ -525,7 +577,10 @@ fn max_request_body_bytes_from_env() -> usize {
 
 fn parse_bool_env_with_default(key: &str, default: bool) -> bool {
     std::env::var(key).ok().map_or(default, |raw| {
-        matches!(raw.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")
+        matches!(
+            raw.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
     })
 }
 
@@ -635,4 +690,36 @@ async fn readyz(State(state): State<Arc<AppState>>) -> (StatusCode, axum::Json<R
             error: Some(envelope.error),
         }),
     )
+}
+
+#[cfg(test)]
+mod bootstrap_tests {
+    use super::{select_event_sink_kind, EventSinkKind};
+    use codex_pool_core::api::ProductEdition;
+
+    #[test]
+    fn select_event_sink_kind_prefers_redis_when_available() {
+        let selected = select_event_sink_kind(
+            ProductEdition::Team,
+            Some("redis://127.0.0.1:6379"),
+            Some("http://127.0.0.1:8090"),
+        );
+
+        assert_eq!(selected, EventSinkKind::Redis);
+    }
+
+    #[test]
+    fn select_event_sink_kind_uses_control_plane_http_for_team_without_redis() {
+        let selected =
+            select_event_sink_kind(ProductEdition::Team, None, Some("http://127.0.0.1:8090"));
+
+        assert_eq!(selected, EventSinkKind::ControlPlaneHttp);
+    }
+
+    #[test]
+    fn select_event_sink_kind_falls_back_to_noop_without_redis_or_team_base_url() {
+        let selected = select_event_sink_kind(ProductEdition::Personal, None, None);
+
+        assert_eq!(selected, EventSinkKind::Noop);
+    }
 }

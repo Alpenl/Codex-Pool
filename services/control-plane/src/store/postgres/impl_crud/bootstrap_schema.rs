@@ -569,7 +569,6 @@ impl PostgresStore {
         .await
         .context("failed to seed billing pricing rule for gpt-5.4")?;
 
-
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS openai_models_catalog (
@@ -1222,9 +1221,7 @@ impl PostgresStore {
         )
         .execute(tx.as_mut())
         .await
-        .context(
-            "failed to add upstream_account_session_profiles.organizations_json column",
-        )?;
+        .context("failed to add upstream_account_session_profiles.organizations_json column")?;
 
         sqlx::query(
             r#"
@@ -1273,8 +1270,8 @@ impl PostgresStore {
         .await
         .context("failed to create rate-limit snapshot expiry index")?;
 
-	        sqlx::query(
-	            r#"
+        sqlx::query(
+            r#"
 	            CREATE TABLE IF NOT EXISTS upstream_account_health_state (
 	                account_id UUID PRIMARY KEY REFERENCES upstream_accounts(id) ON DELETE CASCADE,
 	                seen_ok_at TIMESTAMPTZ NULL,
@@ -1282,13 +1279,13 @@ impl PostgresStore {
 	                updated_at TIMESTAMPTZ NOT NULL
 	            )
 	            "#,
-	        )
-	        .execute(tx.as_mut())
-	        .await
-	        .context("failed to create upstream_account_health_state table")?;
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create upstream_account_health_state table")?;
 
-	        sqlx::query(
-	            r#"
+        sqlx::query(
+            r#"
 	            CREATE INDEX IF NOT EXISTS idx_upstream_account_health_state_seen_ok
             ON upstream_account_health_state (seen_ok_at)
             "#,
@@ -1750,6 +1747,154 @@ impl PostgresStore {
         .execute(tx.as_mut())
         .await
         .context("failed to create data_plane_outbox created_at index")?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS usage_request_logs (
+                id UUID PRIMARY KEY,
+                account_id UUID NOT NULL,
+                tenant_id UUID NULL,
+                api_key_id UUID NULL,
+                request_id TEXT NULL,
+                path TEXT NOT NULL,
+                method TEXT NOT NULL,
+                model TEXT NULL,
+                service_tier TEXT NULL,
+                input_tokens BIGINT NULL,
+                cached_input_tokens BIGINT NULL,
+                output_tokens BIGINT NULL,
+                reasoning_tokens BIGINT NULL,
+                first_token_latency_ms BIGINT NULL,
+                status_code INTEGER NOT NULL,
+                latency_ms BIGINT NOT NULL,
+                is_stream BOOLEAN NOT NULL,
+                error_code TEXT NULL,
+                billing_phase TEXT NULL,
+                authorization_id UUID NULL,
+                capture_status TEXT NULL,
+                created_at TIMESTAMPTZ NOT NULL,
+                event_version INTEGER NOT NULL
+            )
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create usage_request_logs table")?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_usage_request_logs_created_at
+            ON usage_request_logs (created_at DESC)
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create usage_request_logs created_at index")?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_usage_request_logs_tenant_created_at
+            ON usage_request_logs (tenant_id, created_at DESC)
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create usage_request_logs tenant/created_at index")?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_usage_request_logs_api_key_created_at
+            ON usage_request_logs (api_key_id, created_at DESC)
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create usage_request_logs api_key/created_at index")?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_usage_request_logs_request_id
+            ON usage_request_logs (request_id)
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create usage_request_logs request_id index")?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS usage_hourly_account (
+                account_id UUID NOT NULL,
+                hour_start TIMESTAMPTZ NOT NULL,
+                request_count BIGINT NOT NULL,
+                PRIMARY KEY (account_id, hour_start)
+            )
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create usage_hourly_account table")?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_usage_hourly_account_hour_start
+            ON usage_hourly_account (hour_start DESC, account_id)
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create usage_hourly_account hour_start index")?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS usage_hourly_tenant_api_key (
+                tenant_id UUID NOT NULL,
+                api_key_id UUID NOT NULL,
+                hour_start TIMESTAMPTZ NOT NULL,
+                request_count BIGINT NOT NULL,
+                PRIMARY KEY (tenant_id, api_key_id, hour_start)
+            )
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create usage_hourly_tenant_api_key table")?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_usage_hourly_tenant_api_key_hour_start
+            ON usage_hourly_tenant_api_key (hour_start DESC, tenant_id, api_key_id)
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create usage_hourly_tenant_api_key hour_start index")?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS usage_hourly_tenant_account (
+                tenant_id UUID NOT NULL,
+                account_id UUID NOT NULL,
+                hour_start TIMESTAMPTZ NOT NULL,
+                request_count BIGINT NOT NULL,
+                PRIMARY KEY (tenant_id, account_id, hour_start)
+            )
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create usage_hourly_tenant_account table")?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_usage_hourly_tenant_account_hour_start
+            ON usage_hourly_tenant_account (hour_start DESC, tenant_id, account_id)
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create usage_hourly_tenant_account hour_start index")?;
+
         tx.commit()
             .await
             .context("failed to commit schema migration transaction")?;

@@ -296,11 +296,7 @@ async fn system_capabilities(State(state): State<AppState>) -> impl IntoResponse
     Json(state.system_capabilities.clone())
 }
 
-fn localized_message(
-    locale: i18n::Locale,
-    en: &'static str,
-    zh_cn: &'static str,
-) -> &'static str {
+fn localized_message(locale: i18n::Locale, en: &'static str, zh_cn: &'static str) -> &'static str {
     locale.message(en, zh_cn)
 }
 
@@ -400,7 +396,10 @@ fn tenant_unauthorized_error() -> (StatusCode, Json<ErrorEnvelope>) {
 fn tenant_service_unavailable_error() -> (StatusCode, Json<ErrorEnvelope>) {
     (
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(ErrorEnvelope::new("service_unavailable", "service unavailable")),
+        Json(ErrorEnvelope::new(
+            "service_unavailable",
+            "service unavailable",
+        )),
     )
 }
 
@@ -414,7 +413,10 @@ fn map_tenant_error(err: anyhow::Error) -> (StatusCode, Json<ErrorEnvelope>) {
     {
         return (
             StatusCode::BAD_REQUEST,
-            Json(ErrorEnvelope::new("invalid_request", "invalid tenant request")),
+            Json(ErrorEnvelope::new(
+                "invalid_request",
+                "invalid tenant request",
+            )),
         );
     }
     internal_error(err)
@@ -590,6 +592,16 @@ fn usage_repo_unavailable_error() -> (StatusCode, Json<ErrorEnvelope>) {
         Json(ErrorEnvelope::new(
             "service_unavailable",
             "usage repository is unavailable",
+        )),
+    )
+}
+
+fn usage_ingest_repo_unavailable_error() -> (StatusCode, Json<ErrorEnvelope>) {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(ErrorEnvelope::new(
+            "service_unavailable",
+            "usage ingest repository is unavailable",
         )),
     )
 }

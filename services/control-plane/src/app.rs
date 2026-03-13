@@ -53,7 +53,7 @@ use crate::import_jobs::{
 };
 use crate::store::{ControlPlaneStore, InMemoryStore};
 use crate::tenant::TenantAuthService;
-use crate::usage::clickhouse_repo::UsageQueryRepository;
+use crate::usage::{clickhouse_repo::UsageQueryRepository, UsageIngestRepository};
 
 #[path = "i18n.rs"]
 mod i18n;
@@ -609,6 +609,7 @@ async fn stop_codex_oauth_callback_listener_if_idle(state: &AppState) {
 pub struct AppState {
     pub store: Arc<dyn ControlPlaneStore>,
     pub usage_repo: Option<Arc<dyn UsageQueryRepository>>,
+    pub usage_ingest_repo: Option<Arc<dyn UsageIngestRepository>>,
     pub tenant_auth_service: Option<Arc<TenantAuthService>>,
     pub auth_validate_cache_ttl_sec: u64,
     pub system_capabilities: SystemCapabilitiesResponse,
@@ -1106,6 +1107,165 @@ mod capabilities_tests {
     }
 }
 
+#[cfg(test)]
+mod usage_ingest_tests {
+    use super::build_app_with_store_ttl_usage_repos_import_store_and_admin_auth;
+    use crate::admin_auth::AdminAuthService;
+    use crate::import_jobs::InMemoryOAuthImportJobStore;
+    use crate::store::{ControlPlaneStore, InMemoryStore};
+    use crate::test_support::{set_env, ENV_LOCK};
+    use crate::usage::UsageIngestRepository;
+    use axum::body::{to_bytes, Body};
+    use axum::http::{Request, StatusCode};
+    use codex_pool_core::events::RequestLogEvent;
+    use serde_json::Value;
+    use std::sync::{Arc, Mutex};
+    use tower::ServiceExt;
+    use uuid::Uuid;
+
+    const TEST_ADMIN_USERNAME: &str = "admin";
+    const TEST_ADMIN_PASSWORD: &str = "admin123456";
+    const TEST_ADMIN_JWT_SECRET: &str = "control-plane-test-jwt-secret";
+    const TEST_INTERNAL_AUTH_TOKEN: &str = "control-plane-test-internal-auth-token";
+
+    #[derive(Clone, Default)]
+    struct RecordingUsageIngestRepo {
+        events: Arc<Mutex<Vec<RequestLogEvent>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl UsageIngestRepository for RecordingUsageIngestRepo {
+        async fn ingest_request_log(&self, event: RequestLogEvent) -> anyhow::Result<()> {
+            self.events.lock().expect("usage ingest lock").push(event);
+            Ok(())
+        }
+    }
+
+    fn configure_test_env() -> [Option<String>; 4] {
+        [
+            set_env("ADMIN_USERNAME", Some(TEST_ADMIN_USERNAME)),
+            set_env("ADMIN_PASSWORD", Some(TEST_ADMIN_PASSWORD)),
+            set_env("ADMIN_JWT_SECRET", Some(TEST_ADMIN_JWT_SECRET)),
+            set_env(
+                "CONTROL_PLANE_INTERNAL_AUTH_TOKEN",
+                Some(TEST_INTERNAL_AUTH_TOKEN),
+            ),
+        ]
+    }
+
+    fn restore_test_env(old_values: [Option<String>; 4]) {
+        let [old_username, old_password, old_secret, old_internal] = old_values;
+        set_env("ADMIN_USERNAME", old_username.as_deref());
+        set_env("ADMIN_PASSWORD", old_password.as_deref());
+        set_env("ADMIN_JWT_SECRET", old_secret.as_deref());
+        set_env("CONTROL_PLANE_INTERNAL_AUTH_TOKEN", old_internal.as_deref());
+    }
+
+    fn build_test_app(usage_ingest_repo: Option<Arc<dyn UsageIngestRepository>>) -> axum::Router {
+        let store: Arc<dyn ControlPlaneStore> = Arc::new(InMemoryStore::default());
+        let admin_auth = AdminAuthService::from_env().expect("admin auth");
+        build_app_with_store_ttl_usage_repos_import_store_and_admin_auth(
+            store,
+            super::DEFAULT_AUTH_VALIDATE_CACHE_TTL_SEC,
+            None,
+            usage_ingest_repo,
+            Arc::new(InMemoryOAuthImportJobStore::default()),
+            admin_auth,
+        )
+    }
+
+    fn request_log_event() -> RequestLogEvent {
+        RequestLogEvent {
+            id: Uuid::new_v4(),
+            account_id: Uuid::new_v4(),
+            tenant_id: Some(Uuid::new_v4()),
+            api_key_id: Some(Uuid::new_v4()),
+            event_version: 1,
+            path: "/v1/chat/completions".to_string(),
+            method: "POST".to_string(),
+            status_code: 200,
+            latency_ms: 42,
+            is_stream: false,
+            error_code: None,
+            request_id: Some("req_usage_ingest".to_string()),
+            model: Some("gpt-5.3-codex".to_string()),
+            service_tier: Some("default".to_string()),
+            input_tokens: Some(120),
+            cached_input_tokens: Some(10),
+            output_tokens: Some(60),
+            reasoning_tokens: Some(5),
+            first_token_latency_ms: Some(12),
+            billing_phase: Some("captured".to_string()),
+            authorization_id: Some(Uuid::new_v4()),
+            capture_status: Some("captured".to_string()),
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn internal_usage_ingest_returns_service_unavailable_without_repo() {
+        let _guard = ENV_LOCK.lock().expect("lock env");
+        let old_values = configure_test_env();
+        let payload = serde_json::to_string(&request_log_event()).expect("serialize event");
+
+        let response = build_test_app(None)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/internal/v1/usage/request-logs")
+                    .header(
+                        "authorization",
+                        format!("Bearer {TEST_INTERNAL_AUTH_TOKEN}"),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(payload))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        restore_test_env(old_values);
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["error"]["code"], "service_unavailable");
+    }
+
+    #[tokio::test]
+    async fn internal_usage_ingest_persists_event_when_authorized() {
+        let _guard = ENV_LOCK.lock().expect("lock env");
+        let old_values = configure_test_env();
+        let repo = RecordingUsageIngestRepo::default();
+        let payload_event = request_log_event();
+        let payload = serde_json::to_string(&payload_event).expect("serialize event");
+
+        let response = build_test_app(Some(Arc::new(repo.clone())))
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/internal/v1/usage/request-logs")
+                    .header(
+                        "authorization",
+                        format!("Bearer {TEST_INTERNAL_AUTH_TOKEN}"),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(payload))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        restore_test_env(old_values);
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let events = repo.events.lock().expect("usage ingest lock");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].id, payload_event.id);
+        assert_eq!(events[0].request_id, payload_event.request_id);
+    }
+}
+
 fn add_multi_tenant_routes(
     router: Router<AppState>,
     capabilities: &SystemCapabilitiesResponse,
@@ -1349,6 +1509,24 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
     import_job_store: Arc<dyn OAuthImportJobStore>,
     admin_auth: AdminAuthService,
 ) -> Router {
+    build_app_with_store_ttl_usage_repos_import_store_and_admin_auth(
+        store,
+        auth_validate_cache_ttl_sec,
+        usage_repo,
+        None,
+        import_job_store,
+        admin_auth,
+    )
+}
+
+pub fn build_app_with_store_ttl_usage_repos_import_store_and_admin_auth(
+    store: Arc<dyn ControlPlaneStore>,
+    auth_validate_cache_ttl_sec: u64,
+    usage_repo: Option<Arc<dyn UsageQueryRepository>>,
+    usage_ingest_repo: Option<Arc<dyn UsageIngestRepository>>,
+    import_job_store: Arc<dyn OAuthImportJobStore>,
+    admin_auth: AdminAuthService,
+) -> Router {
     let import_job_manager = OAuthImportJobManager::new(
         store.clone(),
         import_job_store,
@@ -1374,6 +1552,7 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
     let state = AppState {
         store,
         usage_repo,
+        usage_ingest_repo,
         tenant_auth_service,
         auth_validate_cache_ttl_sec,
         system_capabilities: edition_capabilities.clone(),
@@ -1682,6 +1861,10 @@ pub fn build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
             post(internal_resolve_upstream_error_template),
         )
         .route("/internal/v1/auth/validate", post(validate_api_key))
+        .route(
+            "/internal/v1/usage/request-logs",
+            post(internal_ingest_request_log),
+        )
         .route("/api/v1/data-plane/snapshot", get(data_plane_snapshot))
         .route(
             "/api/v1/data-plane/snapshot/events",

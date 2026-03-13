@@ -1338,16 +1338,13 @@ mod models_probe_tests {
     fn test_app_state_with_usage_rows(rows: Vec<crate::usage::RequestLogRow>) -> AppState {
         let _guard = crate::test_support::ENV_LOCK.lock().expect("lock env");
         let old_username = crate::test_support::set_env("ADMIN_USERNAME", Some("admin"));
-        let old_password =
-            crate::test_support::set_env("ADMIN_PASSWORD", Some("admin123456"));
-        let old_secret = crate::test_support::set_env(
-            "ADMIN_JWT_SECRET",
-            Some("control-plane-test-jwt-secret"),
-        );
+        let old_password = crate::test_support::set_env("ADMIN_PASSWORD", Some("admin123456"));
+        let old_secret =
+            crate::test_support::set_env("ADMIN_JWT_SECRET", Some("control-plane-test-jwt-secret"));
         let store: std::sync::Arc<dyn crate::store::ControlPlaneStore> =
             std::sync::Arc::new(crate::store::InMemoryStore::default());
-        let admin_auth = crate::admin_auth::AdminAuthService::from_env()
-            .expect("admin auth env must be set");
+        let admin_auth =
+            crate::admin_auth::AdminAuthService::from_env().expect("admin auth env must be set");
         crate::test_support::set_env("ADMIN_USERNAME", old_username.as_deref());
         crate::test_support::set_env("ADMIN_PASSWORD", old_password.as_deref());
         crate::test_support::set_env("ADMIN_JWT_SECRET", old_secret.as_deref());
@@ -1355,6 +1352,7 @@ mod models_probe_tests {
         AppState {
             store: store.clone(),
             usage_repo: Some(std::sync::Arc::new(TestUsageRepo { rows })),
+            usage_ingest_repo: None,
             tenant_auth_service: None,
             auth_validate_cache_ttl_sec: DEFAULT_AUTH_VALIDATE_CACHE_TTL_SEC,
             system_capabilities: system_capabilities_from_env(),

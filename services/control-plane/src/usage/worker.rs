@@ -9,8 +9,8 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::usage::{
-    aggregate_by_hour, HourlyAccountUsageRow, HourlyTenantAccountUsageRow,
-    HourlyTenantApiKeyUsageRow, RequestLogRow, UsageAggregationEvent,
+    request_log_row_from_event, usage_rows_from_request_log_event, HourlyAccountUsageRow,
+    HourlyTenantAccountUsageRow, HourlyTenantApiKeyUsageRow, RequestLogRow,
 };
 
 #[derive(Debug, Clone)]
@@ -590,53 +590,33 @@ where
 
         let mut message_ids = Vec::with_capacity(messages.len());
         let mut request_log_rows = Vec::with_capacity(messages.len());
-        let mut usage_events = Vec::with_capacity(messages.len());
+        let mut account_rows = Vec::with_capacity(messages.len());
+        let mut tenant_api_key_rows = Vec::with_capacity(messages.len());
+        let mut tenant_account_rows = Vec::with_capacity(messages.len());
         for message in messages {
             let resolved_tenant_id = message.tenant_id.or(message.event.tenant_id);
             let resolved_api_key_id = message.api_key_id.or(message.event.api_key_id);
             if message.event.billing_phase.as_deref() != Some("streaming_open") {
-                usage_events.push(UsageAggregationEvent::from_request_log_event(
+                let usage_rows = usage_rows_from_request_log_event(
                     &message.event,
                     resolved_tenant_id,
                     resolved_api_key_id,
-                ));
+                );
+                account_rows.extend(usage_rows.account_rows);
+                tenant_api_key_rows.extend(usage_rows.tenant_api_key_rows);
+                tenant_account_rows.extend(usage_rows.tenant_account_rows);
             }
-            request_log_rows.push(RequestLogRow {
-                id: message.event.id,
-                account_id: message.event.account_id,
-                tenant_id: resolved_tenant_id,
-                api_key_id: resolved_api_key_id,
-                request_id: message.event.request_id.clone(),
-                path: message.event.path.clone(),
-                method: message.event.method.clone(),
-                model: message.event.model.clone(),
-                service_tier: message.event.service_tier.clone(),
-                input_tokens: message.event.input_tokens,
-                cached_input_tokens: message.event.cached_input_tokens,
-                output_tokens: message.event.output_tokens,
-                reasoning_tokens: message.event.reasoning_tokens,
-                first_token_latency_ms: message.event.first_token_latency_ms,
-                status_code: message.event.status_code,
-                latency_ms: message.event.latency_ms,
-                is_stream: message.event.is_stream,
-                error_code: message.event.error_code.clone(),
-                billing_phase: message.event.billing_phase.clone(),
-                authorization_id: message.event.authorization_id,
-                capture_status: message.event.capture_status.clone(),
-                created_at: message.event.created_at,
-                event_version: message.event.event_version,
-            });
+            request_log_rows.push(request_log_row_from_event(
+                &message.event,
+                resolved_tenant_id,
+                resolved_api_key_id,
+            ));
             message_ids.push(message.message_id);
         }
-        let rows = aggregate_by_hour(usage_events);
 
         self.repo.upsert_request_logs(request_log_rows).await?;
         self.repo
-            .upsert_hourly(
-                rows.account_rows,
-                rows.tenant_api_key_rows,
-                rows.tenant_account_rows,
-            )
+            .upsert_hourly(account_rows, tenant_api_key_rows, tenant_account_rows)
             .await?;
         self.stream_reader.ack(&message_ids).await?;
 

@@ -119,31 +119,32 @@ async fn get_admin_request_correlation(
         .await
         .map_err(internal_error)?;
 
-    let start_at =
-        DateTime::<Utc>::from_timestamp(start_ts, 0).ok_or_else(|| invalid_request_error("invalid start_ts"))?;
-    let end_at =
-        DateTime::<Utc>::from_timestamp(end_ts, 0).ok_or_else(|| invalid_request_error("invalid end_ts"))?;
+    let start_at = DateTime::<Utc>::from_timestamp(start_ts, 0)
+        .ok_or_else(|| invalid_request_error("invalid start_ts"))?;
+    let end_at = DateTime::<Utc>::from_timestamp(end_ts, 0)
+        .ok_or_else(|| invalid_request_error("invalid end_ts"))?;
 
-    let (audit_logs, audit_logs_available) = if let Some(tenant_auth_service) = state.tenant_auth_service.as_ref() {
-        let query = crate::tenant::AuditLogListQuery {
-            start_at,
-            end_at,
-            limit: limit as usize,
-            tenant_id,
-            actor_type: None,
-            actor_id: None,
-            action: None,
-            result_status: None,
-            keyword: Some(request_id.clone()),
+    let (audit_logs, audit_logs_available) =
+        if let Some(tenant_auth_service) = state.tenant_auth_service.as_ref() {
+            let query = crate::tenant::AuditLogListQuery {
+                start_at,
+                end_at,
+                limit: limit as usize,
+                tenant_id,
+                actor_type: None,
+                actor_id: None,
+                action: None,
+                result_status: None,
+                keyword: Some(request_id.clone()),
+            };
+            let response = tenant_auth_service
+                .list_audit_logs(query)
+                .await
+                .map_err(internal_error)?;
+            (response.items, true)
+        } else {
+            (Vec::new(), false)
         };
-        let response = tenant_auth_service
-            .list_audit_logs(query)
-            .await
-            .map_err(internal_error)?;
-        (response.items, true)
-    } else {
-        (Vec::new(), false)
-    };
 
     write_audit_log_best_effort(
         &state,
@@ -229,6 +230,23 @@ async fn list_tenant_request_logs(
     Ok(Json(RequestLogsResponse {
         items: items.into_iter().map(map_request_log_row).collect(),
     }))
+}
+
+async fn internal_ingest_request_log(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(event): Json<codex_pool_core::events::RequestLogEvent>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorEnvelope>)> {
+    require_internal_service_token(&state, &headers)?;
+    let usage_ingest_repo = state
+        .usage_ingest_repo
+        .as_ref()
+        .ok_or_else(usage_ingest_repo_unavailable_error)?;
+    usage_ingest_repo
+        .ingest_request_log(event)
+        .await
+        .map_err(internal_error)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_admin_audit_logs(

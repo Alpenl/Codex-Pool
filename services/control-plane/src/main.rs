@@ -5,7 +5,7 @@ use std::time::Duration;
 use codex_pool_core::api::ProductEdition;
 use control_plane::admin_auth::AdminAuthService;
 use control_plane::app::{
-    build_app_with_store_ttl_usage_repo_import_store_and_admin_auth,
+    build_app_with_store_ttl_usage_repos_import_store_and_admin_auth,
     codex_oauth_callback_listen_mode_from_env, CodexOAuthCallbackListenMode,
     DEFAULT_AUTH_VALIDATE_CACHE_TTL_SEC,
 };
@@ -18,6 +18,8 @@ use control_plane::tenant::{
     BillingReconcileFactRequest, BillingReconcileRequest, BillingReconcileStats, TenantAuthService,
 };
 use control_plane::usage::clickhouse_repo::{ClickHouseUsageRepo, UsageQueryRepository};
+use control_plane::usage::postgres_repo::PostgresUsageRepo;
+use control_plane::usage::UsageIngestRepository;
 use tokio::time::MissedTickBehavior;
 
 const SNAPSHOT_REVISION_FLUSH_MS_ENV: &str = "CONTROL_PLANE_SNAPSHOT_REVISION_FLUSH_MS";
@@ -671,8 +673,16 @@ async fn main() -> anyhow::Result<()> {
     let codex_callback_listen_addr = codex_oauth_callback_listen_addr_from_env()?;
     let codex_callback_listen_mode = codex_oauth_callback_listen_mode_from_env();
 
-    let usage_repo: Option<Arc<dyn UsageQueryRepository>> =
-        config.clickhouse_url.clone().map(|clickhouse_url| {
+    let team_postgres_usage_repo = if matches!(edition, ProductEdition::Team) {
+        store
+            .postgres_pool()
+            .map(|pool| Arc::new(PostgresUsageRepo::new(pool)))
+    } else {
+        None
+    };
+
+    let usage_repo: Option<Arc<dyn UsageQueryRepository>> = match edition {
+        ProductEdition::Business => config.clickhouse_url.clone().map(|clickhouse_url| {
             Arc::new(ClickHouseUsageRepo::new(
                 &clickhouse_url,
                 &config.clickhouse_database,
@@ -681,12 +691,25 @@ async fn main() -> anyhow::Result<()> {
                 &config.clickhouse_tenant_account_table,
                 &config.clickhouse_request_log_table,
             )) as Arc<dyn UsageQueryRepository>
-        });
+        }),
+        ProductEdition::Team => team_postgres_usage_repo
+            .clone()
+            .map(|repo| repo as Arc<dyn UsageQueryRepository>),
+        ProductEdition::Personal => None,
+    };
 
-    let app = build_app_with_store_ttl_usage_repo_import_store_and_admin_auth(
+    let usage_ingest_repo: Option<Arc<dyn UsageIngestRepository>> = match edition {
+        ProductEdition::Team => team_postgres_usage_repo
+            .clone()
+            .map(|repo| repo as Arc<dyn UsageIngestRepository>),
+        ProductEdition::Personal | ProductEdition::Business => None,
+    };
+
+    let app = build_app_with_store_ttl_usage_repos_import_store_and_admin_auth(
         store,
         config.auth_validate_cache_ttl_sec,
         usage_repo,
+        usage_ingest_repo,
         import_job_store,
         admin_auth,
     );

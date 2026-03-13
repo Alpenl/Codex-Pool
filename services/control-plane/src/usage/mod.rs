@@ -1,3 +1,5 @@
+use anyhow::Result;
+use async_trait::async_trait;
 use std::collections::HashMap;
 
 use chrono::{DateTime, Timelike, Utc};
@@ -5,8 +7,14 @@ use codex_pool_core::events::RequestLogEvent;
 use uuid::Uuid;
 
 pub mod clickhouse_repo;
+pub mod postgres_repo;
 pub mod redis_reader;
 pub mod worker;
+
+#[async_trait]
+pub trait UsageIngestRepository: Send + Sync {
+    async fn ingest_request_log(&self, event: RequestLogEvent) -> Result<()>;
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UsageAggregationEvent {
@@ -182,6 +190,48 @@ pub fn aggregate_by_hour(events: Vec<UsageAggregationEvent>) -> HourlyUsageRows 
         tenant_api_key_rows,
         tenant_account_rows,
     }
+}
+
+pub fn request_log_row_from_event(
+    event: &RequestLogEvent,
+    tenant_id: Option<Uuid>,
+    api_key_id: Option<Uuid>,
+) -> RequestLogRow {
+    RequestLogRow {
+        id: event.id,
+        account_id: event.account_id,
+        tenant_id,
+        api_key_id,
+        request_id: event.request_id.clone(),
+        path: event.path.clone(),
+        method: event.method.clone(),
+        model: event.model.clone(),
+        service_tier: event.service_tier.clone(),
+        input_tokens: event.input_tokens,
+        cached_input_tokens: event.cached_input_tokens,
+        output_tokens: event.output_tokens,
+        reasoning_tokens: event.reasoning_tokens,
+        first_token_latency_ms: event.first_token_latency_ms,
+        status_code: event.status_code,
+        latency_ms: event.latency_ms,
+        is_stream: event.is_stream,
+        error_code: event.error_code.clone(),
+        billing_phase: event.billing_phase.clone(),
+        authorization_id: event.authorization_id,
+        capture_status: event.capture_status.clone(),
+        created_at: event.created_at,
+        event_version: event.event_version,
+    }
+}
+
+pub fn usage_rows_from_request_log_event(
+    event: &RequestLogEvent,
+    tenant_id: Option<Uuid>,
+    api_key_id: Option<Uuid>,
+) -> HourlyUsageRows {
+    aggregate_by_hour(vec![UsageAggregationEvent::from_request_log_event(
+        event, tenant_id, api_key_id,
+    )])
 }
 
 fn truncate_to_hour(created_at: DateTime<Utc>) -> DateTime<Utc> {
