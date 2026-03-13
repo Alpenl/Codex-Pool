@@ -21,6 +21,168 @@ fn parse_enum<T: DeserializeOwned>(raw: &str, label: &str) -> Result<T> {
         .with_context(|| format!("failed to decode {label}: {raw}"))
 }
 
+fn archive_item(
+    kind: EditionMigrationArchiveKind,
+    description: &str,
+    rows: Vec<serde_json::Value>,
+) -> EditionMigrationArchiveItem {
+    EditionMigrationArchiveItem {
+        kind,
+        count: rows.len() as u64,
+        description: description.to_string(),
+        rows,
+    }
+}
+
+async fn export_tenant_user_archive_rows(pool: &PgPool) -> Result<Vec<serde_json::Value>> {
+    sqlx::query(
+        r#"
+        SELECT
+            id,
+            tenant_id,
+            email,
+            password_hash,
+            email_verified,
+            enabled,
+            created_at,
+            updated_at,
+            last_login_at
+        FROM tenant_users
+        ORDER BY tenant_id ASC, email ASC, id ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to export tenant_users archive rows")?
+    .into_iter()
+    .map(|row| {
+        Ok(serde_json::json!({
+            "id": row.try_get::<Uuid, _>("id")?,
+            "tenant_id": row.try_get::<Uuid, _>("tenant_id")?,
+            "email": row.try_get::<String, _>("email")?,
+            "password_hash": row.try_get::<String, _>("password_hash")?,
+            "email_verified": row.try_get::<bool, _>("email_verified")?,
+            "enabled": row.try_get::<bool, _>("enabled")?,
+            "created_at": row.try_get::<DateTime<Utc>, _>("created_at")?,
+            "updated_at": row.try_get::<DateTime<Utc>, _>("updated_at")?,
+            "last_login_at": row.try_get::<Option<DateTime<Utc>>, _>("last_login_at")?,
+        }))
+    })
+    .collect()
+}
+
+async fn export_credit_account_archive_rows(pool: &PgPool) -> Result<Vec<serde_json::Value>> {
+    sqlx::query(
+        r#"
+        SELECT tenant_id, balance_microcredits, updated_at
+        FROM tenant_credit_accounts
+        ORDER BY tenant_id ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to export tenant_credit_accounts archive rows")?
+    .into_iter()
+    .map(|row| {
+        Ok(serde_json::json!({
+            "tenant_id": row.try_get::<Uuid, _>("tenant_id")?,
+            "balance_microcredits": row.try_get::<i64, _>("balance_microcredits")?,
+            "updated_at": row.try_get::<DateTime<Utc>, _>("updated_at")?,
+        }))
+    })
+    .collect()
+}
+
+async fn export_credit_ledger_archive_rows(pool: &PgPool) -> Result<Vec<serde_json::Value>> {
+    sqlx::query(
+        r#"
+        SELECT
+            id,
+            tenant_id,
+            api_key_id,
+            request_id,
+            event_type,
+            delta_microcredits,
+            balance_after_microcredits,
+            unit_price_microcredits,
+            input_tokens,
+            output_tokens,
+            model,
+            meta_json,
+            created_at
+        FROM tenant_credit_ledger
+        ORDER BY tenant_id ASC, created_at ASC, id ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to export tenant_credit_ledger archive rows")?
+    .into_iter()
+    .map(|row| {
+        Ok(serde_json::json!({
+            "id": row.try_get::<Uuid, _>("id")?,
+            "tenant_id": row.try_get::<Uuid, _>("tenant_id")?,
+            "api_key_id": row.try_get::<Option<Uuid>, _>("api_key_id")?,
+            "request_id": row.try_get::<Option<String>, _>("request_id")?,
+            "event_type": row.try_get::<String, _>("event_type")?,
+            "delta_microcredits": row.try_get::<i64, _>("delta_microcredits")?,
+            "balance_after_microcredits": row.try_get::<i64, _>("balance_after_microcredits")?,
+            "unit_price_microcredits": row.try_get::<Option<i64>, _>("unit_price_microcredits")?,
+            "input_tokens": row.try_get::<Option<i64>, _>("input_tokens")?,
+            "output_tokens": row.try_get::<Option<i64>, _>("output_tokens")?,
+            "model": row.try_get::<Option<String>, _>("model")?,
+            "meta_json": row.try_get::<serde_json::Value, _>("meta_json")?,
+            "created_at": row.try_get::<DateTime<Utc>, _>("created_at")?,
+        }))
+    })
+    .collect()
+}
+
+async fn export_credit_authorization_archive_rows(
+    pool: &PgPool,
+) -> Result<Vec<serde_json::Value>> {
+    sqlx::query(
+        r#"
+        SELECT
+            id,
+            tenant_id,
+            api_key_id,
+            request_id,
+            model,
+            reserved_microcredits,
+            captured_microcredits,
+            status,
+            expires_at,
+            meta_json,
+            created_at,
+            updated_at
+        FROM tenant_credit_authorizations
+        ORDER BY tenant_id ASC, created_at ASC, id ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to export tenant_credit_authorizations archive rows")?
+    .into_iter()
+    .map(|row| {
+        Ok(serde_json::json!({
+            "id": row.try_get::<Uuid, _>("id")?,
+            "tenant_id": row.try_get::<Uuid, _>("tenant_id")?,
+            "api_key_id": row.try_get::<Option<Uuid>, _>("api_key_id")?,
+            "request_id": row.try_get::<String, _>("request_id")?,
+            "model": row.try_get::<Option<String>, _>("model")?,
+            "reserved_microcredits": row.try_get::<i64, _>("reserved_microcredits")?,
+            "captured_microcredits": row.try_get::<i64, _>("captured_microcredits")?,
+            "status": row.try_get::<String, _>("status")?,
+            "expires_at": row.try_get::<DateTime<Utc>, _>("expires_at")?,
+            "meta_json": row.try_get::<serde_json::Value, _>("meta_json")?,
+            "created_at": row.try_get::<DateTime<Utc>, _>("created_at")?,
+            "updated_at": row.try_get::<DateTime<Utc>, _>("updated_at")?,
+        }))
+    })
+    .collect()
+}
+
 fn sort_bundle(bundle: &mut ControlPlaneMigrationBundle) {
     bundle.tenants.sort_by_key(|item| item.id);
     bundle.api_keys.sort_by_key(|item| item.id);
@@ -624,60 +786,33 @@ impl postgres::PostgresStore {
         let pool = self.clone_pool();
         let mut items = Vec::new();
 
-        let mut push_count = |kind: EditionMigrationArchiveKind, count: i64, description: &str| {
-            items.push(EditionMigrationArchiveItem {
-                kind,
-                count: count.max(0) as u64,
-                description: description.to_string(),
-            });
-        };
-
-        let tenant_users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tenant_users")
-            .fetch_one(&pool)
-            .await
-            .context("failed to count tenant_users")?;
-        let credit_accounts: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM tenant_credit_accounts")
-                .fetch_one(&pool)
-                .await
-                .context("failed to count tenant_credit_accounts")?;
-        let credit_ledger: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tenant_credit_ledger")
-            .fetch_one(&pool)
-            .await
-            .context("failed to count tenant_credit_ledger")?;
-        let credit_authorizations: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM tenant_credit_authorizations")
-                .fetch_one(&pool)
-                .await
-                .context("failed to count tenant_credit_authorizations")?;
-
         if matches!(
             edition,
             codex_pool_core::api::ProductEdition::Team
                 | codex_pool_core::api::ProductEdition::Business
         ) {
-            push_count(
+            items.push(archive_item(
                 EditionMigrationArchiveKind::TenantUsers,
-                tenant_users,
                 "租户登录/会话相关数据",
-            );
+                export_tenant_user_archive_rows(&pool).await?,
+            ));
         }
         if edition == codex_pool_core::api::ProductEdition::Business {
-            push_count(
+            items.push(archive_item(
                 EditionMigrationArchiveKind::TenantCreditAccounts,
-                credit_accounts,
                 "信用账户主表",
-            );
-            push_count(
+                export_credit_account_archive_rows(&pool).await?,
+            ));
+            items.push(archive_item(
                 EditionMigrationArchiveKind::TenantCreditLedger,
-                credit_ledger,
                 "信用账本流水",
-            );
-            push_count(
+                export_credit_ledger_archive_rows(&pool).await?,
+            ));
+            items.push(archive_item(
                 EditionMigrationArchiveKind::TenantCreditAuthorizations,
-                credit_authorizations,
                 "信用授权与 capture/release 记录",
-            );
+                export_credit_authorization_archive_rows(&pool).await?,
+            ));
         }
 
         Ok(EditionMigrationArchiveManifest { items })

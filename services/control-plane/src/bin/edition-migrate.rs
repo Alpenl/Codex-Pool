@@ -61,8 +61,10 @@ fn parse_command(mut args: VecDeque<String>) -> Result<Command> {
 
     match command.as_str() {
         "export" => {
-            let source_edition =
-                parse_product_edition(&pop_flag(&mut args, "--source-edition")?, "--source-edition")?;
+            let source_edition = parse_product_edition(
+                &pop_flag(&mut args, "--source-edition")?,
+                "--source-edition",
+            )?;
             let source_database_url = pop_flag(&mut args, "--source-database-url")?;
             let output = PathBuf::from(pop_flag(&mut args, "--output")?);
             Ok(Command::Export {
@@ -73,8 +75,10 @@ fn parse_command(mut args: VecDeque<String>) -> Result<Command> {
         }
         "preflight" => {
             let input = PathBuf::from(pop_flag(&mut args, "--input")?);
-            let target_edition =
-                parse_product_edition(&pop_flag(&mut args, "--target-edition")?, "--target-edition")?;
+            let target_edition = parse_product_edition(
+                &pop_flag(&mut args, "--target-edition")?,
+                "--target-edition",
+            )?;
             Ok(Command::Preflight {
                 input,
                 target_edition,
@@ -82,8 +86,10 @@ fn parse_command(mut args: VecDeque<String>) -> Result<Command> {
         }
         "import" => {
             let input = PathBuf::from(pop_flag(&mut args, "--input")?);
-            let target_edition =
-                parse_product_edition(&pop_flag(&mut args, "--target-edition")?, "--target-edition")?;
+            let target_edition = parse_product_edition(
+                &pop_flag(&mut args, "--target-edition")?,
+                "--target-edition",
+            )?;
             let target_database_url = pop_flag(&mut args, "--target-database-url")?;
             Ok(Command::Import {
                 input,
@@ -235,14 +241,12 @@ mod tests {
 
     #[test]
     fn parse_archive_inspect_command() {
-        let command = parse_command(
-            VecDeque::from(vec![
-                "archive".to_string(),
-                "inspect".to_string(),
-                "--input".to_string(),
-                "/tmp/archive.json".to_string(),
-            ]),
-        )
+        let command = parse_command(VecDeque::from(vec![
+            "archive".to_string(),
+            "inspect".to_string(),
+            "--input".to_string(),
+            "/tmp/archive.json".to_string(),
+        ]))
         .expect("parse archive inspect command");
 
         assert!(matches!(command, Command::ArchiveInspect { .. }));

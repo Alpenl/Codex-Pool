@@ -5,9 +5,7 @@ use crate::edition_migration::query_window;
 use crate::store::normalize_sqlite_database_url;
 use crate::store::postgres::PostgresStore;
 use crate::usage::clickhouse_repo::UsageQueryRepository;
-use crate::usage::{
-    aggregate_by_hour, RequestLogQuery, RequestLogRow, UsageAggregationEvent,
-};
+use crate::usage::{aggregate_by_hour, RequestLogQuery, RequestLogRow, UsageAggregationEvent};
 use sqlx_core::pool::PoolOptions;
 use sqlx_sqlite::Sqlite;
 

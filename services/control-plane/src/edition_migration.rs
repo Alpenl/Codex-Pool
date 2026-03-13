@@ -20,7 +20,7 @@ use crate::usage::migration::{
     import_sqlite_usage_bundle, UsageMigrationBundle,
 };
 
-pub const EDITION_MIGRATION_SCHEMA_VERSION: u32 = 1;
+pub const EDITION_MIGRATION_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiKeyTokenMigrationRecord {
@@ -122,6 +122,8 @@ pub struct EditionMigrationArchiveItem {
     pub kind: EditionMigrationArchiveKind,
     pub count: u64,
     pub description: String,
+    #[serde(default)]
+    pub rows: Vec<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -131,8 +133,20 @@ pub struct EditionMigrationArchiveManifest {
 
 impl EditionMigrationArchiveManifest {
     pub fn non_empty_items(&self) -> Vec<&EditionMigrationArchiveItem> {
-        self.items.iter().filter(|item| item.count > 0).collect()
+        self.items
+            .iter()
+            .filter(|item| item.count > 0 || !item.rows.is_empty())
+            .collect()
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EditionMigrationArchiveInspectionItem {
+    pub kind: EditionMigrationArchiveKind,
+    pub count: u64,
+    pub description: String,
+    pub sample_rows: Vec<Value>,
+    pub omitted_row_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -233,29 +247,23 @@ pub fn preflight_package(
                 );
             }
 
-            if package.source_edition != ProductEdition::Personal {
+            if package.source_edition == ProductEdition::Business {
                 push_blocker(
                     &mut blockers,
-                    "restricted_downgrade_not_implemented",
-                    "当前版本尚未实现从 team/business 直接导入 personal；请先运行 preflight 并准备归档后续链路。",
+                    "business_to_personal_requires_staged_migration",
+                    "business -> personal 只支持分阶段迁移；请先降到 team 语义并归档 business 专属数据。",
                 );
             }
         }
-        ProductEdition::Team => {
-            if package.source_edition == ProductEdition::Business && !non_empty_archives.is_empty()
-            {
-                push_blocker(
-                    &mut blockers,
-                    "business_downgrade_requires_archive_payload",
-                    "business -> team 仍需要带归档载荷的受限降级链路；当前阶段仅提供 archive manifest 预检。",
-                );
-            }
-        }
+        ProductEdition::Team => {}
         ProductEdition::Business => {}
     }
 
     for item in non_empty_archives {
-        let message = format!("{} 条 {:?} 数据不会导入目标版本。", item.count, item.kind);
+        let message = format!(
+            "{} 条 {}会被归档，不会导入 {:?} 版运行态。",
+            item.count, item.description, target_edition
+        );
         push_warning(&mut warnings, "archive_item_present", message);
     }
 
@@ -392,8 +400,21 @@ pub fn read_archive_manifest_from_file(path: &Path) -> Result<EditionMigrationAr
 
 pub fn inspect_archive_manifest(
     archive: &EditionMigrationArchiveManifest,
-) -> Vec<EditionMigrationArchiveItem> {
-    archive.items.clone()
+) -> Vec<EditionMigrationArchiveInspectionItem> {
+    archive
+        .items
+        .iter()
+        .map(|item| {
+            let sample_rows = item.rows.iter().take(3).cloned().collect::<Vec<_>>();
+            EditionMigrationArchiveInspectionItem {
+                kind: item.kind,
+                count: item.count,
+                description: item.description.clone(),
+                omitted_row_count: item.count.saturating_sub(sample_rows.len() as u64),
+                sample_rows,
+            }
+        })
+        .collect()
 }
 
 pub fn query_window() -> (i64, i64) {
@@ -609,5 +630,150 @@ mod tests {
             .blockers
             .iter()
             .any(|item| item.code == "multi_tenant_not_supported"));
+    }
+
+    #[test]
+    fn preflight_allows_team_single_tenant_to_personal_with_archive_warning() {
+        let tenant_id = Uuid::new_v4();
+        let package = super::EditionMigrationPackage {
+            schema_version: super::EDITION_MIGRATION_SCHEMA_VERSION,
+            source_edition: ProductEdition::Team,
+            exported_at: Utc::now(),
+            control_plane: super::ControlPlaneMigrationBundle {
+                tenants: vec![codex_pool_core::model::Tenant {
+                    id: tenant_id,
+                    name: "Solo Team".to_string(),
+                    created_at: Utc::now(),
+                }],
+                ..Default::default()
+            },
+            usage: super::UsageMigrationBundle::default(),
+            archive: super::EditionMigrationArchiveManifest {
+                items: vec![super::EditionMigrationArchiveItem {
+                    kind: super::EditionMigrationArchiveKind::TenantUsers,
+                    count: 1,
+                    description: "租户登录/会话相关数据".to_string(),
+                    rows: vec![serde_json::json!({
+                        "id": Uuid::new_v4(),
+                        "email": "user@example.com"
+                    })],
+                }],
+            },
+        };
+
+        let report = super::preflight_package(&package, ProductEdition::Personal);
+
+        assert!(report.allowed);
+        assert!(report.blockers.is_empty());
+        assert!(report
+            .warnings
+            .iter()
+            .any(|item| item.code == "archive_item_present"));
+    }
+
+    #[tokio::test]
+    async fn import_team_package_into_personal_sqlite_preserves_core_state() {
+        let tenant_id = Uuid::new_v4();
+        let package = super::EditionMigrationPackage {
+            schema_version: super::EDITION_MIGRATION_SCHEMA_VERSION,
+            source_edition: ProductEdition::Team,
+            exported_at: Utc::now(),
+            control_plane: super::ControlPlaneMigrationBundle {
+                tenants: vec![codex_pool_core::model::Tenant {
+                    id: tenant_id,
+                    name: "Solo Team".to_string(),
+                    created_at: Utc::now(),
+                }],
+                revision: 7,
+                ..Default::default()
+            },
+            usage: super::UsageMigrationBundle::default(),
+            archive: super::EditionMigrationArchiveManifest {
+                items: vec![super::EditionMigrationArchiveItem {
+                    kind: super::EditionMigrationArchiveKind::TenantUsers,
+                    count: 1,
+                    description: "租户登录/会话相关数据".to_string(),
+                    rows: vec![serde_json::json!({
+                        "id": Uuid::new_v4(),
+                        "tenant_id": tenant_id,
+                        "email": "user@example.com"
+                    })],
+                }],
+            },
+        };
+
+        let target_url = sqlite_path("edition-migrate-team-to-personal");
+        super::import_package_into_sqlite(&target_url, &package)
+            .await
+            .expect("import team package into personal sqlite");
+
+        let imported_store = SqliteBackedStore::connect(&target_url)
+            .await
+            .expect("connect imported sqlite store");
+        let tenants = imported_store.list_tenants().await.expect("list tenants");
+
+        assert_eq!(tenants.len(), 1);
+        assert_eq!(tenants[0].id, tenant_id);
+    }
+
+    #[test]
+    fn preflight_allows_business_to_team_with_archive_warning() {
+        let package = super::EditionMigrationPackage {
+            schema_version: super::EDITION_MIGRATION_SCHEMA_VERSION,
+            source_edition: ProductEdition::Business,
+            exported_at: Utc::now(),
+            control_plane: super::ControlPlaneMigrationBundle {
+                tenants: vec![codex_pool_core::model::Tenant {
+                    id: Uuid::new_v4(),
+                    name: "Business".to_string(),
+                    created_at: Utc::now(),
+                }],
+                ..Default::default()
+            },
+            usage: super::UsageMigrationBundle::default(),
+            archive: super::EditionMigrationArchiveManifest {
+                items: vec![super::EditionMigrationArchiveItem {
+                    kind: super::EditionMigrationArchiveKind::TenantCreditLedger,
+                    count: 2,
+                    description: "信用账本流水".to_string(),
+                    rows: vec![
+                        serde_json::json!({"id": Uuid::new_v4(), "request_id": "req-1"}),
+                        serde_json::json!({"id": Uuid::new_v4(), "request_id": "req-2"}),
+                    ],
+                }],
+            },
+        };
+
+        let report = super::preflight_package(&package, ProductEdition::Team);
+
+        assert!(report.allowed);
+        assert!(report.blockers.is_empty());
+        assert!(report
+            .warnings
+            .iter()
+            .any(|item| item.code == "archive_item_present"));
+    }
+
+    #[test]
+    fn archive_inspection_limits_rows_to_samples() {
+        let archive = super::EditionMigrationArchiveManifest {
+            items: vec![super::EditionMigrationArchiveItem {
+                kind: super::EditionMigrationArchiveKind::TenantUsers,
+                count: 4,
+                description: "租户登录/会话相关数据".to_string(),
+                rows: vec![
+                    serde_json::json!({"email": "a@example.com"}),
+                    serde_json::json!({"email": "b@example.com"}),
+                    serde_json::json!({"email": "c@example.com"}),
+                    serde_json::json!({"email": "d@example.com"}),
+                ],
+            }],
+        };
+
+        let inspection = super::inspect_archive_manifest(&archive);
+
+        assert_eq!(inspection.len(), 1);
+        assert_eq!(inspection[0].sample_rows.len(), 3);
+        assert_eq!(inspection[0].omitted_row_count, 1);
     }
 }

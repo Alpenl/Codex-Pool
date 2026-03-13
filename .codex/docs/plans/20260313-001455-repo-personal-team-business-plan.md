@@ -112,6 +112,10 @@
 - [x] 为 `team/business` 新增 PostgreSQL control-plane / usage 导出导入骨架
 - [x] 新增 `edition-migrate` CLI，支持 `export / preflight / import / archive inspect`
 - [x] 第八阶段 edition migration upgrade foundation 验证通过，并准备进入下一阶段
+- [x] 为 archive manifest 导出 raw payload rows，并让 `archive inspect` 返回样例摘要
+- [x] 支持 `team -> personal` 单 tenant 受限降级导入
+- [x] 支持 `business -> team` 的 archive-backed 受限降级 preflight
+- [x] 第九阶段 archive-backed downgrade foundation 验证通过，并准备进入下一阶段
 
 ## Progress Notes
 
@@ -193,6 +197,16 @@
   - 新增 `edition-migrate` 二进制，支持 `export`、`preflight`、`import`、`archive inspect`
   - `team -> personal` 与 `business -> team/personal` 当前仍是受限降级 preflight；本阶段只导出了 archive manifest，还没有落 raw archive payload
 - 第八阶段验证已覆盖：
+  - `cargo test -p control-plane edition_migration::tests -- --nocapture`
+  - `cargo test -p control-plane --bin edition-migrate -- --nocapture`
+  - `cargo test -p control-plane --lib --bins`
+- 第九阶段已把受限降级从“manifest 提示”推进到“archive-backed 可执行链路”：
+  - `archive manifest` 现在会携带 `tenant_users`、`tenant_credit_*` 的 raw payload rows，后续 staged migration 不再只剩 count
+  - `archive inspect` 改为返回摘要和样例行，避免大包直接刷满终端，同时仍保留被归档数据的结构证据
+  - `preflight` 现在允许 `team -> personal` 在单 tenant 条件下继续导入，并把 tenant users 作为 archive warning 保留
+  - `preflight` 现在允许 `business -> team` 继续导入，并把 credit accounts / ledger / authorizations 作为 archive warning 保留
+  - `business -> personal` 仍明确要求 staged migration，不支持直接导入
+- 第九阶段验证已覆盖：
   - `cargo test -p control-plane edition_migration::tests -- --nocapture`
   - `cargo test -p control-plane --bin edition-migrate -- --nocapture`
   - `cargo test -p control-plane --lib --bins`
