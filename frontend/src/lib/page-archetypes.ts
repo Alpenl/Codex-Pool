@@ -63,6 +63,12 @@ export interface ProxiesWorkspaceLayout {
   densityPlacement: 'within-controls-panel'
 }
 
+export interface ConfigSettingsLayout {
+  actionPlacement: 'after-sections'
+  warningPlacement: 'after-intro'
+  sectionFlow: 'stacked-panels'
+}
+
 const ARCHETYPE_CONFIG: Record<PageArchetype, PageArchetypeConfig> = {
   auth: {
     name: 'auth',
@@ -237,5 +243,13 @@ export function describeProxiesWorkspaceLayout(): ProxiesWorkspaceLayout {
     mobileControlsPlacement: 'after-intro',
     filterPlacement: 'within-controls-panel',
     densityPlacement: 'within-controls-panel',
+  }
+}
+
+export function describeConfigSettingsLayout(): ConfigSettingsLayout {
+  return {
+    actionPlacement: 'after-sections',
+    warningPlacement: 'after-intro',
+    sectionFlow: 'stacked-panels',
   }
 }

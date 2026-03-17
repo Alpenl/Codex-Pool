@@ -165,3 +165,17 @@ test('describeProxiesWorkspaceLayout keeps filters and density controls grouped 
     densityPlacement: 'within-controls-panel',
   })
 })
+
+test('describeConfigSettingsLayout keeps save actions after the settings sections, places runtime warnings ahead of settings sections, and stacks panels predictably', () => {
+  const describeConfigSettingsLayout = (
+    pageArchetypes as typeof pageArchetypes & {
+      describeConfigSettingsLayout?: () => unknown
+    }
+  ).describeConfigSettingsLayout
+
+  assert.deepEqual(describeConfigSettingsLayout?.(), {
+    actionPlacement: 'after-sections',
+    warningPlacement: 'after-intro',
+    sectionFlow: 'stacked-panels',
+  })
+})
