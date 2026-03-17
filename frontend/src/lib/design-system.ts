@@ -7,18 +7,18 @@ export type TableChromeKind = 'toolbar' | 'header' | 'row'
 export interface DesignLanguage {
   mode: DesignMode
   palette: {
-    neutralFamily: 'graphite'
-    accentFamily: 'mineral-teal'
-    canvasTone: 'soft' | 'deep'
+    neutralFamily: 'stone-graphite'
+    accentFamily: 'oxide-blue'
+    canvasTone: 'paper' | 'ink'
   }
   radius: {
-    control: '14px'
-    panel: '24px'
-    stage: '32px'
+    control: '12px'
+    panel: '20px'
+    stage: '28px'
   }
   shadow: {
-    panel: 'soft' | 'deep-soft'
-    stage: 'lifted' | 'deep-lifted'
+    panel: 'resting' | 'deep-resting'
+    stage: 'settled' | 'deep-settled'
   }
   density: {
     controls: 'comfortable'
@@ -29,25 +29,25 @@ export interface DesignLanguage {
 export interface SurfaceRecipe {
   kind: SurfaceKind
   emphasis: 'high' | 'medium' | 'low'
-  border: 'defined' | 'soft' | 'glow-edge'
-  background: 'elevated' | 'subtle' | 'atmospheric' | 'chrome'
-  shadow: 'soft' | 'softest' | 'lifted' | 'deep-soft' | 'deep-lifted' | 'none'
-  temperature: 'neutral' | 'cool'
+  border: 'etched' | 'soft' | 'quiet'
+  background: 'vellum' | 'powder' | 'matte' | 'cabinet'
+  shadow: 'resting' | 'barely-there' | 'settled' | 'deep-resting' | 'deep-settled' | 'none'
+  temperature: 'warm' | 'neutral'
 }
 
 export interface ControlChrome {
   kind: ControlKind
   emphasis: 'high' | 'medium' | 'low'
-  palette: 'mineral-teal' | 'graphite'
-  surface: 'filled' | 'tinted-outline' | 'quiet'
-  radius: '14px'
+  palette: 'oxide-blue' | 'graphite'
+  surface: 'ink-solid' | 'lined' | 'quiet'
+  radius: '12px'
   focus: 'ring'
 }
 
 export interface TableChrome {
   kind: TableChromeKind
-  surface: 'muted-panel' | 'tinted-strip' | 'interactive-row'
-  border: 'soft' | 'defined'
+  surface: 'tool-plate' | 'linen-strip' | 'quiet-row'
+  border: 'soft' | 'etched'
   emphasis: 'medium' | 'low'
 }
 
@@ -55,18 +55,18 @@ const DESIGN_LANGUAGES: Record<DesignMode, DesignLanguage> = {
   light: {
     mode: 'light',
     palette: {
-      neutralFamily: 'graphite',
-      accentFamily: 'mineral-teal',
-      canvasTone: 'soft',
+      neutralFamily: 'stone-graphite',
+      accentFamily: 'oxide-blue',
+      canvasTone: 'paper',
     },
     radius: {
-      control: '14px',
-      panel: '24px',
-      stage: '32px',
+      control: '12px',
+      panel: '20px',
+      stage: '28px',
     },
     shadow: {
-      panel: 'soft',
-      stage: 'lifted',
+      panel: 'resting',
+      stage: 'settled',
     },
     density: {
       controls: 'comfortable',
@@ -76,18 +76,18 @@ const DESIGN_LANGUAGES: Record<DesignMode, DesignLanguage> = {
   dark: {
     mode: 'dark',
     palette: {
-      neutralFamily: 'graphite',
-      accentFamily: 'mineral-teal',
-      canvasTone: 'deep',
+      neutralFamily: 'stone-graphite',
+      accentFamily: 'oxide-blue',
+      canvasTone: 'ink',
     },
     radius: {
-      control: '14px',
-      panel: '24px',
-      stage: '32px',
+      control: '12px',
+      panel: '20px',
+      stage: '28px',
     },
     shadow: {
-      panel: 'deep-soft',
-      stage: 'deep-lifted',
+      panel: 'deep-resting',
+      stage: 'deep-settled',
     },
     density: {
       controls: 'comfortable',
@@ -101,68 +101,68 @@ const SURFACE_RECIPES: Record<DesignMode, Record<SurfaceKind, SurfaceRecipe>> = 
     panel: {
       kind: 'panel',
       emphasis: 'medium',
-      border: 'defined',
-      background: 'elevated',
-      shadow: 'soft',
-      temperature: 'neutral',
+      border: 'etched',
+      background: 'vellum',
+      shadow: 'resting',
+      temperature: 'warm',
     },
     'panel-muted': {
       kind: 'panel-muted',
       emphasis: 'low',
       border: 'soft',
-      background: 'subtle',
-      shadow: 'softest',
-      temperature: 'neutral',
+      background: 'powder',
+      shadow: 'barely-there',
+      temperature: 'warm',
     },
     stage: {
       kind: 'stage',
-      emphasis: 'high',
-      border: 'glow-edge',
-      background: 'atmospheric',
-      shadow: 'lifted',
-      temperature: 'cool',
+      emphasis: 'medium',
+      border: 'etched',
+      background: 'matte',
+      shadow: 'settled',
+      temperature: 'warm',
     },
     sidebar: {
       kind: 'sidebar',
       emphasis: 'medium',
       border: 'soft',
-      background: 'chrome',
+      background: 'cabinet',
       shadow: 'none',
-      temperature: 'cool',
+      temperature: 'neutral',
     },
   },
   dark: {
     panel: {
       kind: 'panel',
       emphasis: 'medium',
-      border: 'defined',
-      background: 'elevated',
-      shadow: 'deep-soft',
+      border: 'etched',
+      background: 'vellum',
+      shadow: 'deep-resting',
       temperature: 'neutral',
     },
     'panel-muted': {
       kind: 'panel-muted',
       emphasis: 'low',
       border: 'soft',
-      background: 'subtle',
-      shadow: 'softest',
+      background: 'powder',
+      shadow: 'barely-there',
       temperature: 'neutral',
     },
     stage: {
       kind: 'stage',
-      emphasis: 'high',
-      border: 'glow-edge',
-      background: 'atmospheric',
-      shadow: 'deep-lifted',
-      temperature: 'cool',
+      emphasis: 'medium',
+      border: 'etched',
+      background: 'matte',
+      shadow: 'deep-settled',
+      temperature: 'neutral',
     },
     sidebar: {
       kind: 'sidebar',
       emphasis: 'medium',
       border: 'soft',
-      background: 'chrome',
+      background: 'cabinet',
       shadow: 'none',
-      temperature: 'cool',
+      temperature: 'neutral',
     },
   },
 }
@@ -171,17 +171,17 @@ const CONTROL_CHROME: Record<ControlKind, ControlChrome> = {
   default: {
     kind: 'default',
     emphasis: 'high',
-    palette: 'mineral-teal',
-    surface: 'filled',
-    radius: '14px',
+    palette: 'oxide-blue',
+    surface: 'ink-solid',
+    radius: '12px',
     focus: 'ring',
   },
   outline: {
     kind: 'outline',
     emphasis: 'medium',
     palette: 'graphite',
-    surface: 'tinted-outline',
-    radius: '14px',
+    surface: 'lined',
+    radius: '12px',
     focus: 'ring',
   },
   ghost: {
@@ -189,7 +189,7 @@ const CONTROL_CHROME: Record<ControlKind, ControlChrome> = {
     emphasis: 'low',
     palette: 'graphite',
     surface: 'quiet',
-    radius: '14px',
+    radius: '12px',
     focus: 'ring',
   },
 }
@@ -197,20 +197,20 @@ const CONTROL_CHROME: Record<ControlKind, ControlChrome> = {
 const TABLE_CHROME: Record<TableChromeKind, TableChrome> = {
   toolbar: {
     kind: 'toolbar',
-    surface: 'muted-panel',
+    surface: 'tool-plate',
     border: 'soft',
     emphasis: 'medium',
   },
   header: {
     kind: 'header',
-    surface: 'tinted-strip',
+    surface: 'linen-strip',
     border: 'soft',
     emphasis: 'low',
   },
   row: {
     kind: 'row',
-    surface: 'interactive-row',
-    border: 'defined',
+    surface: 'quiet-row',
+    border: 'etched',
     emphasis: 'low',
   },
 }
