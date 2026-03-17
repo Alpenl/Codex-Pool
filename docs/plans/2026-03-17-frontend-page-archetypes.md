@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 建立可复用的页面 archetype 基础层，并将 `auth` 与 `ImportJobs` 作为首批样板迁移到新设计语言。
+**Goal:** 建立可复用的页面 archetype 基础层，并将 `auth`、`ImportJobs`、`dashboard` 作为首批样板迁移到新设计语言。
 
-**Architecture:** 先抽取纯语义的页面层组件与变体配置，再用这些基础层重构 `auth` 和 `workspace`。本轮不改业务数据流，只收结构、视觉层级和移动端信息节奏。
+**Architecture:** 先抽取纯语义的页面层组件与变体配置，再用这些基础层重构 `auth`、`workspace` 与 `dashboard`。本轮不改业务数据流，只收结构、视觉层级和移动端信息节奏。
 
 **Tech Stack:** React 19、TypeScript、Tailwind v4、Framer Motion、现有 shadcn/ui 组件、Node `--test`
 
@@ -205,7 +205,61 @@ git add frontend/src/pages/ImportJobs.tsx frontend/src/components/layout/page-ar
 git commit -m "feat(frontend): migrate import jobs to workspace archetype" -m "Refocus the import jobs page on task-first workspace structure."
 ```
 
-### Task 5: 回归检查与文档收口
+### Task 5: 将 admin / tenant dashboard 迁移到 dashboard archetype
+
+**Files:**
+- Modify: `frontend/src/pages/Dashboard.tsx`
+- Modify: `frontend/src/tenant/pages/DashboardPage.tsx`
+- Modify: `frontend/src/components/layout/page-archetypes.tsx`
+- Modify: `frontend/src/components/layout/AppLayout.tsx`
+- Modify: `frontend/src/locales/en.ts`
+- Modify: `frontend/src/locales/zh-CN.ts`
+- Modify: `frontend/src/locales/zh-TW.ts`
+- Modify: `frontend/src/locales/ja.ts`
+- Modify: `frontend/src/locales/ru.ts`
+
+**Step 1: Write the failing test**
+
+为 `frontend/src/lib/page-archetypes.test.ts` 增加 dashboard 共享层约束：
+- dashboard header surface 为 `panel`
+- `DashboardShell` 的移动端内容流必须是 `intro -> content -> rail`
+- desktop 不允许让 intro panel 被 rail 拉伸成大面积空白
+
+**Step 2: Run test to verify it fails**
+
+Run:
+```bash
+shnote --what "运行 dashboard archetype 测试" --why "先固定 dashboard shell 的布局与节奏约束" run "cd frontend && node --test src/lib/page-archetypes.test.ts"
+```
+
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+- 新增 `DashboardShell / DashboardMetricGrid / DashboardMetricCard / SectionHeader`
+- 将 admin / tenant dashboard 收拢到共享 archetype
+- 补齐 dashboard 新增文案在五份语言包中的 key
+- 调整 shared shell，使 mobile 先呈现 KPI 再呈现 rail，desktop 顶部不再出现被拉伸的 intro 白块
+
+**Step 4: Run checks and manual verification**
+
+Run:
+```bash
+shnote --what "验证 dashboard archetype 改造" --why "确认 dashboard 迁移和布局修复通过测试、i18n、lint 与 build" run "cd frontend && node --test src/lib/page-archetypes.test.ts && npm run i18n:check && npm run i18n:hardcode -- --no-baseline && node scripts/i18n/check-missing-runtime-keys.mjs && npm run lint && npm run build"
+```
+
+人工检查：
+- admin dashboard desktop / mobile
+- tenant dashboard desktop / mobile
+
+**Step 5: Commit**
+
+```bash
+git add frontend/src/components/layout/page-archetypes.tsx frontend/src/components/layout/AppLayout.tsx frontend/src/lib/page-archetypes.ts frontend/src/lib/page-archetypes.test.ts frontend/src/pages/Dashboard.tsx frontend/src/tenant/pages/DashboardPage.tsx frontend/src/locales/en.ts frontend/src/locales/zh-CN.ts frontend/src/locales/zh-TW.ts frontend/src/locales/ja.ts frontend/src/locales/ru.ts
+git commit -m "feat(frontend): migrate dashboards to shared archetype" -m "Unify admin and tenant dashboards with the shared dashboard archetype."
+```
+
+### Task 6: 回归检查与文档收口
 
 **Files:**
 - Modify: `docs/plans/2026-03-17-frontend-page-archetypes-design.md`
@@ -229,6 +283,7 @@ Expected: all PASS
 重点复核：
 - `auth` 是否仍有模板感
 - `workspace` 是否清楚表达主任务
+- `dashboard` 是否具备稳定的概览节奏与上下文密度
 - 移动端是否保留关键功能
 - 是否引入新的 i18n / dark mode / a11y 倒退
 
@@ -245,8 +300,11 @@ git commit -m "docs(frontend): record page archetype rollout" -m "Capture the de
 - 已落地 `frontend/src/components/layout/page-archetypes.tsx`，作为后续 `dashboard / detail / settings` 收口的共享页面层。
 - `auth` 已采用新的品牌舞台 + 表单面板结构；`admin` 与 `tenant` 入口共用同一 archetype。
 - `ImportJobs` 已迁移到 `workspace` archetype，移除 hero 化表达，保留短页头、主任务面板和次级状态区。
+- `Dashboard` 与 `TenantDashboardPage` 已迁移到共享 `dashboard` archetype，统一使用 `DashboardShell / SectionHeader / DashboardMetricCard`。
+- `DashboardShell` 已修正为 mobile 先内容后 rail、desktop 顶部不拉伸 intro panel。
 - 最终验证通过：
   - `cd frontend && node --test src/lib/page-archetypes.test.ts src/components/threads-utils.test.ts src/lib/dashboard-chart-a11y.test.ts`
+  - `cd frontend && npm run i18n:check && npm run i18n:hardcode -- --no-baseline && node scripts/i18n/check-missing-runtime-keys.mjs`
   - `cd frontend && npm run lint`
   - `cd frontend && npm run build`
 - 已完成的人工视觉验证截图：
@@ -254,3 +312,5 @@ git commit -m "docs(frontend): record page archetype rollout" -m "Capture the de
   - `/tmp/auth-archetype-tenant-login.png`
   - `/tmp/workspace-archetype-imports-desktop.png`
   - `/tmp/workspace-archetype-imports-mobile.png`
+  - `/tmp/codex-pool-audit/admin-dashboard-1280.png`
+  - `/tmp/codex-pool-audit/tenant-dashboard-after-390.png`

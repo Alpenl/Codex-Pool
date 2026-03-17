@@ -8,7 +8,7 @@
 - `workspace` 页面以 `ImportJobs` 为代表，仍带有展示页式 hero 结构，影响任务优先级和移动端负担。
 - 同一个产品同时承载 `admin portal` 与 `tenant portal`，但不同页面类型缺少统一而可复用的页面语言。
 
-在 `.impeccable.md` 已明确本地设计基线的前提下，本次改造不再只修两页，而是先抽取一组页面 archetype，再用两页做首批落地样板。
+在 `.impeccable.md` 已明确本地设计基线的前提下，本次改造不再只修两页，而是先抽取一组页面 archetype，再用多类页面做首批落地样板。
 
 ## 目标
 
@@ -199,6 +199,21 @@
 - 上传工作台成为主任务锚点
 - 预检统计从“堆满首屏”改成“摘要优先、细节后置”
 
+### 3. Admin / Tenant Dashboard
+
+目标：
+
+- 让 admin 与 tenant 概览页回到同一页面语言
+- 把筛选、脉搏摘要、KPI 与图表拉回稳定的信息节奏
+- 避免 admin 偏“运营看板模板”，tenant 偏“组件堆叠页”
+
+改造方向：
+
+- 使用共享 `DashboardShell / DashboardMetricGrid / DashboardMetricCard / SectionHeader`
+- 页头保持“标题 + 作用范围 + 主动作”，不再做展示页 hero
+- KPI 放在 rail 之前的移动端主内容流里，优先于筛选面板出现
+- 桌面端 intro panel 不再被右侧 rail 拉伸成大块留白
+
 ## 验证标准
 
 - 新结构能明显区分 `auth` 与 `workspace` 的表达强度。
@@ -211,4 +226,8 @@
 
 - `auth` 已改为“品牌舞台 + 操作面板”分离结构，桌面和租户入口截图均验证通过。
 - `ImportJobs` 已改为短页头 + 主任务区 + 次级状态区，桌面与移动端截图均验证通过。
-- 当前尚未扩展到 `dashboard / detail / settings` 页面，但共享 archetype 层已经建立，后续可以按同一语言继续迁移。
+- `admin / tenant dashboard` 已迁移到共享 `dashboard` archetype，页头、筛选、脉搏摘要、KPI 与图表统一到同一节奏语言。
+- `DashboardShell` 已修复两个真实走查暴露的问题：
+  - mobile 上 rail 不再压在 KPI 前面
+  - desktop 上 intro panel 不再被 rail 拉伸出大块空白
+- 当前尚未扩展到 `detail / settings` 页面，但共享 archetype 层已经足够支撑下一批迁移。
