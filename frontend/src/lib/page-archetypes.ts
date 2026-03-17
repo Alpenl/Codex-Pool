@@ -39,6 +39,12 @@ export interface BillingReportLayout {
   mobileDetailPlacement: 'after-context'
 }
 
+export interface LogsWorkbenchLayout {
+  mobileToolbarPlacement: 'after-intro'
+  desktopToolbarAlignment: 'between'
+  filterPlacement: 'within-panel'
+}
+
 const ARCHETYPE_CONFIG: Record<PageArchetype, PageArchetypeConfig> = {
   auth: {
     name: 'auth',
@@ -181,5 +187,13 @@ export function describeBillingReportLayout(): BillingReportLayout {
     leadSequence: 'summary-then-trend',
     mobileContextPlacement: 'after-lead',
     mobileDetailPlacement: 'after-context',
+  }
+}
+
+export function describeLogsWorkbenchLayout(): LogsWorkbenchLayout {
+  return {
+    mobileToolbarPlacement: 'after-intro',
+    desktopToolbarAlignment: 'between',
+    filterPlacement: 'within-panel',
   }
 }

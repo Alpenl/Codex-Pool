@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
-import { motion } from 'framer-motion'
 import { AlertTriangle, Download, Info } from 'lucide-react'
 import { format } from 'date-fns'
 import type { TFunction } from 'i18next'
@@ -13,19 +12,17 @@ import { auditLogsApi, type AuditLogItem } from '@/api/auditLogs'
 import { localizeRequestLogErrorDisplay } from '@/api/errorI18n'
 import { logsApi, type SystemLogEntry } from '@/api/logs'
 import { requestLogsApi, type RequestAuditLogItem } from '@/api/requestLogs'
+import {
+  PageIntro,
+  PagePanel,
+  SectionHeader,
+} from '@/components/layout/page-archetypes'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { LoadingOverlay } from '@/components/ui/loading-overlay'
 import { StandardDataTable } from '@/components/ui/standard-data-table'
 import {
+  LogsFilterField,
   LogsFilterGrid,
   LogsFilterInput,
   LogsFilterSelect,
@@ -37,6 +34,7 @@ import {
   shouldHighlightServiceTier,
 } from '@/features/billing/service-tier'
 import { formatDateTime as formatI18nDateTime, formatUtcDateTime, getUserTimeZone } from '@/lib/i18n-format'
+import { describeLogsWorkbenchLayout } from '@/lib/page-archetypes'
 import { cn } from '@/lib/utils'
 
 type LogLevelFilter = 'all' | 'error' | 'warn' | 'info'
@@ -594,6 +592,14 @@ export default function Logs() {
     { value: '7', label: t('logs.range.last7Days', { defaultValue: 'Last 7 days' }) },
     { value: '30', label: t('logs.range.last30Days', { defaultValue: 'Last 30 days' }) },
   ]
+  const logsLayout = describeLogsWorkbenchLayout()
+  const tableSurfaceClassName = 'border-0 bg-transparent shadow-none'
+  const levelOptions = [
+    { value: 'all', label: t('logs.levels.all', { defaultValue: 'All levels' }) },
+    { value: 'error', label: t('logs.levels.error', { defaultValue: 'Error' }) },
+    { value: 'warn', label: t('logs.levels.warn', { defaultValue: 'Warning' }) },
+    { value: 'info', label: t('logs.levels.info', { defaultValue: 'Info' }) },
+  ]
 
   const tenantOptions = [
     { value: 'all', label: t('logs.filters.allTenants', { defaultValue: 'All tenants' }) },
@@ -604,23 +610,23 @@ export default function Logs() {
   ]
 
   const requestLogsPanel = (
-    <Card className="h-full">
-      <CardHeader>
-        <CardTitle>{t('logs.request.title', { defaultValue: 'Request Logs' })}</CardTitle>
-        <CardDescription>
-          {t('logs.request.description', {
-            defaultValue: 'Scope: Raw Data Plane request events (status / latency / path / tenant / API key / request ID).',
-          })}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <LogsFilterGrid className="md:grid-cols-3 xl:grid-cols-6">
+    <PagePanel className="space-y-5">
+      <SectionHeader
+        title={t('logs.request.title', { defaultValue: 'Request Logs' })}
+        description={t('logs.request.description', {
+          defaultValue: 'Scope: Raw Data Plane request events (status / latency / path / tenant / API key / request ID).',
+        })}
+      />
+      <LogsFilterGrid className="md:grid-cols-2 xl:grid-cols-6">
+        <LogsFilterField label={t('logs.request.filters.rangeAriaLabel', { defaultValue: 'Time range' })}>
           <LogsFilterSelect
             value={String(rangePreset)}
             onValueChange={(value) => setRangePreset(Number(value) as RangePreset)}
             ariaLabel={t('logs.request.filters.rangeAriaLabel', { defaultValue: 'Time range' })}
             options={rangeOptions}
           />
+        </LogsFilterField>
+        <LogsFilterField label={t('logs.request.filters.tenantAriaLabel', { defaultValue: 'Tenant' })}>
           <LogsFilterSelect
             value={selectedTenantId}
             onValueChange={setSelectedTenantId}
@@ -628,12 +634,16 @@ export default function Logs() {
             options={tenantOptions}
             className="min-w-[280px]"
           />
+        </LogsFilterField>
+        <LogsFilterField label={t('logs.request.filters.apiKeyAriaLabel', { defaultValue: 'API key filter' })}>
           <LogsFilterInput
             value={apiKeyId}
             onValueChange={setApiKeyId}
             aria-label={t('logs.request.filters.apiKeyAriaLabel', { defaultValue: 'API key ID' })}
             placeholder={t('logs.request.filters.apiKeyIdPlaceholder', { defaultValue: 'API Key ID' })}
           />
+        </LogsFilterField>
+        <LogsFilterField label={t('logs.request.filters.statusCodeAriaLabel', { defaultValue: 'Status code filter' })}>
           <LogsFilterInput
             value={statusCode}
             onValueChange={setStatusCode}
@@ -645,12 +655,16 @@ export default function Logs() {
               defaultValue: 'Status code (e.g. 500)',
             })}
           />
+        </LogsFilterField>
+        <LogsFilterField label={t('logs.request.filters.requestIdAriaLabel', { defaultValue: 'Request ID filter' })}>
           <LogsFilterInput
             value={requestId}
             onValueChange={setRequestId}
             aria-label={t('logs.request.filters.requestIdAriaLabel', { defaultValue: 'Request ID' })}
             placeholder={t('logs.request.filters.requestIdPlaceholder', { defaultValue: 'Request ID' })}
           />
+        </LogsFilterField>
+        <LogsFilterField label={t('logs.request.filters.keywordAriaLabel', { defaultValue: 'Keyword filter' })}>
           <LogsFilterInput
             value={keyword}
             onValueChange={setKeyword}
@@ -659,17 +673,18 @@ export default function Logs() {
               defaultValue: 'Keyword (path / error / model)',
             })}
           />
-        </LogsFilterGrid>
-        <StandardDataTable
-          columns={requestColumns}
-          data={requestLedger?.items ?? []}
-          density="compact"
-          defaultPageSize={20}
-          pageSizeOptions={[20, 50, 100]}
-          emptyText={t('logs.request.empty', { defaultValue: 'No request log data available' })}
-        />
-      </CardContent>
-    </Card>
+        </LogsFilterField>
+      </LogsFilterGrid>
+      <StandardDataTable
+        columns={requestColumns}
+        data={requestLedger?.items ?? []}
+        density="compact"
+        defaultPageSize={20}
+        pageSizeOptions={[20, 50, 100]}
+        className={tableSurfaceClassName}
+        emptyText={t('logs.request.empty', { defaultValue: 'No request log data available' })}
+      />
+    </PagePanel>
   )
 
   const auditColumns = useMemo<ColumnDef<AuditLogItem>[]>(
@@ -763,23 +778,23 @@ export default function Logs() {
   )
 
   const auditLogsPanel = (
-    <Card className="h-full">
-      <CardHeader>
-        <CardTitle>{t('logs.audit.title', { defaultValue: 'Audit Logs' })}</CardTitle>
-        <CardDescription>
-          {t('logs.audit.description', {
-            defaultValue: 'Scope: Control Plane audit events (role / action / result / target / payload).',
-          })}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <LogsFilterGrid className="md:grid-cols-3 xl:grid-cols-7">
+    <PagePanel className="space-y-5">
+      <SectionHeader
+        title={t('logs.audit.title', { defaultValue: 'Audit Logs' })}
+        description={t('logs.audit.description', {
+          defaultValue: 'Scope: Control Plane audit events (role / action / result / target / payload).',
+        })}
+      />
+      <LogsFilterGrid className="md:grid-cols-2 xl:grid-cols-7">
+        <LogsFilterField label={t('logs.audit.filters.rangeAriaLabel', { defaultValue: 'Time range' })}>
           <LogsFilterSelect
             value={String(rangePreset)}
             onValueChange={(value) => setRangePreset(Number(value) as RangePreset)}
             ariaLabel={t('logs.audit.filters.rangeAriaLabel', { defaultValue: 'Time range' })}
             options={rangeOptions}
           />
+        </LogsFilterField>
+        <LogsFilterField label={t('logs.audit.filters.tenantAriaLabel', { defaultValue: 'Tenant filter' })}>
           <LogsFilterSelect
             value={selectedTenantId}
             onValueChange={setSelectedTenantId}
@@ -787,30 +802,40 @@ export default function Logs() {
             options={tenantOptions}
             className="min-w-[280px]"
           />
+        </LogsFilterField>
+        <LogsFilterField label={t('logs.audit.filters.actorTypeAriaLabel', { defaultValue: 'Actor type filter' })}>
           <LogsFilterInput
             value={auditActorType}
             onValueChange={setAuditActorType}
             aria-label={t('logs.audit.filters.actorTypeAriaLabel', { defaultValue: 'Actor type' })}
             placeholder={t('logs.audit.filters.actorTypePlaceholder', { defaultValue: 'Actor type' })}
           />
+        </LogsFilterField>
+        <LogsFilterField label={t('logs.audit.filters.actorIdAriaLabel', { defaultValue: 'Actor ID filter' })}>
           <LogsFilterInput
             value={auditActorId}
             onValueChange={setAuditActorId}
             aria-label={t('logs.audit.filters.actorIdAriaLabel', { defaultValue: 'Actor ID' })}
             placeholder={t('logs.audit.filters.actorIdPlaceholder', { defaultValue: 'Actor ID' })}
           />
+        </LogsFilterField>
+        <LogsFilterField label={t('logs.audit.filters.actionAriaLabel', { defaultValue: 'Action filter' })}>
           <LogsFilterInput
             value={auditAction}
             onValueChange={setAuditAction}
             aria-label={t('logs.audit.filters.actionAriaLabel', { defaultValue: 'Action' })}
             placeholder={t('logs.audit.filters.actionPlaceholder', { defaultValue: 'Action' })}
           />
+        </LogsFilterField>
+        <LogsFilterField label={t('logs.audit.filters.resultStatusAriaLabel', { defaultValue: 'Result status filter' })}>
           <LogsFilterInput
             value={auditResultStatus}
             onValueChange={setAuditResultStatus}
             aria-label={t('logs.audit.filters.resultStatusAriaLabel', { defaultValue: 'Result status' })}
             placeholder={t('logs.audit.filters.resultStatusPlaceholder', { defaultValue: 'Result status' })}
           />
+        </LogsFilterField>
+        <LogsFilterField label={t('logs.audit.filters.keywordAriaLabel', { defaultValue: 'Keyword filter' })}>
           <LogsFilterInput
             value={auditKeyword}
             onValueChange={setAuditKeyword}
@@ -819,125 +844,126 @@ export default function Logs() {
               defaultValue: 'Keyword (reason / payload)',
             })}
           />
-        </LogsFilterGrid>
-        <StandardDataTable
-          columns={auditColumns}
-          data={auditLogs?.items ?? []}
-          density="compact"
-          defaultPageSize={20}
-          pageSizeOptions={[20, 50, 100]}
-          emptyText={t('logs.audit.empty', { defaultValue: 'No audit log data available' })}
-        />
-      </CardContent>
-    </Card>
+        </LogsFilterField>
+      </LogsFilterGrid>
+      <StandardDataTable
+        columns={auditColumns}
+        data={auditLogs?.items ?? []}
+        density="compact"
+        defaultPageSize={20}
+        pageSizeOptions={[20, 50, 100]}
+        className={tableSurfaceClassName}
+        emptyText={t('logs.audit.empty', { defaultValue: 'No audit log data available' })}
+      />
+    </PagePanel>
+  )
+
+  const systemLogsPanel = (
+    <PagePanel className="relative space-y-5">
+      <LoadingOverlay
+        show={isLoading}
+        title={t('common.loading')}
+        description={t('logs.subtitle')}
+      />
+      <SectionHeader
+        title={t('logs.tabs.system', { defaultValue: 'System Logs' })}
+        description={t('logs.subtitle')}
+      />
+      <LogsFilterGrid className="md:max-w-[16rem]">
+        <LogsFilterField label={t('logs.columns.level', { defaultValue: 'Level' })}>
+          <LogsFilterSelect
+            value={levelFilter}
+            onValueChange={(value) => setLevelFilter(value as LogLevelFilter)}
+            ariaLabel={t('logs.columns.level', { defaultValue: 'Level' })}
+            options={levelOptions}
+          />
+        </LogsFilterField>
+      </LogsFilterGrid>
+      <StandardDataTable
+        columns={columns}
+        data={filteredLogs}
+        density="compact"
+        className={tableSurfaceClassName}
+        searchPlaceholder={t('logs.search')}
+        searchFn={(row, keyword) => {
+          const localizedAction = localizeLogAction(row.action, t).toLowerCase()
+          const localizedMessage = localizeLogMessage(row.action, row.message || '', t).toLowerCase()
+          const rawAction = row.action.toLowerCase()
+          const rawMessage = (row.message || '').toLowerCase()
+          const level = levelLabel(row.level, t).toLowerCase()
+          return (
+            localizedAction.includes(keyword) ||
+            localizedMessage.includes(keyword) ||
+            rawAction.includes(keyword) ||
+            rawMessage.includes(keyword) ||
+            level.includes(keyword)
+          )
+        }}
+        emptyText={t('logs.waiting')}
+      />
+    </PagePanel>
   )
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25 }}
-      className="flex h-full flex-col overflow-hidden p-4 sm:p-6 lg:p-8"
-    >
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
-            {t('logs.title')}
-            <span className="h-2 w-2 animate-pulse rounded-full bg-success" />
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">{t('logs.subtitle')}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t('logs.time.displayMode', {
-              defaultValue: 'Displayed in local time ({{timezone}}). UTC is preserved in tooltips and exports.',
-              timezone: currentTimeZone,
-            })}
-          </p>
-        </div>
+    <div className="flex-1 p-4 sm:p-6 lg:p-8">
+      <div className="space-y-6 md:space-y-8">
+        <PageIntro
+          archetype="workspace"
+          title={t('logs.title')}
+          description={t('logs.subtitle')}
+          meta={t('logs.time.displayMode', {
+            defaultValue: 'Displayed in local time ({{timezone}}). UTC is preserved in tooltips and exports.',
+            timezone: currentTimeZone,
+          })}
+        />
 
-        <div className="flex items-center gap-2">
-          <Button
-            variant={tab === 'request' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setTab('request')}
+        <PagePanel tone="secondary">
+          <div
+            className={cn(
+              'flex flex-col gap-4',
+              logsLayout.desktopToolbarAlignment === 'between' && 'lg:flex-row lg:items-center lg:justify-between',
+            )}
           >
-            {t('logs.tabs.request', { defaultValue: 'Request Logs' })}
-          </Button>
-          <Button
-            variant={tab === 'system' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setTab('system')}
-          >
-            {t('logs.tabs.system', { defaultValue: 'System Logs' })}
-          </Button>
-          <Button
-            variant={tab === 'audit' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setTab('audit')}
-          >
-            {t('logs.tabs.audit', { defaultValue: 'Audit Logs' })}
-          </Button>
-          {tab === 'system' ? (
-            <Button variant="outline" onClick={handleExport}>
-              <Download className="mr-2 h-4 w-4" />
-              {t('logs.export')}
-            </Button>
-          ) : null}
-        </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant={tab === 'request' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setTab('request')}
+              >
+                {t('logs.tabs.request', { defaultValue: 'Request Logs' })}
+              </Button>
+              <Button
+                variant={tab === 'system' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setTab('system')}
+              >
+                {t('logs.tabs.system', { defaultValue: 'System Logs' })}
+              </Button>
+              <Button
+                variant={tab === 'audit' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setTab('audit')}
+              >
+                {t('logs.tabs.audit', { defaultValue: 'Audit Logs' })}
+              </Button>
+            </div>
+            {tab === 'system' ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="outline" onClick={handleExport}>
+                  <Download className="mr-2 h-4 w-4" />
+                  {t('logs.export')}
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        </PagePanel>
+
+        {tab === 'request'
+          ? requestLogsPanel
+          : tab === 'audit'
+            ? auditLogsPanel
+            : systemLogsPanel}
       </div>
-
-      <div className="relative min-h-0 flex-1">
-        {tab === 'request' ? (
-          requestLogsPanel
-        ) : tab === 'audit' ? (
-          auditLogsPanel
-        ) : (
-          <>
-            <LoadingOverlay
-              show={isLoading}
-              title={t('common.loading')}
-              description={t('logs.subtitle')}
-            />
-
-            <StandardDataTable
-              columns={columns}
-              data={filteredLogs}
-              density="compact"
-              searchPlaceholder={t('logs.search')}
-              searchFn={(row, keyword) => {
-                const localizedAction = localizeLogAction(row.action, t).toLowerCase()
-                const localizedMessage = localizeLogMessage(row.action, row.message || '', t).toLowerCase()
-                const rawAction = row.action.toLowerCase()
-                const rawMessage = (row.message || '').toLowerCase()
-                const level = levelLabel(row.level, t).toLowerCase()
-                return (
-                  localizedAction.includes(keyword) ||
-                  localizedMessage.includes(keyword) ||
-                  rawAction.includes(keyword) ||
-                  rawMessage.includes(keyword) ||
-                  level.includes(keyword)
-                )
-              }}
-              emptyText={t('logs.waiting')}
-              filters={(
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">{t('logs.focus')}</span>
-                  <Select value={levelFilter} onValueChange={(value) => setLevelFilter(value as LogLevelFilter)}>
-                    <SelectTrigger className="w-[180px]" aria-label={t('logs.focus')}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">{t('logs.levels.all')}</SelectItem>
-                      <SelectItem value="error">{t('logs.levels.error')}</SelectItem>
-                      <SelectItem value="warn">{t('logs.levels.warn')}</SelectItem>
-                      <SelectItem value="info">{t('logs.levels.info')}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            />
-          </>
-        )}
-      </div>
-    </motion.div>
+    </div>
   )
 }

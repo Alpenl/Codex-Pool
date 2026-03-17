@@ -20,6 +20,12 @@ type LogsFilterGridProps = {
   className?: string
 }
 
+type LogsFilterFieldProps = {
+  label: ReactNode
+  children: ReactNode
+  className?: string
+}
+
 type LogsFilterSelectProps = {
   value: string
   onValueChange: (value: string) => void
@@ -36,6 +42,17 @@ type LogsFilterInputProps = Omit<ComponentProps<typeof Input>, 'value' | 'onChan
 
 export function LogsFilterGrid({ children, className }: LogsFilterGridProps) {
   return <div className={cn('grid gap-2', className)}>{children}</div>
+}
+
+export function LogsFilterField({ label, children, className }: LogsFilterFieldProps) {
+  return (
+    <div className={cn('space-y-2', className)}>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+        {label}
+      </p>
+      {children}
+    </div>
+  )
 }
 
 export function LogsFilterSelect({

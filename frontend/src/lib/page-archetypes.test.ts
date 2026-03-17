@@ -109,3 +109,17 @@ test('describeBillingReportLayout keeps billing summaries ahead of the primary t
     mobileDetailPlacement: 'after-context',
   })
 })
+
+test('describeLogsWorkbenchLayout keeps tab switching near the intro and keeps filters inside the active log panel', () => {
+  const describeLogsWorkbenchLayout = (
+    pageArchetypes as typeof pageArchetypes & {
+      describeLogsWorkbenchLayout?: () => unknown
+    }
+  ).describeLogsWorkbenchLayout
+
+  assert.deepEqual(describeLogsWorkbenchLayout?.(), {
+    mobileToolbarPlacement: 'after-intro',
+    desktopToolbarAlignment: 'between',
+    filterPlacement: 'within-panel',
+  })
+})

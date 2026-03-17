@@ -8,9 +8,13 @@ import { useTranslation } from 'react-i18next'
 import { auditLogsApi, type AuditLogItem } from '@/api/auditLogs'
 import { localizeRequestLogErrorDisplay } from '@/api/errorI18n'
 import { requestLogsApi, type RequestAuditLogItem } from '@/api/requestLogs'
+import {
+  PageIntro,
+  PagePanel,
+  SectionHeader,
+} from '@/components/layout/page-archetypes'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { StandardDataTable } from '@/components/ui/standard-data-table'
 import {
   getServiceTierBadgeTone,
@@ -19,11 +23,13 @@ import {
   shouldHighlightServiceTier,
 } from '@/features/billing/service-tier'
 import {
+  LogsFilterField,
   LogsFilterGrid,
   LogsFilterInput,
   LogsFilterSelect,
 } from '@/features/logs/filter-controls'
 import { formatUtcDateTime, getUserTimeZone } from '@/lib/i18n-format'
+import { describeLogsWorkbenchLayout } from '@/lib/page-archetypes'
 import { formatDateTime, currentRangeByDays } from '@/tenant/lib/format'
 
 type RangePreset = 1 | 7 | 30
@@ -387,94 +393,106 @@ export function TenantLogsPage() {
     { value: '7', label: t('tenantLogs.filters.range.last7Days', { defaultValue: 'Last 7 days' }) },
     { value: '30', label: t('tenantLogs.filters.range.last30Days', { defaultValue: 'Last 30 days' }) },
   ]
+  const logsLayout = describeLogsWorkbenchLayout()
+  const tableSurfaceClassName = 'border-0 bg-transparent shadow-none'
 
   return (
-    <div className="flex-1 p-4 sm:p-6 lg:p-8 space-y-6">
-      <div>
-        <h2 className="text-3xl font-semibold tracking-tight">
-          {t('tenantLogs.title', { defaultValue: 'Logs' })}
-        </h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          {t('tenantLogs.scope', { defaultValue: 'Scope: current tenant only' })}
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {t('tenantLogs.time.displayMode', {
+    <div className="flex-1 p-4 sm:p-6 lg:p-8">
+      <div className="space-y-6 md:space-y-8">
+        <PageIntro
+          archetype="workspace"
+          title={t('tenantLogs.title', { defaultValue: 'Logs' })}
+          description={t('tenantLogs.scope', { defaultValue: 'Scope: current tenant only' })}
+          meta={t('tenantLogs.time.displayMode', {
             defaultValue: 'Displayed in local time ({{timezone}}). UTC is preserved in tooltips.',
             timezone: currentTimeZone,
           })}
-        </p>
-      </div>
+        />
 
-      <div className="flex items-center gap-2">
-        <Button
-          variant={tab === 'request' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setTab('request')}
-        >
-          {t('tenantLogs.tabs.request', { defaultValue: 'Request Logs' })}
-        </Button>
-        <Button
-          variant={tab === 'audit' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setTab('audit')}
-        >
-          {t('tenantLogs.tabs.audit', { defaultValue: 'Audit Logs' })}
-        </Button>
-      </div>
+        <PagePanel tone="secondary">
+          <div
+            className={[
+              'flex flex-wrap items-center gap-2',
+              logsLayout.desktopToolbarAlignment === 'between' ? 'lg:justify-start' : '',
+            ].filter(Boolean).join(' ')}
+          >
+            <Button
+              variant={tab === 'request' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setTab('request')}
+            >
+              {t('tenantLogs.tabs.request', { defaultValue: 'Request Logs' })}
+            </Button>
+            <Button
+              variant={tab === 'audit' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setTab('audit')}
+            >
+              {t('tenantLogs.tabs.audit', { defaultValue: 'Audit Logs' })}
+            </Button>
+          </div>
+        </PagePanel>
 
-      {tab === 'request' ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('tenantLogs.request.title', { defaultValue: 'Request Logs' })}</CardTitle>
-            <CardDescription>
-              {t('tenantLogs.request.description', {
+        {tab === 'request' ? (
+          <PagePanel className="space-y-5">
+            <SectionHeader
+              title={t('tenantLogs.request.title', { defaultValue: 'Request Logs' })}
+              description={t('tenantLogs.request.description', {
                 defaultValue: 'Definition: Data Plane raw request events (current tenant only)',
               })}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <LogsFilterGrid className="md:grid-cols-3 xl:grid-cols-5">
-              <LogsFilterSelect
-                value={String(rangePreset)}
-                onValueChange={(value) => setRangePreset(Number(value) as RangePreset)}
-                ariaLabel={t('tenantLogs.request.filters.rangeAriaLabel', { defaultValue: 'Time range' })}
-                options={rangeOptions}
-              />
-              <LogsFilterInput
-                value={apiKeyId}
-                onValueChange={setApiKeyId}
-                aria-label={t('tenantLogs.request.filters.apiKeyAriaLabel', { defaultValue: 'API key ID' })}
-                placeholder={t('tenantLogs.request.filters.apiKeyIdPlaceholder', {
-                  defaultValue: 'API Key ID',
-                })}
-              />
-              <LogsFilterInput
-                value={statusCode}
-                onValueChange={setStatusCode}
-                type="number"
-                min={0}
-                inputMode="numeric"
-                aria-label={t('tenantLogs.request.filters.statusCodeAriaLabel', { defaultValue: 'Status code' })}
-                placeholder={t('tenantLogs.request.filters.statusCodePlaceholder', {
-                  defaultValue: 'Status code (e.g. 429)',
-                })}
-              />
-              <LogsFilterInput
-                value={requestId}
-                onValueChange={setRequestId}
-                aria-label={t('tenantLogs.request.filters.requestIdAriaLabel', { defaultValue: 'Request ID' })}
-                placeholder={t('tenantLogs.request.filters.requestIdPlaceholder', {
-                  defaultValue: 'Request ID',
-                })}
-              />
-              <LogsFilterInput
-                value={keyword}
-                onValueChange={setKeyword}
-                aria-label={t('tenantLogs.request.filters.keywordAriaLabel', { defaultValue: 'Keyword' })}
-                placeholder={t('tenantLogs.request.filters.keywordPlaceholder', {
-                  defaultValue: 'Keyword (path/error/model)',
-                })}
-              />
+            />
+            <LogsFilterGrid className="md:grid-cols-2 xl:grid-cols-5">
+              <LogsFilterField label={t('tenantLogs.request.filters.rangeAriaLabel', { defaultValue: 'Time range' })}>
+                <LogsFilterSelect
+                  value={String(rangePreset)}
+                  onValueChange={(value) => setRangePreset(Number(value) as RangePreset)}
+                  ariaLabel={t('tenantLogs.request.filters.rangeAriaLabel', { defaultValue: 'Time range' })}
+                  options={rangeOptions}
+                />
+              </LogsFilterField>
+              <LogsFilterField label={t('tenantLogs.request.filters.apiKeyAriaLabel', { defaultValue: 'API key filter' })}>
+                <LogsFilterInput
+                  value={apiKeyId}
+                  onValueChange={setApiKeyId}
+                  aria-label={t('tenantLogs.request.filters.apiKeyAriaLabel', { defaultValue: 'API key ID' })}
+                  placeholder={t('tenantLogs.request.filters.apiKeyIdPlaceholder', {
+                    defaultValue: 'API Key ID',
+                  })}
+                />
+              </LogsFilterField>
+              <LogsFilterField label={t('tenantLogs.request.filters.statusCodeAriaLabel', { defaultValue: 'Status code filter' })}>
+                <LogsFilterInput
+                  value={statusCode}
+                  onValueChange={setStatusCode}
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  aria-label={t('tenantLogs.request.filters.statusCodeAriaLabel', { defaultValue: 'Status code' })}
+                  placeholder={t('tenantLogs.request.filters.statusCodePlaceholder', {
+                    defaultValue: 'Status code (e.g. 429)',
+                  })}
+                />
+              </LogsFilterField>
+              <LogsFilterField label={t('tenantLogs.request.filters.requestIdAriaLabel', { defaultValue: 'Request ID filter' })}>
+                <LogsFilterInput
+                  value={requestId}
+                  onValueChange={setRequestId}
+                  aria-label={t('tenantLogs.request.filters.requestIdAriaLabel', { defaultValue: 'Request ID' })}
+                  placeholder={t('tenantLogs.request.filters.requestIdPlaceholder', {
+                    defaultValue: 'Request ID',
+                  })}
+                />
+              </LogsFilterField>
+              <LogsFilterField label={t('tenantLogs.request.filters.keywordAriaLabel', { defaultValue: 'Keyword filter' })}>
+                <LogsFilterInput
+                  value={keyword}
+                  onValueChange={setKeyword}
+                  aria-label={t('tenantLogs.request.filters.keywordAriaLabel', { defaultValue: 'Keyword' })}
+                  placeholder={t('tenantLogs.request.filters.keywordPlaceholder', {
+                    defaultValue: 'Keyword (path/error/model)',
+                  })}
+                />
+              </LogsFilterField>
             </LogsFilterGrid>
             <StandardDataTable
               columns={columns}
@@ -482,68 +500,77 @@ export function TenantLogsPage() {
               defaultPageSize={20}
               pageSizeOptions={[20, 50, 100]}
               density="compact"
+              className={tableSurfaceClassName}
               emptyText={t('tenantLogs.request.empty', { defaultValue: 'No log data' })}
             />
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('tenantLogs.audit.title', { defaultValue: 'Audit Logs' })}</CardTitle>
-            <CardDescription>
-              {t('tenantLogs.audit.description', {
+          </PagePanel>
+        ) : (
+          <PagePanel className="space-y-5">
+            <SectionHeader
+              title={t('tenantLogs.audit.title', { defaultValue: 'Audit Logs' })}
+              description={t('tenantLogs.audit.description', {
                 defaultValue: 'Definition: Control Plane audit events (current tenant only)',
               })}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <LogsFilterGrid className="md:grid-cols-3 xl:grid-cols-6">
-              <LogsFilterSelect
-                value={String(rangePreset)}
-                onValueChange={(value) => setRangePreset(Number(value) as RangePreset)}
-                ariaLabel={t('tenantLogs.audit.filters.rangeAriaLabel', { defaultValue: 'Time range' })}
-                options={rangeOptions}
-              />
-              <LogsFilterInput
-                value={auditActorType}
-                onValueChange={setAuditActorType}
-                aria-label={t('tenantLogs.audit.filters.actorTypeAriaLabel', { defaultValue: 'Actor type' })}
-                placeholder={t('tenantLogs.audit.filters.actorTypePlaceholder', {
-                  defaultValue: 'Actor type',
-                })}
-              />
-              <LogsFilterInput
-                value={auditActorId}
-                onValueChange={setAuditActorId}
-                aria-label={t('tenantLogs.audit.filters.actorIdAriaLabel', { defaultValue: 'Actor ID' })}
-                placeholder={t('tenantLogs.audit.filters.actorIdPlaceholder', {
-                  defaultValue: 'Actor ID',
-                })}
-              />
-              <LogsFilterInput
-                value={auditAction}
-                onValueChange={setAuditAction}
-                aria-label={t('tenantLogs.audit.filters.actionAriaLabel', { defaultValue: 'Action' })}
-                placeholder={t('tenantLogs.audit.filters.actionPlaceholder', {
-                  defaultValue: 'Action',
-                })}
-              />
-              <LogsFilterInput
-                value={auditResultStatus}
-                onValueChange={setAuditResultStatus}
-                aria-label={t('tenantLogs.audit.filters.resultStatusAriaLabel', { defaultValue: 'Result status' })}
-                placeholder={t('tenantLogs.audit.filters.resultStatusPlaceholder', {
-                  defaultValue: 'Result status',
-                })}
-              />
-              <LogsFilterInput
-                value={auditKeyword}
-                onValueChange={setAuditKeyword}
-                aria-label={t('tenantLogs.audit.filters.keywordAriaLabel', { defaultValue: 'Keyword' })}
-                placeholder={t('tenantLogs.audit.filters.keywordPlaceholder', {
-                  defaultValue: 'Keyword (reason/payload)',
-                })}
-              />
+            />
+            <LogsFilterGrid className="md:grid-cols-2 xl:grid-cols-6">
+              <LogsFilterField label={t('tenantLogs.audit.filters.rangeAriaLabel', { defaultValue: 'Time range' })}>
+                <LogsFilterSelect
+                  value={String(rangePreset)}
+                  onValueChange={(value) => setRangePreset(Number(value) as RangePreset)}
+                  ariaLabel={t('tenantLogs.audit.filters.rangeAriaLabel', { defaultValue: 'Time range' })}
+                  options={rangeOptions}
+                />
+              </LogsFilterField>
+              <LogsFilterField label={t('tenantLogs.audit.filters.actorTypeAriaLabel', { defaultValue: 'Actor type filter' })}>
+                <LogsFilterInput
+                  value={auditActorType}
+                  onValueChange={setAuditActorType}
+                  aria-label={t('tenantLogs.audit.filters.actorTypeAriaLabel', { defaultValue: 'Actor type' })}
+                  placeholder={t('tenantLogs.audit.filters.actorTypePlaceholder', {
+                    defaultValue: 'Actor type',
+                  })}
+                />
+              </LogsFilterField>
+              <LogsFilterField label={t('tenantLogs.audit.filters.actorIdAriaLabel', { defaultValue: 'Actor ID filter' })}>
+                <LogsFilterInput
+                  value={auditActorId}
+                  onValueChange={setAuditActorId}
+                  aria-label={t('tenantLogs.audit.filters.actorIdAriaLabel', { defaultValue: 'Actor ID' })}
+                  placeholder={t('tenantLogs.audit.filters.actorIdPlaceholder', {
+                    defaultValue: 'Actor ID',
+                  })}
+                />
+              </LogsFilterField>
+              <LogsFilterField label={t('tenantLogs.audit.filters.actionAriaLabel', { defaultValue: 'Action filter' })}>
+                <LogsFilterInput
+                  value={auditAction}
+                  onValueChange={setAuditAction}
+                  aria-label={t('tenantLogs.audit.filters.actionAriaLabel', { defaultValue: 'Action' })}
+                  placeholder={t('tenantLogs.audit.filters.actionPlaceholder', {
+                    defaultValue: 'Action',
+                  })}
+                />
+              </LogsFilterField>
+              <LogsFilterField label={t('tenantLogs.audit.filters.resultStatusAriaLabel', { defaultValue: 'Result status filter' })}>
+                <LogsFilterInput
+                  value={auditResultStatus}
+                  onValueChange={setAuditResultStatus}
+                  aria-label={t('tenantLogs.audit.filters.resultStatusAriaLabel', { defaultValue: 'Result status' })}
+                  placeholder={t('tenantLogs.audit.filters.resultStatusPlaceholder', {
+                    defaultValue: 'Result status',
+                  })}
+                />
+              </LogsFilterField>
+              <LogsFilterField label={t('tenantLogs.audit.filters.keywordAriaLabel', { defaultValue: 'Keyword filter' })}>
+                <LogsFilterInput
+                  value={auditKeyword}
+                  onValueChange={setAuditKeyword}
+                  aria-label={t('tenantLogs.audit.filters.keywordAriaLabel', { defaultValue: 'Keyword' })}
+                  placeholder={t('tenantLogs.audit.filters.keywordPlaceholder', {
+                    defaultValue: 'Keyword (reason/payload)',
+                  })}
+                />
+              </LogsFilterField>
             </LogsFilterGrid>
             <StandardDataTable
               columns={auditColumns}
@@ -551,11 +578,12 @@ export function TenantLogsPage() {
               defaultPageSize={20}
               pageSizeOptions={[20, 50, 100]}
               density="compact"
+              className={tableSurfaceClassName}
               emptyText={t('tenantLogs.audit.empty', { defaultValue: 'No audit log data' })}
             />
-          </CardContent>
-        </Card>
-      )}
+          </PagePanel>
+        )}
+      </div>
     </div>
   )
 }
