@@ -3,11 +3,11 @@ export type PageArchetype = 'auth' | 'dashboard' | 'workspace' | 'detail' | 'set
 export interface PageArchetypeConfig {
   name: PageArchetype
   introStyle: 'stage' | 'compact'
-  stageMode: 'split' | 'inline' | 'none'
-  headerSurface: 'stage' | 'panel' | 'plain'
+  stageMode: 'inline' | 'none'
+  headerSurface: 'section' | 'plain'
   primaryZone: 'form' | 'task' | 'content'
   secondaryDensity: 'narrative' | 'balanced' | 'summary-first'
-  surfaceTone: 'refined' | 'neutral' | 'quiet'
+  surfaceTone: 'framed' | 'continuous' | 'quiet'
   effectProfile: 'controlled' | 'restrained' | 'none'
   mobile: {
     stageCompression: 'condense' | 'hide' | 'keep'
@@ -25,12 +25,22 @@ export interface PageArchetypeRegions {
 export interface DashboardShellLayout {
   mobileRailPlacement: 'after-content' | 'after-intro'
   desktopAlignment: 'start' | 'stretch'
+  railTone: 'attached' | 'separate'
+  headerStyle: 'compressed' | 'panel'
+}
+
+export interface DashboardOverviewLayout {
+  metricPresentation: 'strip' | 'cards'
+  actionDensity: 'tight' | 'relaxed'
+  filterTreatment: 'inline-rail' | 'panel'
+  pulseTreatment: 'annotated-list' | 'cards'
 }
 
 export interface AuthShellLayout {
-  formPanelTone: 'primary'
-  brandPanelTone: 'secondary'
-  pointsStyle: 'list'
+  shellMode: 'single-surface' | 'split-surface'
+  brandPlacement: 'header' | 'aside'
+  supportStyle: 'inline' | 'list'
+  footerNotePlacement: 'footer' | 'none'
 }
 
 export interface ReportShellLayout {
@@ -85,12 +95,12 @@ export interface AdminApiKeysSettingsLayout {
 const ARCHETYPE_CONFIG: Record<PageArchetype, PageArchetypeConfig> = {
   auth: {
     name: 'auth',
-    introStyle: 'stage',
-    stageMode: 'split',
-    headerSurface: 'stage',
+    introStyle: 'compact',
+    stageMode: 'inline',
+    headerSurface: 'plain',
     primaryZone: 'form',
     secondaryDensity: 'narrative',
-    surfaceTone: 'refined',
+    surfaceTone: 'framed',
     effectProfile: 'controlled',
     mobile: {
       stageCompression: 'condense',
@@ -100,11 +110,11 @@ const ARCHETYPE_CONFIG: Record<PageArchetype, PageArchetypeConfig> = {
   dashboard: {
     name: 'dashboard',
     introStyle: 'compact',
-    stageMode: 'inline',
-    headerSurface: 'panel',
+    stageMode: 'none',
+    headerSurface: 'plain',
     primaryZone: 'content',
     secondaryDensity: 'balanced',
-    surfaceTone: 'refined',
+    surfaceTone: 'continuous',
     effectProfile: 'restrained',
     mobile: {
       stageCompression: 'condense',
@@ -115,7 +125,7 @@ const ARCHETYPE_CONFIG: Record<PageArchetype, PageArchetypeConfig> = {
     name: 'workspace',
     introStyle: 'compact',
     stageMode: 'none',
-    headerSurface: 'panel',
+    headerSurface: 'plain',
     primaryZone: 'task',
     secondaryDensity: 'summary-first',
     surfaceTone: 'quiet',
@@ -174,7 +184,7 @@ export function describePageRegions(name: PageArchetype | string | undefined): P
     case 'auth':
       return {
         introAlignment: 'start',
-        contentLayout: 'split',
+        contentLayout: 'stack',
         secondaryPlacement: 'after',
         stageEmphasis: 'controlled',
       }
@@ -189,8 +199,8 @@ export function describePageRegions(name: PageArchetype | string | undefined): P
       return {
         introAlignment: 'between',
         contentLayout: 'stack',
-        secondaryPlacement: 'after',
-        stageEmphasis: 'medium',
+        secondaryPlacement: 'aside',
+        stageEmphasis: 'low',
       }
     case 'detail':
     case 'settings':
@@ -208,14 +218,26 @@ export function describeDashboardShellLayout(): DashboardShellLayout {
   return {
     mobileRailPlacement: 'after-content',
     desktopAlignment: 'start',
+    railTone: 'attached',
+    headerStyle: 'compressed',
+  }
+}
+
+export function describeDashboardOverviewLayout(): DashboardOverviewLayout {
+  return {
+    metricPresentation: 'strip',
+    actionDensity: 'tight',
+    filterTreatment: 'inline-rail',
+    pulseTreatment: 'annotated-list',
   }
 }
 
 export function describeAuthShellLayout(): AuthShellLayout {
   return {
-    formPanelTone: 'primary',
-    brandPanelTone: 'secondary',
-    pointsStyle: 'list',
+    shellMode: 'single-surface',
+    brandPlacement: 'header',
+    supportStyle: 'inline',
+    footerNotePlacement: 'footer',
   }
 }
 

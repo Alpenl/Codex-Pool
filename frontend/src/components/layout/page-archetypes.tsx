@@ -1,6 +1,7 @@
 import { type HTMLAttributes, type ReactNode } from 'react'
 
 import {
+  describeDashboardOverviewLayout,
   describeDashboardShellLayout,
   describePageRegions,
   describeReportShellLayout,
@@ -34,25 +35,26 @@ export function PageIntro({
   return (
     <div
       className={cn(
-        'flex flex-col gap-4 md:gap-5',
-        regions.introAlignment === 'between' && 'lg:flex-row lg:items-end lg:justify-between',
+        'flex flex-col gap-2.5 md:gap-3',
+        regions.introAlignment === 'between' && 'lg:flex-row lg:items-end lg:justify-between lg:gap-6',
         className,
       )}
       {...props}
     >
-      <div className={cn('min-w-0 space-y-3', config.introStyle === 'stage' && 'max-w-2xl md:space-y-4')}>
+      <div className={cn('min-w-0 space-y-2.5', config.introStyle === 'stage' && 'max-w-2xl md:space-y-3')}>
         {eyebrow ? (
-          <div className="inline-flex w-fit items-center rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-[11px] font-medium tracking-[0.05em] text-muted-foreground">
+          <div className="inline-flex w-fit items-center gap-2 text-[12px] font-medium tracking-[0.01em] text-muted-foreground">
+            <span className="h-1 w-1 rounded-full bg-current/70" />
             {eyebrow}
           </div>
         ) : null}
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           <h1
             className={cn(
-              'text-balance font-semibold tracking-[-0.026em] text-foreground',
+              'text-balance font-semibold tracking-[-0.024em] text-foreground',
               config.introStyle === 'stage'
-                ? 'text-[clamp(2.15rem,4.8vw,4.2rem)] leading-[0.97]'
-                : 'text-[clamp(1.75rem,3.6vw,2.65rem)] leading-[1]',
+                ? 'text-[clamp(1.9rem,4.2vw,3.15rem)] leading-[1.01]'
+                : 'text-[clamp(1.45rem,2.8vw,2.15rem)] leading-[1.03]',
             )}
           >
             {title}
@@ -60,17 +62,17 @@ export function PageIntro({
           {description ? (
             <p
               className={cn(
-                'text-sm leading-6 text-muted-foreground sm:text-base',
-                config.introStyle === 'stage' && 'max-w-2xl text-[15px] leading-7 sm:text-[16px]',
+                'max-w-[64ch] text-sm leading-6 text-muted-foreground sm:text-[15px]',
+                config.introStyle === 'stage' && 'max-w-[68ch] text-[15px] leading-7 sm:text-[16px]',
               )}
             >
               {description}
             </p>
           ) : null}
         </div>
-        {meta ? <div className="text-sm leading-6 text-muted-foreground">{meta}</div> : null}
+        {meta ? <div className="text-[13px] leading-6 text-muted-foreground">{meta}</div> : null}
       </div>
-      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
+      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-1.5 lg:justify-end">{actions}</div> : null}
     </div>
   )
 }
@@ -95,32 +97,28 @@ export function BrandStage({
   return (
     <section
       className={cn(
-        'page-stage-surface relative overflow-hidden rounded-[1.35rem] p-6 sm:p-7 lg:p-8',
+        'page-stage-surface relative overflow-hidden rounded-[1.1rem] p-5 sm:p-6 lg:p-7',
         className,
       )}
       {...props}
     >
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-border/70" />
-      <div className="relative z-10 space-y-6">
+      <div className="relative z-10 space-y-5">
         {badge ? <div>{badge}</div> : null}
-        <div className="space-y-3">
-          <h1 className="max-w-3xl text-balance text-[clamp(2rem,4.6vw,3.85rem)] font-semibold leading-[0.98] tracking-[-0.028em] text-foreground">
+        <div className="space-y-2.5">
+          <h1 className="max-w-3xl text-balance text-[clamp(1.75rem,4vw,3rem)] font-semibold leading-[1.01] tracking-[-0.025em] text-foreground">
             {title}
           </h1>
           {subtitle ? (
-            <p className="max-w-2xl text-[15px] leading-7 text-muted-foreground sm:text-[16px]">
+            <p className="max-w-[68ch] text-[15px] leading-7 text-muted-foreground sm:text-[16px]">
               {subtitle}
             </p>
           ) : null}
         </div>
         {points.length > 0 ? (
-          <ul className="grid gap-2.5 text-sm text-foreground/86 sm:grid-cols-2">
+          <ul className="grid gap-2.5 border-t border-border/70 pt-4 text-sm text-foreground/86 sm:grid-cols-2">
             {points.map((point, index) => (
-              <li
-                key={index}
-                className="flex items-start gap-3 rounded-[1rem] border border-border/55 bg-background/56 px-4 py-3"
-              >
-                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/80" />
+              <li key={index} className="flex items-start gap-3 pr-4">
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/75" />
                 <span className="leading-6">{point}</span>
               </li>
             ))}
@@ -148,7 +146,7 @@ export function PagePanel({
     <Component
       className={cn(
         tone === 'primary' ? 'page-panel-surface' : 'page-panel-surface-muted',
-        'rounded-[1.25rem] p-5 sm:p-6',
+        'relative overflow-hidden rounded-[0.85rem] p-4 sm:rounded-[0.95rem] sm:p-[1.05rem] lg:p-[1.15rem]',
         className,
       )}
       {...props}
@@ -172,11 +170,11 @@ export function WorkspaceShell({
   ...props
 }: WorkspaceShellProps) {
   return (
-    <section className={cn('space-y-6 md:space-y-8', className)} {...props}>
+    <section className={cn('space-y-4 md:space-y-5', className)} {...props}>
       {intro}
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-        <div className="min-w-0 space-y-6">{primary}</div>
-        {secondary ? <aside className="min-w-0 space-y-6">{secondary}</aside> : null}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.16fr)_minmax(17rem,0.84fr)] xl:items-start">
+        <div className="min-w-0 space-y-4">{primary}</div>
+        {secondary ? <aside className="min-w-0 space-y-3.5 xl:border-l xl:border-border/70 xl:pl-4">{secondary}</aside> : null}
       </div>
     </section>
   )
@@ -201,21 +199,21 @@ export function ReportShell({
   const layout = describeReportShellLayout()
 
   return (
-    <section className={cn('space-y-6 md:space-y-8', className)} {...props}>
+    <section className={cn('space-y-4 md:space-y-5', className)} {...props}>
       {intro}
       {toolbar ? <div>{toolbar}</div> : null}
       <div
         className={cn(
-          'grid gap-6 md:gap-8',
+          'grid gap-4 md:gap-5',
           rail && 'xl:grid-cols-[minmax(0,1.14fr)_minmax(18rem,0.86fr)]',
           layout.desktopContentBalance === 'lead-first' && 'xl:items-start',
         )}
       >
-        <div className="min-w-0 space-y-6 md:space-y-8">{lead}</div>
+        <div className="min-w-0 space-y-4 md:space-y-5">{lead}</div>
         {rail ? (
           <aside
             className={cn(
-              'min-w-0 space-y-6',
+              'min-w-0 space-y-3.5 xl:border-l xl:border-border/70 xl:pl-4',
               layout.mobileRailPlacement === 'after-content' && 'order-2',
             )}
           >
@@ -223,7 +221,7 @@ export function ReportShell({
           </aside>
         ) : null}
       </div>
-      {children ? <div className="space-y-6 md:space-y-8">{children}</div> : null}
+      {children ? <div className="space-y-4 md:space-y-5">{children}</div> : null}
     </section>
   )
 }
@@ -236,7 +234,13 @@ export function ReportMetricGrid({
   ...props
 }: ReportMetricGridProps) {
   return (
-    <div className={cn('grid gap-4 sm:grid-cols-2 2xl:grid-cols-3', className)} {...props}>
+    <div
+      className={cn(
+        'grid gap-px overflow-hidden rounded-[0.95rem] border border-border/65 bg-border/60 sm:grid-cols-2 xl:grid-cols-3',
+        className,
+      )}
+      {...props}
+    >
       {children}
     </div>
   )
@@ -260,15 +264,21 @@ export function ReportMetricCard({
   ...props
 }: ReportMetricCardProps) {
   return (
-    <PagePanel tone="secondary" className={cn('h-full space-y-3', className)} {...props}>
+    <div
+      className={cn(
+        'h-full space-y-2.5 bg-background/82 px-4 py-3.5 dark:bg-card/84',
+        className,
+      )}
+      {...props}
+    >
       <div className="space-y-1.5">
         <p className="text-sm font-medium text-muted-foreground">{title}</p>
         {loading ? (
-          <div className="h-9 w-28 animate-pulse rounded-xl bg-slate-200/75 dark:bg-slate-800/75" />
+          <div className="h-8 w-28 animate-pulse rounded-lg bg-slate-200/75 dark:bg-slate-800/75" />
         ) : (
           <p
             title={valueTitle}
-            className="text-[clamp(1.36rem,2.3vw,1.95rem)] font-semibold leading-none tracking-[-0.022em] text-foreground"
+            className="text-[clamp(1.24rem,2vw,1.7rem)] font-semibold leading-none tracking-[-0.02em] text-foreground"
           >
             {value}
           </p>
@@ -280,8 +290,8 @@ export function ReportMetricCard({
         ) : (
           <p className="text-xs leading-5 text-muted-foreground">{description}</p>
         )
-      ) : null}
-    </PagePanel>
+        ) : null}
+    </div>
   )
 }
 
@@ -303,25 +313,25 @@ export function SectionHeader({
   return (
     <div
       className={cn(
-        'flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between',
+        'flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4',
         className,
       )}
       {...props}
     >
-      <div className="min-w-0 space-y-1.5">
+      <div className="min-w-0 space-y-1">
         {eyebrow ? (
-          <p className="text-[11px] font-medium tracking-[0.05em] text-muted-foreground">
+          <p className="text-[12px] font-medium tracking-[0.01em] text-muted-foreground">
             {eyebrow}
           </p>
         ) : null}
-        <h2 className="text-lg font-semibold tracking-[-0.018em] text-foreground">
+        <h2 className="text-[1.02rem] font-semibold tracking-[-0.016em] text-foreground">
           {title}
         </h2>
         {description ? (
-          <p className="text-sm leading-6 text-muted-foreground">{description}</p>
+          <p className="max-w-[62ch] text-sm leading-6 text-muted-foreground">{description}</p>
         ) : null}
       </div>
-      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
+      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-1.5">{actions}</div> : null}
     </div>
   )
 }
@@ -344,31 +354,32 @@ export function DashboardShell({
   return (
     <section
       className={cn(
-        'grid gap-6 md:gap-8',
-        rail && 'xl:grid-cols-[minmax(0,1.08fr)_minmax(19rem,0.92fr)] 2xl:grid-cols-[minmax(0,1.16fr)_minmax(20rem,0.84fr)]',
+        'grid gap-4 md:gap-5',
+        rail && 'xl:grid-cols-[minmax(0,1.12fr)_minmax(17.5rem,0.88fr)] 2xl:grid-cols-[minmax(0,1.18fr)_minmax(18.5rem,0.82fr)]',
         layout.desktopAlignment === 'start' && 'xl:items-start',
         className,
       )}
       {...props}
     >
-      <PagePanel
+      <div
         className={cn(
-          'relative order-1 overflow-hidden',
+          'relative order-1 min-w-0 border-b border-border/70 pb-3 md:pb-4',
           rail && 'xl:col-start-1 xl:row-start-1',
-          config.headerSurface === 'panel' && 'rounded-[1.35rem] p-6 sm:p-7 lg:p-8',
+          config.headerSurface === 'section' && 'page-panel-surface rounded-[1rem] p-4 sm:p-5',
         )}
       >
         <div className="relative">{intro}</div>
-      </PagePanel>
-      <div className={cn('order-2 min-w-0 space-y-6 md:space-y-8', rail && 'xl:order-3 xl:col-span-2')}>
+      </div>
+      <div className={cn('order-2 min-w-0 space-y-4 md:space-y-5', rail && 'xl:col-start-1 xl:row-start-2')}>
         {children}
       </div>
       {rail ? (
         <div
           className={cn(
-            'min-w-0 space-y-4',
+            'min-w-0 space-y-3.5',
             layout.mobileRailPlacement === 'after-content' ? 'order-3' : 'order-2',
-            'xl:order-2 xl:col-start-2 xl:row-start-1',
+            'xl:order-2 xl:col-start-2 xl:row-span-2 xl:row-start-1',
+            layout.railTone === 'attached' && 'xl:border-l xl:border-border/70 xl:pl-5',
           )}
         >
           {rail}
@@ -385,9 +396,16 @@ export function DashboardMetricGrid({
   children,
   ...props
 }: DashboardMetricGridProps) {
+  const overview = describeDashboardOverviewLayout()
+
   return (
     <div
-      className={cn('grid gap-4 sm:grid-cols-2 2xl:grid-cols-4', className)}
+      className={cn(
+        overview.metricPresentation === 'strip' &&
+          'grid gap-px overflow-hidden rounded-[0.95rem] border border-border/70 bg-border/70 sm:grid-cols-2 2xl:grid-cols-4',
+        overview.metricPresentation !== 'strip' && 'grid gap-3 sm:grid-cols-2 2xl:grid-cols-4',
+        className,
+      )}
       {...props}
     >
       {children}
@@ -417,29 +435,35 @@ export function DashboardMetricCard({
   ...props
 }: DashboardMetricCardProps) {
   return (
-    <PagePanel className={cn('h-full space-y-4', className)} {...props}>
+    <div
+      className={cn(
+        'h-full space-y-4 bg-background/78 px-4 py-4 dark:bg-card/82',
+        className,
+      )}
+      {...props}
+    >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1.5">
+        <div className="min-w-0 space-y-1">
           {eyebrow ? (
-            <p className="text-[11px] font-medium tracking-[0.05em] text-muted-foreground">
+            <p className="text-[11px] font-medium tracking-[0.01em] text-muted-foreground">
               {eyebrow}
             </p>
           ) : null}
-          <p className="text-sm font-medium text-foreground/82">{title}</p>
+          <p className="text-[13px] font-medium text-foreground/82">{title}</p>
         </div>
         {icon ? (
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background/78 text-muted-foreground">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[0.7rem] border border-border/60 bg-background/52 text-muted-foreground">
             {icon}
           </div>
         ) : null}
       </div>
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {loading ? (
-          <div className="h-10 w-32 animate-pulse rounded-xl bg-slate-200/75 dark:bg-slate-800/75" />
+          <div className="h-9 w-32 animate-pulse rounded-lg bg-slate-200/75 dark:bg-slate-800/75" />
         ) : (
           <p
             title={valueTitle}
-            className="text-[clamp(1.6rem,2.8vw,2.2rem)] font-semibold leading-none tracking-[-0.026em] text-foreground"
+            className="text-[clamp(1.45rem,2.1vw,1.95rem)] font-semibold leading-none tracking-[-0.024em] text-foreground"
           >
             {value}
           </p>
@@ -448,10 +472,10 @@ export function DashboardMetricCard({
           loading ? (
             <div className="h-3.5 w-40 animate-pulse rounded bg-slate-200/70 dark:bg-slate-800/70" />
           ) : (
-            <p className="text-xs leading-5 text-muted-foreground">{description}</p>
+            <p className="text-[12px] leading-5 text-muted-foreground">{description}</p>
           )
         ) : null}
       </div>
-    </PagePanel>
+    </div>
   )
 }

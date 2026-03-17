@@ -6,22 +6,23 @@ import * as pageArchetypes from './page-archetypes.ts'
 
 import {
   describeAuthShellLayout,
+  describeDashboardOverviewLayout,
   describeDashboardShellLayout,
   describePageRegions,
   resolvePageArchetype,
   type PageArchetype,
 } from './page-archetypes.ts'
 
-test('resolvePageArchetype gives auth a controlled stage rather than a branded showcase', () => {
+test('resolvePageArchetype gives auth a controlled single-workspace posture instead of a showcase split', () => {
   const archetype = resolvePageArchetype('auth')
 
   assert.equal(archetype.name, 'auth')
-  assert.equal(archetype.introStyle, 'stage')
-  assert.equal(archetype.headerSurface, 'stage')
-  assert.equal(archetype.stageMode, 'split')
+  assert.equal(archetype.introStyle, 'compact')
+  assert.equal(archetype.headerSurface, 'plain')
+  assert.equal(archetype.stageMode, 'inline')
   assert.equal(archetype.primaryZone, 'form')
   assert.equal(archetype.effectProfile, 'controlled')
-  assert.equal(archetype.surfaceTone, 'refined')
+  assert.equal(archetype.surfaceTone, 'framed')
   assert.equal(archetype.mobile.stageCompression, 'condense')
   assert.equal(archetype.mobile.primaryFirst, true)
 })
@@ -31,7 +32,7 @@ test('resolvePageArchetype keeps workspace compact, quiet, and task-first', () =
 
   assert.equal(archetype.name, 'workspace')
   assert.equal(archetype.introStyle, 'compact')
-  assert.equal(archetype.headerSurface, 'panel')
+  assert.equal(archetype.headerSurface, 'plain')
   assert.equal(archetype.primaryZone, 'task')
   assert.equal(archetype.secondaryDensity, 'summary-first')
   assert.equal(archetype.surfaceTone, 'quiet')
@@ -40,14 +41,14 @@ test('resolvePageArchetype keeps workspace compact, quiet, and task-first', () =
   assert.equal(archetype.mobile.stageCompression, 'hide')
 })
 
-test('resolvePageArchetype keeps dashboard editorial but non-theatrical', () => {
+test('resolvePageArchetype keeps dashboard continuous and non-theatrical', () => {
   const archetype = resolvePageArchetype('dashboard')
 
   assert.equal(archetype.name, 'dashboard')
   assert.equal(archetype.introStyle, 'compact')
-  assert.equal(archetype.headerSurface, 'panel')
-  assert.equal(archetype.stageMode, 'inline')
-  assert.equal(archetype.surfaceTone, 'refined')
+  assert.equal(archetype.headerSurface, 'plain')
+  assert.equal(archetype.stageMode, 'none')
+  assert.equal(archetype.surfaceTone, 'continuous')
   assert.equal(archetype.secondaryDensity, 'balanced')
   assert.equal(archetype.effectProfile, 'restrained')
 })
@@ -64,12 +65,19 @@ test('resolvePageArchetype falls back to settings for unknown variants', () => {
   assert.equal(archetype.mobile.primaryFirst, true)
 })
 
-test('describePageRegions keeps auth emphasis controlled and workspace summary after the main task', () => {
+test('describePageRegions keeps auth singular, dashboard attached, and workspace summary after the main task', () => {
   assert.deepEqual(describePageRegions('auth'), {
     introAlignment: 'start',
-    contentLayout: 'split',
+    contentLayout: 'stack',
     secondaryPlacement: 'after',
     stageEmphasis: 'controlled',
+  })
+
+  assert.deepEqual(describePageRegions('dashboard'), {
+    introAlignment: 'between',
+    contentLayout: 'stack',
+    secondaryPlacement: 'aside',
+    stageEmphasis: 'low',
   })
 
   assert.deepEqual(describePageRegions('workspace'), {
@@ -80,28 +88,40 @@ test('describePageRegions keeps auth emphasis controlled and workspace summary a
   })
 })
 
-test('dashboard keeps a more expressive surface tone than settings under the reset baseline', () => {
+test('dashboard keeps a more editorial structure than settings without regressing to stage surfaces', () => {
   const dashboard = resolvePageArchetype('dashboard')
   const settings = resolvePageArchetype('settings')
 
-  assert.equal(dashboard.surfaceTone, 'refined')
+  assert.equal(dashboard.surfaceTone, 'continuous')
   assert.equal(dashboard.effectProfile, 'restrained')
   assert.equal(settings.surfaceTone, 'quiet')
   assert.equal(settings.effectProfile, 'none')
 })
 
-test('describeAuthShellLayout keeps the form primary and demotes brand points into a quiet supporting panel', () => {
+test('describeAuthShellLayout keeps login as a single workspace surface with compact supporting copy', () => {
   assert.deepEqual(describeAuthShellLayout(), {
-    formPanelTone: 'primary',
-    brandPanelTone: 'secondary',
-    pointsStyle: 'list',
+    shellMode: 'single-surface',
+    brandPlacement: 'header',
+    supportStyle: 'inline',
+    footerNotePlacement: 'footer',
   })
 })
 
-test('describeDashboardShellLayout keeps dashboard metrics ahead of the rail on mobile and avoids stretched headers on desktop', () => {
+test('describeDashboardShellLayout keeps the rail attached and the header compressed', () => {
   assert.deepEqual(describeDashboardShellLayout(), {
     mobileRailPlacement: 'after-content',
     desktopAlignment: 'start',
+    railTone: 'attached',
+    headerStyle: 'compressed',
+  })
+})
+
+test('describeDashboardOverviewLayout keeps dashboard metrics in a strip and actions context-like instead of CTA-like', () => {
+  assert.deepEqual(describeDashboardOverviewLayout(), {
+    metricPresentation: 'strip',
+    actionDensity: 'tight',
+    filterTreatment: 'inline-rail',
+    pulseTreatment: 'annotated-list',
   })
 })
 

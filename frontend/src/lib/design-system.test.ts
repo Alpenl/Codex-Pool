@@ -10,99 +10,99 @@ import {
   resolveTableChrome,
 } from './design-system.ts'
 
-test('resolveDesignLanguage returns a restrained mineral palette for light mode', () => {
+test('resolveDesignLanguage returns a structure-first workspace palette for light mode', () => {
   const language = resolveDesignLanguage('light')
 
   assert.equal(language.mode, 'light')
-  assert.equal(language.palette.neutralFamily, 'stone-graphite')
-  assert.equal(language.palette.accentFamily, 'oxide-blue')
-  assert.equal(language.palette.canvasTone, 'paper')
-  assert.equal(language.radius.control, '12px')
-  assert.equal(language.radius.panel, '20px')
-  assert.equal(language.shadow.panel, 'resting')
-  assert.equal(language.shadow.stage, 'settled')
-  assert.equal(language.density.controls, 'compact')
+  assert.equal(language.palette.neutralFamily, 'paper-slate')
+  assert.equal(language.palette.accentFamily, 'ink-steel')
+  assert.equal(language.palette.canvasTone, 'folio')
+  assert.equal(language.radius.control, '10px')
+  assert.equal(language.radius.panel, '16px')
+  assert.equal(language.shadow.panel, 'flush')
+  assert.equal(language.shadow.stage, 'shelf')
+  assert.equal(language.density.controls, 'dense')
 })
 
-test('resolveDesignLanguage keeps the same visual family in dark mode without becoming neon', () => {
+test('resolveDesignLanguage keeps the same structural family in dark mode without turning glossy', () => {
   const language = resolveDesignLanguage('dark')
 
   assert.equal(language.mode, 'dark')
-  assert.equal(language.palette.neutralFamily, 'stone-graphite')
-  assert.equal(language.palette.accentFamily, 'oxide-blue')
-  assert.equal(language.palette.canvasTone, 'ink')
-  assert.equal(language.shadow.panel, 'deep-resting')
-  assert.equal(language.shadow.stage, 'deep-settled')
-  assert.equal(language.density.panels, 'measured')
+  assert.equal(language.palette.neutralFamily, 'paper-slate')
+  assert.equal(language.palette.accentFamily, 'ink-steel')
+  assert.equal(language.palette.canvasTone, 'night')
+  assert.equal(language.shadow.panel, 'anchored')
+  assert.equal(language.shadow.stage, 'deep-shelf')
+  assert.equal(language.density.panels, 'tight')
 })
 
 test('resolveDesignLanguage falls back to the light redesign baseline for unknown modes', () => {
   const language = resolveDesignLanguage('sepia')
 
   assert.equal(language.mode, 'light')
-  assert.equal(language.palette.accentFamily, 'oxide-blue')
-  assert.equal(language.radius.stage, '28px')
+  assert.equal(language.palette.accentFamily, 'ink-steel')
+  assert.equal(language.radius.stage, '22px')
 })
 
-test('resolveSurfaceRecipe returns shared panel, muted panel, stage, and sidebar material recipes', () => {
+test('resolveSurfaceRecipe returns continuous workspace recipes instead of material showcase recipes', () => {
   assert.deepEqual(resolveSurfaceRecipe('panel', 'light'), {
     kind: 'panel',
-    emphasis: 'medium',
-    border: 'etched',
-    background: 'vellum',
-    shadow: 'resting',
-    temperature: 'warm',
+    emphasis: 'structured',
+    border: 'divider',
+    background: 'section',
+    shadow: 'trace',
+    temperature: 'paper',
   })
 
   assert.deepEqual(resolveSurfaceRecipe('panel-muted', 'light'), {
     kind: 'panel-muted',
     emphasis: 'low',
-    border: 'soft',
-    background: 'powder',
-    shadow: 'barely-there',
-    temperature: 'warm',
+    border: 'quiet',
+    background: 'canvas',
+    shadow: 'none',
+    temperature: 'paper',
   })
 
   assert.deepEqual(resolveSurfaceRecipe('stage', 'dark'), {
     kind: 'stage',
-    emphasis: 'controlled',
-    border: 'etched',
-    background: 'matte',
-    shadow: 'deep-settled',
+    emphasis: 'structured',
+    border: 'gridline',
+    background: 'worktop',
+    shadow: 'deep-shelf',
     temperature: 'neutral',
   })
 
   assert.deepEqual(resolveSurfaceRecipe('sidebar', 'dark'), {
     kind: 'sidebar',
     emphasis: 'low',
-    border: 'soft',
-    background: 'cabinet',
+    border: 'divider',
+    background: 'frame',
     shadow: 'none',
     temperature: 'neutral',
   })
 })
 
-test('resolveSurfaceRecipe keeps panel tiers restrained while giving stage and sidebar their own material role', () => {
+test('resolveSurfaceRecipe keeps workspace tiers continuous and avoids floating panel semantics', () => {
   const panel = resolveSurfaceRecipe('panel', 'dark')
   const mutedPanel = resolveSurfaceRecipe('panel-muted', 'dark')
   const stage = resolveSurfaceRecipe('stage', 'light')
   const sidebar = resolveSurfaceRecipe('sidebar', 'light')
 
-  assert.equal(panel.shadow, 'deep-resting')
-  assert.equal(mutedPanel.shadow, 'barely-there')
+  assert.equal(panel.shadow, 'anchored')
+  assert.equal(mutedPanel.shadow, 'none')
   assert.equal(mutedPanel.emphasis, 'low')
-  assert.equal(stage.emphasis, 'controlled')
-  assert.equal(stage.temperature, 'warm')
-  assert.equal(sidebar.background, 'cabinet')
+  assert.equal(stage.emphasis, 'structured')
+  assert.equal(stage.temperature, 'paper')
+  assert.equal(sidebar.background, 'frame')
 })
 
 test('resolveControlChrome maps primary, outline, and ghost controls to distinct interaction roles', () => {
   assert.deepEqual(resolveControlChrome('default'), {
     kind: 'default',
     emphasis: 'high',
-    palette: 'oxide-blue',
-    surface: 'ink-solid',
-    radius: '12px',
+    palette: 'ink-steel',
+    surface: 'solid',
+    radius: '10px',
     focus: 'ring',
   })
 
@@ -111,7 +111,7 @@ test('resolveControlChrome maps primary, outline, and ghost controls to distinct
     emphasis: 'medium',
     palette: 'graphite',
     surface: 'lined',
-    radius: '12px',
+    radius: '10px',
     focus: 'ring',
   })
 
@@ -119,31 +119,31 @@ test('resolveControlChrome maps primary, outline, and ghost controls to distinct
     kind: 'ghost',
     emphasis: 'low',
     palette: 'graphite',
-    surface: 'quiet',
-    radius: '12px',
+    surface: 'subtle',
+    radius: '10px',
     focus: 'ring',
   })
 })
 
-test('resolveTableChrome keeps toolbar, header, and row surfaces separate', () => {
+test('resolveTableChrome keeps toolbar, header, and row surfaces closer to structured workbars than decorated trays', () => {
   assert.deepEqual(resolveTableChrome('toolbar'), {
     kind: 'toolbar',
-    surface: 'tool-plate',
-    border: 'soft',
-    emphasis: 'medium',
+    surface: 'workbar',
+    border: 'divider',
+    emphasis: 'low',
   })
 
   assert.deepEqual(resolveTableChrome('header'), {
     kind: 'header',
-    surface: 'linen-strip',
-    border: 'soft',
+    surface: 'rule-strip',
+    border: 'divider',
     emphasis: 'low',
   })
 
   assert.deepEqual(resolveTableChrome('row'), {
     kind: 'row',
     surface: 'quiet-row',
-    border: 'etched',
+    border: 'quiet',
     emphasis: 'low',
   })
 })

@@ -246,7 +246,7 @@ export function AppLayout({
                     aria-modal={mobileSidebarOpen ? true : undefined}
                     aria-label={t('nav.mainNavigation', { defaultValue: 'Main navigation' })}
                     className={cn(
-                        "relative flex shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar/96 z-40 supports-[backdrop-filter]:bg-sidebar/88 supports-[backdrop-filter]:backdrop-blur-xl",
+                        "relative flex shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar z-40",
                         "fixed inset-y-0 left-0 w-56 transform transition-transform md:static md:translate-x-0",
                         sidebarCollapsed ? "md:w-20" : "md:w-56",
                         mobileSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
@@ -254,15 +254,15 @@ export function AppLayout({
                 >
                     <div
                         className={cn(
-                            "relative z-[1] flex shrink-0 items-center justify-start border-b border-sidebar-border/80 bg-sidebar/94",
-                            sidebarCollapsed ? "h-16 px-3 pr-10" : "h-20 px-4 pr-12",
+                            "relative z-[1] flex shrink-0 items-center justify-start border-b border-sidebar-border/80 bg-sidebar",
+                            sidebarCollapsed ? "h-[3.75rem] px-3 pr-10" : "h-[4.5rem] px-4 pr-12",
                         )}
                     >
                         <div className="relative z-[1] flex min-w-0 flex-1 items-center justify-start gap-3.5 pr-2">
                             <div
                                 className={cn(
-                                    "relative flex shrink-0 items-center justify-start rounded-[0.95rem] border border-sidebar-border/80 bg-background/76",
-                                    sidebarCollapsed ? "h-10 w-10" : "h-11 w-11",
+                                    "relative flex shrink-0 items-center justify-start rounded-[0.8rem] border border-sidebar-border/80 bg-background/72",
+                                    sidebarCollapsed ? "h-10 w-10" : "h-10 w-10",
                                 )}
                             >
                                 <img
@@ -277,7 +277,7 @@ export function AppLayout({
                             </div>
                             {!sidebarCollapsed ? (
                                 <div className="min-w-0 flex-1">
-                                    <h1 className="max-h-[2.5rem] overflow-hidden break-words text-[13px] font-semibold leading-5 tracking-[0.01em] text-sidebar-foreground">
+                                    <h1 className="max-h-[2.5rem] overflow-hidden break-words text-[13px] font-semibold leading-5 tracking-[0.005em] text-sidebar-foreground">
                                         {appName}
                                     </h1>
                                 </div>
@@ -299,16 +299,16 @@ export function AppLayout({
 
                     <nav
                         aria-label={t('nav.mainNavigation', { defaultValue: 'Main navigation' })}
-                        className={cn("flex-1 overflow-y-auto py-6 scrollbar-none", sidebarCollapsed ? "space-y-4" : "space-y-7")}
+                        className={cn("flex-1 overflow-y-auto py-5 scrollbar-none", sidebarCollapsed ? "space-y-4" : "space-y-6")}
                     >
                         {visibleMenuGroups.map((group, i) => (
                             <div key={i} className={cn(sidebarCollapsed ? "px-2" : "px-4")}>
                                 {!sidebarCollapsed ? (
-                                    <h2 className="mb-2 px-2 text-[11px] font-medium tracking-[0.05em] text-muted-foreground/78">
+                                    <h2 className="mb-2 px-2 text-[11px] font-medium tracking-[0.01em] text-muted-foreground/78">
                                         {group.label}
                                     </h2>
                                 ) : null}
-                                <ul className="space-y-0.5">
+                                <ul className="space-y-1">
                                     {group.items.map(item => (
                                         <li key={item.path}>
                                             <NavLink
@@ -317,11 +317,11 @@ export function AppLayout({
                                                 onClick={() => setMobileSidebarOpen(false)}
                                                 className={({ isActive }) =>
                                                     cn(
-                                                        "group relative flex items-center rounded-[0.95rem] border border-transparent text-sm font-medium transition-[background-color,border-color,color]",
-                                                        sidebarCollapsed ? "justify-center px-2 py-2.5" : "px-3 py-2",
+                                                        "group relative flex items-center rounded-[0.8rem] border text-sm font-medium transition-[background-color,border-color,color,box-shadow]",
+                                                        sidebarCollapsed ? "justify-center px-2 py-2.5" : "px-3 py-2.5",
                                                         isActive
-                                                            ? "border-sidebar-border bg-background/80 text-foreground"
-                                                            : "text-muted-foreground hover:border-sidebar-border/70 hover:bg-background/56 hover:text-foreground"
+                                                            ? "border-sidebar-border bg-background/84 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]"
+                                                            : "border-transparent text-muted-foreground hover:border-sidebar-border/70 hover:bg-background/50 hover:text-foreground"
                                                     )
                                                 }
                                             >
@@ -330,14 +330,14 @@ export function AppLayout({
                                                         {isActive && (
                                                             <motion.div
                                                                 layoutId="activeNavIndicator"
-                                                                className="absolute inset-y-[5px] left-0 w-[2px] rounded-full bg-primary"
+                                                                className="absolute inset-y-[7px] left-[6px] w-[2px] rounded-full bg-primary"
                                                                 initial={false}
                                                                 transition={{ duration: 0.18 }}
                                                             />
                                                         )}
                                                         <item.icon className={cn("relative z-10 h-4 w-4", !sidebarCollapsed && "mr-2.5", isActive && "text-primary")} />
                                                         {!sidebarCollapsed ? (
-                                                            <span className="relative z-10">{item.label}</span>
+                                                            <span className="relative z-10 truncate">{item.label}</span>
                                                         ) : null}
                                                     </>
                                                 )}
@@ -358,7 +358,7 @@ export function AppLayout({
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="hidden h-7 w-7 rounded-[0.7rem] border border-sidebar-border/80 bg-background/60 text-muted-foreground hover:bg-background/82 hover:text-foreground md:inline-flex"
+                                className="hidden h-7 w-7 rounded-[0.7rem] border border-sidebar-border/80 bg-background/50 text-muted-foreground hover:bg-background/72 hover:text-foreground md:inline-flex"
                                 onClick={() => setSidebarCollapsed((prev) => !prev)}
                                 aria-label={sidebarCollapsed ? t('common.expandSidebar') : t('common.collapseSidebar')}
                                 title={sidebarCollapsed ? t('common.expandSidebar') : t('common.collapseSidebar')}
@@ -370,9 +370,9 @@ export function AppLayout({
                 </motion.aside>
 
                 {/* Main Content */}
-                <main id="main-content" tabIndex={-1} className="flex-1 bg-transparent relative overflow-hidden flex flex-col z-20">
+                <main id="main-content" tabIndex={-1} className="relative z-20 flex flex-1 flex-col overflow-hidden bg-transparent">
                     {/* Top Action Header */}
-                    <header className="h-14 flex items-center justify-between gap-3 border-b border-border/50 bg-background/84 px-4 supports-[backdrop-filter]:bg-background/78 supports-[backdrop-filter]:backdrop-blur-xl sm:px-6 lg:px-8">
+                    <header className="flex h-14 items-center justify-between gap-3 border-b border-border/60 bg-background/88 px-4 sm:px-6 lg:px-8">
                         <div className="md:hidden">
                             <Button
                                 ref={mobileOpenButtonRef}
@@ -388,7 +388,7 @@ export function AppLayout({
                                 <Menu className="h-4 w-4" />
                             </Button>
                         </div>
-                        <div className="ml-auto flex items-center gap-3">
+                        <div className="ml-auto flex items-center gap-2.5">
                             <LanguageToggle />
                             <ThemeToggle />
                             <Button
