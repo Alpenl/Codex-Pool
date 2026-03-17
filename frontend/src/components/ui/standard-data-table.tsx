@@ -167,8 +167,8 @@ export function StandardDataTable<TData, TValue>({
   }
 
   return (
-    <div className={cn('rounded-xl border border-border/60 bg-card shadow-sm flex h-full flex-col overflow-hidden', className)}>
-      <div className="flex flex-col gap-3 border-b border-border/60 bg-muted/20 p-3 lg:flex-row lg:items-center lg:justify-between">
+    <div className={cn('flex h-full flex-col overflow-hidden rounded-[1.45rem] border border-border/70 bg-card shadow-[0_18px_40px_rgba(15,23,42,0.06)] dark:border-white/9 dark:shadow-[0_18px_40px_rgba(2,8,16,0.24)]', className)}>
+      <div className="flex flex-col gap-3 border-b border-border/70 bg-[linear-gradient(180deg,rgba(242,246,245,0.92),rgba(248,250,250,0.8))] p-3.5 lg:flex-row lg:items-center lg:justify-between dark:bg-[linear-gradient(180deg,rgba(25,34,39,0.88),rgba(21,29,34,0.76))]">
         <div className="flex flex-wrap items-center gap-2 min-w-0">{filters}</div>
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
           {actions}
@@ -199,7 +199,7 @@ export function StandardDataTable<TData, TValue>({
             density === 'compact' && '[&_th]:h-8 [&_th]:px-2 [&_td]:px-2 [&_td]:py-1.5 [&_td]:text-xs',
           )}
         >
-          <TableHeader className="sticky top-0 z-10 bg-muted/40 backdrop-blur supports-[backdrop-filter]:bg-muted/30">
+          <TableHeader className="sticky top-0 z-10 bg-[rgba(239,244,243,0.92)] backdrop-blur supports-[backdrop-filter]:bg-[rgba(239,244,243,0.78)] dark:bg-[rgba(31,40,46,0.92)] dark:supports-[backdrop-filter]:bg-[rgba(31,40,46,0.78)]">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
@@ -216,7 +216,7 @@ export function StandardDataTable<TData, TValue>({
                           type="button"
                           variant="ghost"
                           size="sm"
-                          className="-ml-2 h-8 px-2 font-medium"
+                          className="-ml-2 h-8 px-2 font-medium text-foreground/78 hover:bg-background/75 dark:hover:bg-white/[0.06]"
                           onClick={header.column.getToggleSortingHandler()}
                         >
                           <span>
@@ -246,7 +246,7 @@ export function StandardDataTable<TData, TValue>({
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && 'selected'}
-                  className={cn('hover:bg-primary/5 transition-colors', resolvedRowClassName)}
+                  className={cn('border-b border-border/50 hover:bg-primary/[0.045] transition-colors dark:border-white/6 dark:hover:bg-white/[0.035]', resolvedRowClassName)}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
@@ -270,7 +270,7 @@ export function StandardDataTable<TData, TValue>({
         </Table>
       </div>
 
-      <div className="flex flex-col gap-3 border-t border-border/60 bg-muted/20 px-3 py-3 text-xs text-muted-foreground xl:flex-row xl:items-center xl:justify-between">
+      <div className="flex flex-col gap-3 border-t border-border/70 bg-[linear-gradient(180deg,rgba(246,248,248,0.92),rgba(251,252,251,0.84))] px-3.5 py-3 text-xs text-muted-foreground xl:flex-row xl:items-center xl:justify-between dark:bg-[linear-gradient(180deg,rgba(22,29,34,0.86),rgba(18,24,29,0.8))]">
         <div className="tabular-nums">
           {t('common.table.range', {
             start: startRow,
@@ -288,7 +288,7 @@ export function StandardDataTable<TData, TValue>({
             }}
           >
             <SelectTrigger
-              className="h-8 w-[92px] bg-background"
+              className="h-8 w-[92px]"
               size="sm"
               aria-label={t('common.table.rowsPerPage')}
             >
@@ -368,7 +368,7 @@ export function StandardDataTable<TData, TValue>({
                 }
               }}
               inputMode="numeric"
-              className="h-8 w-20 bg-background"
+              className="h-8 w-20"
               placeholder="1"
               aria-label={t('common.table.jumpToPage')}
               autoComplete="off"

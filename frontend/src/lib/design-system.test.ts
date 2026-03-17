@@ -3,7 +3,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { resolveDesignLanguage, resolveSurfaceRecipe } from './design-system.ts'
+import {
+  resolveControlChrome,
+  resolveDesignLanguage,
+  resolveSurfaceRecipe,
+  resolveTableChrome,
+} from './design-system.ts'
 
 test('resolveDesignLanguage returns a restrained mineral palette for light mode', () => {
   const language = resolveDesignLanguage('light')
@@ -88,4 +93,56 @@ test('resolveSurfaceRecipe keeps panel tiers restrained while giving stage and s
   assert.equal(stage.emphasis, 'high')
   assert.equal(stage.temperature, 'cool')
   assert.equal(sidebar.background, 'chrome')
+})
+
+test('resolveControlChrome maps primary, outline, and ghost controls to distinct interaction roles', () => {
+  assert.deepEqual(resolveControlChrome('default'), {
+    kind: 'default',
+    emphasis: 'high',
+    palette: 'mineral-teal',
+    surface: 'filled',
+    radius: '14px',
+    focus: 'ring',
+  })
+
+  assert.deepEqual(resolveControlChrome('outline'), {
+    kind: 'outline',
+    emphasis: 'medium',
+    palette: 'graphite',
+    surface: 'tinted-outline',
+    radius: '14px',
+    focus: 'ring',
+  })
+
+  assert.deepEqual(resolveControlChrome('ghost'), {
+    kind: 'ghost',
+    emphasis: 'low',
+    palette: 'graphite',
+    surface: 'quiet',
+    radius: '14px',
+    focus: 'ring',
+  })
+})
+
+test('resolveTableChrome keeps toolbar, header, and row surfaces separate', () => {
+  assert.deepEqual(resolveTableChrome('toolbar'), {
+    kind: 'toolbar',
+    surface: 'muted-panel',
+    border: 'soft',
+    emphasis: 'medium',
+  })
+
+  assert.deepEqual(resolveTableChrome('header'), {
+    kind: 'header',
+    surface: 'tinted-strip',
+    border: 'soft',
+    emphasis: 'low',
+  })
+
+  assert.deepEqual(resolveTableChrome('row'), {
+    kind: 'row',
+    surface: 'interactive-row',
+    border: 'defined',
+    emphasis: 'low',
+  })
 })
