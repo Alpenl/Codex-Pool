@@ -310,6 +310,8 @@ git commit -m "docs(frontend): record page archetype rollout" -m "Capture the de
 - `Logs` 与 `TenantLogsPage` 已迁移到共享 `workspace/detail` 节奏，统一使用 `PageIntro / PagePanel / SectionHeader`，让 tab 带、过滤区和活动表格形成稳定的排障工作流。
 - `frontend/src/lib/page-archetypes.ts` 已补充 `describeLogsWorkbenchLayout()`，约束日志页遵循 `intro -> toolbar -> active panel` 顺序，并把筛选留在当前 tab 的主面板内。
 - `frontend/src/features/logs/filter-controls.tsx` 已新增 `LogsFilterField`，把原本只靠 placeholder 的筛选器收拢为带可见标签的过滤表单，移动端可扫读性明显更稳定。
+- `Accounts` 已迁移到共享 `workspace` 节奏，主动作从表格工具栏上移到页头，筛选和批量操作集中到独立控制面板，移动端形成 `actions -> filters -> table` 的稳定顺序。
+- `frontend/src/lib/page-archetypes.ts` 已补充 `describeAccountsWorkspaceLayout()`，约束账号池在移动端先呈现主动作，再呈现过滤与批量操作，不再把所有控制项挤进同一层表格工具栏。
 - `tenantUsage` 与 `usage` 相关多语言文案已同步修正，移除日文/俄文中的占位翻译，并校正 admin Usage 图表语义。
 - 最终验证通过：
   - `cd frontend && node --test src/lib/page-archetypes.test.ts src/components/ui/trend-chart-core.test.ts src/components/threads-utils.test.ts src/lib/dashboard-chart-a11y.test.ts`
@@ -334,3 +336,5 @@ git commit -m "docs(frontend): record page archetype rollout" -m "Capture the de
   - `/tmp/admin-logs-after-mobile-20260317.png`
   - `/tmp/tenant-logs-after-desktop-20260317.png`
   - `/tmp/tenant-logs-after-mobile-20260317.png`
+  - `/tmp/accounts-after-desktop-20260317.png`
+  - `/tmp/accounts-after-mobile-20260317.png`
