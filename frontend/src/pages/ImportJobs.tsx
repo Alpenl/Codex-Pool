@@ -23,11 +23,13 @@ import {
   type OAuthImportJobSummary,
 } from '@/api/importJobs'
 import AnimatedContent from '@/components/AnimatedContent'
-import ShinyText from '@/components/ShinyText'
-import Threads from '@/components/Threads'
+import {
+  PageIntro,
+  PagePanel,
+  WorkspaceShell,
+} from '@/components/layout/page-archetypes'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { StandardDataTable } from '@/components/ui/standard-data-table'
 import { cn } from '@/lib/utils'
@@ -582,35 +584,40 @@ export default function ImportJobs() {
       transition={{ duration: 0.35 }}
       className="flex-1 space-y-6 overflow-y-auto px-4 py-6 md:px-8 md:py-8"
     >
-      <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-br from-card via-card to-primary/5 shadow-sm">
-        <div className="pointer-events-none absolute inset-0 opacity-35">
-          <Threads color={[0.2, 0.45, 0.95]} amplitude={1.2} distance={0.2} />
-        </div>
-        <div className="relative z-10 space-y-3 p-6 md:p-8">
-          <ShinyText
-            text={t('importJobs.title')}
-            speed={4}
-            className="text-3xl font-bold tracking-tight text-foreground"
-            color="#7f8ca5"
-            shineColor="#ffffff"
+      <WorkspaceShell
+        intro={(
+          <PageIntro
+            archetype="workspace"
+            eyebrow={t('nav.importJobs')}
+            title={t('importJobs.title')}
+            description={t('importJobs.subtitleModern')}
+            meta={(
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                <span>{t('importJobs.dropzone.acceptsNew')}</span>
+                <span>
+                  {t('importJobs.workspace.totalFiles', { count: reviewStats.total })} ·{' '}
+                  {t('importJobs.workspace.totalSize', { size: formatBytes(reviewStats.totalBytes) })}
+                </span>
+              </div>
+            )}
           />
-          <p className="max-w-3xl text-sm text-muted-foreground">{t('importJobs.subtitleModern')}</p>
-          <p className="text-xs text-muted-foreground">{t('importJobs.dropzone.acceptsNew')}</p>
-        </div>
-      </section>
+        )}
+        primary={(
+          <AnimatedContent>
+            <PagePanel className="space-y-5">
+              <div className="space-y-2">
+                <h2 className="text-2xl font-semibold tracking-[-0.03em] text-slate-950 dark:text-slate-50">
+                  {t('importJobs.workspace.title')}
+                </h2>
+                <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+                  {t('importJobs.workspace.desc')}
+                </p>
+              </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-        <AnimatedContent className="space-y-6">
-          <Card className="border-border/60 shadow-sm">
-            <CardHeader>
-              <CardTitle>{t('importJobs.workspace.title')}</CardTitle>
-              <CardDescription>{t('importJobs.workspace.desc')}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
               <div
                 className={cn(
-                  'rounded-xl border-2 border-dashed p-6 transition-colors',
-                  isDragging ? 'border-primary bg-primary/5' : 'border-border/70 bg-card/60',
+                  'rounded-[1.4rem] border border-dashed p-6 transition-colors sm:p-7',
+                  isDragging ? 'border-primary bg-primary/5' : 'border-border/70 bg-card/55',
                   (uploadMutation.isPending || isInspectingFiles) && 'pointer-events-none opacity-80',
                 )}
                 onDragEnter={handleDropZoneDrag}
@@ -635,15 +642,26 @@ export default function ImportJobs() {
                   }}
                 />
 
-                <div className="flex flex-col items-center text-center">
-                  {isInspectingFiles ? (
-                    <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                  ) : (
-                    <UploadCloud className="h-10 w-10 text-primary" />
-                  )}
-                  <h3 className="mt-4 text-lg font-semibold">{t('importJobs.dropzone.titleNew')}</h3>
-                  <p className="mt-2 text-sm text-muted-foreground">{t('importJobs.dropzone.acceptsNew')}</p>
-                  <div className="mt-5 flex flex-wrap justify-center gap-2">
+                <div className="flex flex-col items-start gap-5 text-left">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-border/70 bg-background/80">
+                      {isInspectingFiles ? (
+                        <Loader2 className="h-7 w-7 animate-spin text-primary" />
+                      ) : (
+                        <UploadCloud className="h-7 w-7 text-primary" />
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="text-lg font-semibold text-foreground">
+                        {t('importJobs.dropzone.titleNew')}
+                      </h3>
+                      <p className="text-sm text-muted-foreground">
+                        {t('importJobs.dropzone.acceptsNew')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex w-full flex-wrap gap-2">
                     <Button type="button" onClick={() => fileInputRef.current?.click()}>
                       {t('importJobs.dropzone.selectFiles')}
                     </Button>
@@ -656,14 +674,14 @@ export default function ImportJobs() {
               </div>
 
               {uploadError ? (
-                <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                <div className="flex items-start gap-2 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                   <div>{uploadError}</div>
                 </div>
               ) : null}
 
               {uploadNotice ? (
-                <div className="flex items-start gap-2 rounded-md border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
+                <div className="flex items-start gap-2 rounded-2xl border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
                   <div>{uploadNotice}</div>
                 </div>
@@ -687,48 +705,61 @@ export default function ImportJobs() {
                 />
               </div>
 
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                 <MiniMetric title={t('importJobs.metrics.total')} value={reviewStats.estimatedRecords} />
                 <MiniMetric title="refresh_token" value={reviewStats.refreshTokenRecords} />
                 <MiniMetric title="access_token" value={reviewStats.accessTokenRecords} />
                 <MiniMetric title="chatgpt_account_id" value={reviewStats.chatgptAccountIdRecords} />
               </div>
 
-              <div className="space-y-1 text-xs text-muted-foreground">
-                <div>
+              <details className="rounded-2xl border border-border/60 bg-muted/15 px-4 py-3">
+                <summary className="cursor-pointer list-none text-sm font-medium text-slate-700 marker:hidden dark:text-slate-200 [&::-webkit-details-marker]:hidden">
                   {t('importJobs.workspace.totalFiles', { count: reviewStats.total })} ·{' '}
                   {t('importJobs.workspace.totalSize', { size: formatBytes(reviewStats.totalBytes) })}
+                </summary>
+                <div className="mt-3 space-y-1 text-xs leading-5 text-muted-foreground">
+                  <div>email: {reviewStats.emailRecords}</div>
+                  <div>base_url: {formatTopValues(reviewStats.baseUrlHints)}</div>
+                  <div>source_type: {formatTopValues(reviewStats.sourceTypeHints)}</div>
+                  <div>plan_type: {formatTopValues(reviewStats.planTypeHints)}</div>
                 </div>
-                <div>email: {reviewStats.emailRecords}</div>
-                <div>base_url: {formatTopValues(reviewStats.baseUrlHints)}</div>
-                <div>source_type: {formatTopValues(reviewStats.sourceTypeHints)}</div>
-                <div>plan_type: {formatTopValues(reviewStats.planTypeHints)}</div>
-              </div>
+              </details>
 
-              <div className="h-[360px]">
-                <StandardDataTable
-                  columns={stagedColumns}
-                  data={stagedFiles}
-                  density="compact"
-                  defaultPageSize={10}
-                  pageSizeOptions={[10, 20, 50]}
-                  searchPlaceholder={t('importJobs.detail.searchPlaceholderModern')}
-                  searchFn={(row, keyword) => {
-                    const haystack = [
-                      row.file.name,
-                      row.extension,
-                      row.status,
-                      row.checks.join(' '),
-                      row.metadata.baseUrlTop.join(' '),
-                      row.metadata.sourceTypeTop.join(' '),
-                      row.metadata.planTypeTop.join(' '),
-                    ]
-                      .join(' ')
-                      .toLowerCase()
-                    return haystack.includes(keyword)
-                  }}
-                  emptyText={t('importJobs.workspace.empty')}
-                />
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                    {t('importJobs.detail.title')}
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    {t('importJobs.detail.searchPlaceholderModern')}
+                  </p>
+                </div>
+
+                <div className="h-[360px]">
+                  <StandardDataTable
+                    columns={stagedColumns}
+                    data={stagedFiles}
+                    density="compact"
+                    defaultPageSize={10}
+                    pageSizeOptions={[10, 20, 50]}
+                    searchPlaceholder={t('importJobs.detail.searchPlaceholderModern')}
+                    searchFn={(row, keyword) => {
+                      const haystack = [
+                        row.file.name,
+                        row.extension,
+                        row.status,
+                        row.checks.join(' '),
+                        row.metadata.baseUrlTop.join(' '),
+                        row.metadata.sourceTypeTop.join(' '),
+                        row.metadata.planTypeTop.join(' '),
+                      ]
+                        .join(' ')
+                        .toLowerCase()
+                      return haystack.includes(keyword)
+                    }}
+                    emptyText={t('importJobs.workspace.empty')}
+                  />
+                </div>
               </div>
 
               <Button
@@ -748,23 +779,25 @@ export default function ImportJobs() {
                   })
                 )}
               </Button>
-            </CardContent>
-          </Card>
-        </AnimatedContent>
+            </PagePanel>
+          </AnimatedContent>
+        )}
+        secondary={(
+          <AnimatedContent className="space-y-6">
+            <PagePanel tone="secondary" className="space-y-4">
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold text-slate-950 dark:text-slate-50">
+                  {t('importJobs.progress.title')}
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {effectiveSelectedJobId
+                    ? t('importJobs.progress.jobIdLabel', { jobId: effectiveSelectedJobId })
+                    : t('importJobs.progress.noJobSelected')}
+                </p>
+              </div>
 
-        <AnimatedContent className="space-y-6">
-          <Card className="border-border/60 shadow-sm">
-            <CardHeader>
-              <CardTitle>{t('importJobs.progress.title')}</CardTitle>
-              <CardDescription>
-                {effectiveSelectedJobId
-                  ? t('importJobs.progress.jobIdLabel', { jobId: effectiveSelectedJobId })
-                  : t('importJobs.progress.noJobSelected')}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
               {!effectiveSelectedJobId ? (
-                <div className="py-10 text-center text-sm text-muted-foreground">
+                <div className="rounded-2xl border border-border/60 bg-muted/20 px-4 py-10 text-center text-sm text-muted-foreground">
                   {t('importJobs.progress.noJobSelected')}
                 </div>
               ) : (
@@ -862,17 +895,18 @@ export default function ImportJobs() {
                   </div>
                 </>
               )}
-            </CardContent>
-          </Card>
+            </PagePanel>
 
-          <Card className="border-border/60 shadow-sm">
-            <CardHeader>
-              <CardTitle>{t('importJobs.queue.titleRecent')}</CardTitle>
-              <CardDescription>{t('importJobs.queue.descRecent')}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
+            <PagePanel tone="secondary" className="space-y-4">
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold text-slate-950 dark:text-slate-50">
+                  {t('importJobs.queue.titleRecent')}
+                </h2>
+                <p className="text-sm text-muted-foreground">{t('importJobs.queue.descRecent')}</p>
+              </div>
+
               {recentJobs.length === 0 ? (
-                <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-6 text-center text-sm text-muted-foreground">
+                <div className="rounded-2xl border border-border/60 bg-muted/20 px-3 py-6 text-center text-sm text-muted-foreground">
                   {t('importJobs.queue.emptyRecent')}
                 </div>
               ) : (
@@ -884,10 +918,10 @@ export default function ImportJobs() {
                       type="button"
                       key={item.jobId}
                       className={cn(
-                        'w-full rounded-lg border px-3 py-3 text-left transition-colors',
+                        'w-full rounded-xl border px-3 py-3 text-left transition-colors',
                         selected
                           ? 'border-primary bg-primary/5'
-                          : 'border-border/60 bg-card hover:border-primary/40 hover:bg-primary/5',
+                          : 'border-border/60 bg-card/65 hover:border-primary/40 hover:bg-primary/5',
                       )}
                       onClick={() => setSelectedJobId(item.jobId)}
                     >
@@ -913,10 +947,10 @@ export default function ImportJobs() {
                   )
                 })
               )}
-            </CardContent>
-          </Card>
-        </AnimatedContent>
-      </div>
+            </PagePanel>
+          </AnimatedContent>
+        )}
+      />
 
       {confirmDialog}
     </motion.div>

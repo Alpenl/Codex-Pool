@@ -58,9 +58,9 @@ type ForgotStep = 'request' | 'reset'
 
 const LABEL_CLASS_NAME = 'text-xs font-medium text-slate-600 dark:text-slate-300'
 const CARD_CLASS_NAME =
-  'w-full max-w-[32rem] rounded-[1.25rem] border border-slate-200/80 bg-white/92 p-4 shadow-[0_20px_55px_rgba(15,23,42,0.14)] backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/72 sm:rounded-[1.6rem] sm:p-8'
+  'w-full max-w-[32rem] space-y-6'
 const INPUT_CLASS_NAME =
-  'h-10 rounded-xl border-slate-300 bg-white/85 text-slate-900 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100 sm:h-11'
+  'h-10 rounded-xl border-slate-300 bg-white/90 text-slate-900 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-100 sm:h-11'
 const TAB_ACTIVE_CLASS_NAME =
   'bg-slate-950 text-slate-50 shadow dark:bg-slate-100 dark:text-slate-900'
 const TAB_INACTIVE_CLASS_NAME =
@@ -386,6 +386,9 @@ export function TenantApp({ capabilities }: TenantAppProps) {
   const authCard = (
     <div className={CARD_CLASS_NAME}>
       <div className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-300">
+          {t('tenantApp.auth.brand.badge')}
+        </p>
         <h2 className="text-xl font-semibold text-slate-950 dark:text-slate-50 sm:text-3xl">
           {authMode === 'login' || !allowTenantSelfService
             ? t('tenantApp.auth.sections.loginTitle')
@@ -621,6 +624,9 @@ export function TenantApp({ capabilities }: TenantAppProps) {
   const verifyCard = (
     <div className={CARD_CLASS_NAME}>
       <div className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-300">
+          {t('tenantApp.auth.brand.badge')}
+        </p>
         <h2 className="text-xl font-semibold text-slate-950 dark:text-slate-50 sm:text-3xl">
           {t('tenantApp.auth.sections.verifyEmailTitle')}
         </h2>
@@ -691,6 +697,9 @@ export function TenantApp({ capabilities }: TenantAppProps) {
   const forgotCard = (
     <div className={CARD_CLASS_NAME}>
       <div className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-300">
+          {t('tenantApp.auth.brand.badge')}
+        </p>
         <h2 className="text-xl font-semibold text-slate-950 dark:text-slate-50 sm:text-3xl">
           {t('tenantApp.auth.sections.forgotPasswordTitle')}
         </h2>
