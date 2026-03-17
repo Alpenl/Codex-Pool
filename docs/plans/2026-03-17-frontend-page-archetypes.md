@@ -318,6 +318,9 @@ git commit -m "docs(frontend): record page archetype rollout" -m "Capture the de
 - `Proxies` 已迁移到共享 `workspace` 节奏，把健康检查保留在页头动作，把筛选、搜索和密度切换收进独立 controls panel，让页面形成 `intro -> controls -> table` 的稳定顺序。
 - `frontend/src/lib/page-archetypes.ts` 已补充 `describeProxiesWorkspaceLayout()`，约束代理节点页在移动端先呈现页面说明，再呈现列表控制，再进入数据表格。
 - `frontend/src/pages/Proxies.tsx` 已移除旧的 `motion.div` 直落结构，改用 `PageIntro / PagePanel`，并把原本表格头部内的筛选与搜索分流到独立控制层，减少列表首屏的拥挤感。
+- `Config` 已迁移到共享 `settings` 节奏，把旧的悬浮成功提示和动画卡片页改成 `intro -> runtime warning -> stacked sections -> save action` 的稳定顺序。
+- `frontend/src/lib/page-archetypes.ts` 已补充 `describeConfigSettingsLayout()`，约束设置页把 runtime warning 放在 intro 之后、把保存动作收口到 sections 之后，并保持表单分区安静堆叠。
+- `frontend/src/pages/Config.tsx` 已改用 `PageIntro / PagePanel / SectionHeader`，去掉原先的 `motion`/`Card` 首屏竞争关系，让配置项和保存反馈都更可预测。
 - `tenantUsage` 与 `usage` 相关多语言文案已同步修正，移除日文/俄文中的占位翻译，并校正 admin Usage 图表语义。
 - 最终验证通过：
   - `cd frontend && node --test src/lib/page-archetypes.test.ts src/components/ui/trend-chart-core.test.ts src/components/threads-utils.test.ts src/lib/dashboard-chart-a11y.test.ts`
@@ -348,3 +351,5 @@ git commit -m "docs(frontend): record page archetype rollout" -m "Capture the de
   - `/tmp/models-after-mobile-20260317.png`
   - `/tmp/proxies-after-desktop-20260317.png`
   - `/tmp/proxies-after-mobile-20260317.png`
+  - `/tmp/config-after-desktop-20260317.png`
+  - `/tmp/config-after-mobile-20260317.png`
