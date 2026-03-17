@@ -319,12 +319,15 @@ docker compose --env-file docker/.env.team -f docker-compose.team.yml up -d --bu
 
 ```bash
 # control-plane
-cargo run -p control-plane --bin control-plane
+set -a && source .env.runtime && set +a
+cargo run -p control-plane --bin codex-pool-business
 
 # data-plane
+set -a && source .env.runtime && set +a
 cargo run -p data-plane --bin data-plane
 
 # usage-worker
+set -a && source .env.runtime && set +a
 cargo run -p control-plane --bin usage-worker
 ```
 
@@ -352,6 +355,8 @@ npm run dev
 - `BACKEND_TMUX_TARGET`：显式指定 `session[:window]`
 - `CONTROL_PLANE_PANE`：显式指定 control-plane pane index
 - `DATA_PLANE_PANE`：显式指定 data-plane pane index
+- `CODEX_POOL_EDITION`：按 `personal / team / business` 选择 control-plane 产品名二进制
+- `CONTROL_PLANE_BIN`：显式指定 control-plane bin，优先级高于 `CODEX_POOL_EDITION`
 
 ### Gated 真实账号 AI Error Learning E2E
 

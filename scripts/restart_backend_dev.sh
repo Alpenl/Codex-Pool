@@ -2,13 +2,15 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RUNTIME_ENV_FILE="${REPO_ROOT}/.env.runtime"
 
 SESSION_WINDOW_OVERRIDE="${BACKEND_TMUX_TARGET:-}"
 CONTROL_PANE_OVERRIDE="${CONTROL_PLANE_PANE:-}"
 DATA_PANE_OVERRIDE="${DATA_PLANE_PANE:-}"
+CONTROL_PLANE_BIN_OVERRIDE="${CONTROL_PLANE_BIN:-}"
 CONTROL_PLANE_HEALTH_URL="${CONTROL_PLANE_HEALTH_URL:-http://127.0.0.1:8090/health}"
 DATA_PLANE_HEALTH_URL="${DATA_PLANE_HEALTH_URL:-http://127.0.0.1:8091/health}"
-RESTART_TIMEOUT_SEC="${RESTART_TIMEOUT_SEC:-90}"
+RESTART_TIMEOUT_SEC="${RESTART_TIMEOUT_SEC:-180}"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -44,9 +46,13 @@ detect_pane_index() {
 restart_pane_command() {
   local pane_target="$1"
   local command="$2"
+  local env_prefix=""
+  if [[ -f "$RUNTIME_ENV_FILE" ]]; then
+    env_prefix="set -a && source '$RUNTIME_ENV_FILE' && set +a && "
+  fi
   tmux send-keys -t "$pane_target" C-c
   sleep 1
-  tmux send-keys -t "$pane_target" "cd '$REPO_ROOT' && $command" Enter
+  tmux send-keys -t "$pane_target" "cd '$REPO_ROOT' && ${env_prefix}$command" Enter
 }
 
 wait_for_health() {
@@ -64,10 +70,33 @@ wait_for_health() {
   exit 1
 }
 
+resolve_control_plane_bin() {
+  if [[ -n "$CONTROL_PLANE_BIN_OVERRIDE" ]]; then
+    printf '%s\n' "$CONTROL_PLANE_BIN_OVERRIDE"
+    return 0
+  fi
+
+  local edition="${CODEX_POOL_EDITION:-business}"
+  local normalized_edition
+  normalized_edition="$(printf '%s' "$edition" | tr '[:upper:]' '[:lower:]')"
+  case "$normalized_edition" in
+    personal)
+      printf 'codex-pool-personal\n'
+      ;;
+    team)
+      printf 'codex-pool-team\n'
+      ;;
+    business | *)
+      printf 'codex-pool-business\n'
+      ;;
+  esac
+}
+
 require_cmd tmux
 require_cmd curl
 
 TMUX_TARGET="$(resolve_tmux_target)"
+CONTROL_PLANE_BIN="$(resolve_control_plane_bin)"
 CONTROL_PANE_INDEX="${CONTROL_PANE_OVERRIDE:-$(detect_pane_index "$TMUX_TARGET" "control-plane")}"
 DATA_PANE_INDEX="${DATA_PANE_OVERRIDE:-$(detect_pane_index "$TMUX_TARGET" "data-plane")}"
 
@@ -84,8 +113,9 @@ DATA_PANE_TARGET="${TMUX_TARGET}.${DATA_PANE_INDEX}"
 echo "[restart_backend_dev] target window: $TMUX_TARGET"
 echo "[restart_backend_dev] control-plane pane: $CONTROL_PANE_TARGET"
 echo "[restart_backend_dev] data-plane pane: $DATA_PANE_TARGET"
+echo "[restart_backend_dev] control-plane bin: $CONTROL_PLANE_BIN"
 
-restart_pane_command "$CONTROL_PANE_TARGET" "cargo run -p control-plane --bin control-plane"
+restart_pane_command "$CONTROL_PANE_TARGET" "cargo run -p control-plane --bin $CONTROL_PLANE_BIN"
 restart_pane_command "$DATA_PANE_TARGET" "cargo run -p data-plane --bin data-plane"
 
 wait_for_health "control-plane" "$CONTROL_PLANE_HEALTH_URL"

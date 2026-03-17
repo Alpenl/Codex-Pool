@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -28,6 +29,30 @@ fn restart_backend_dev_script_is_present_and_shell_valid() {
     assert!(path.exists(), "missing script: {}", path.display());
     let (ok, stderr) = script_is_shell_valid(&path);
     assert!(ok, "shell parse failed for {}: {stderr}", path.display());
+}
+
+#[test]
+fn restart_backend_dev_script_uses_current_control_plane_bins_and_runtime_env() {
+    let path = script_path("scripts/restart_backend_dev.sh");
+    let script = fs::read_to_string(&path).expect("restart script should be readable");
+
+    assert!(
+        !script.contains("--bin control-plane"),
+        "restart script should not reference removed control-plane bin: {}",
+        path.display()
+    );
+    assert!(
+        script.contains("codex-pool-personal")
+            && script.contains("codex-pool-team")
+            && script.contains("codex-pool-business"),
+        "restart script should map editions to current product bins: {}",
+        path.display()
+    );
+    assert!(
+        script.contains(".env.runtime"),
+        "restart script should source .env.runtime before relaunching backends: {}",
+        path.display()
+    );
 }
 
 #[test]
