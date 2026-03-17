@@ -304,9 +304,12 @@ git commit -m "docs(frontend): record page archetype rollout" -m "Capture the de
 - `DashboardShell` 已修正为 mobile 先内容后 rail、desktop 顶部不拉伸 intro panel。
 - `Usage` 与 `TenantUsagePage` 已迁移到共享 `detail/report` 节奏，统一使用 `ReportShell / PageIntro / PagePanel / SectionHeader`。
 - `frontend/src/lib/page-archetypes.ts` 已补充 `describeReportShellLayout()`，把 toolbar、主趋势和 rail 在 mobile / desktop 下的顺序规则收进共享配置层。
+- `Billing` 与 `TenantBillingPage` 已迁移到共享 `detail/report` 节奏，并补充 `describeBillingReportLayout()` 约束 `intro -> toolbar -> lead -> rail -> detail` 的阅读顺序。
+- `frontend/src/components/layout/page-archetypes.tsx` 已新增 `ReportMetricGrid / ReportMetricCard`，用于更安静的报表 KPI 呈现；admin 充值与 tenant API Key 分组定价都已降级到右侧 `rail`。
+- 共享趋势图已增加正尺寸守卫，避免 Recharts 在 Billing 桌面端与移动端首帧渲染时输出 `width(-1) / height(-1)` 告警。
 - `tenantUsage` 与 `usage` 相关多语言文案已同步修正，移除日文/俄文中的占位翻译，并校正 admin Usage 图表语义。
 - 最终验证通过：
-  - `cd frontend && node --test src/lib/page-archetypes.test.ts src/components/threads-utils.test.ts src/lib/dashboard-chart-a11y.test.ts`
+  - `cd frontend && node --test src/lib/page-archetypes.test.ts src/components/ui/trend-chart-core.test.ts src/components/threads-utils.test.ts src/lib/dashboard-chart-a11y.test.ts`
   - `cd frontend && npm run i18n:check && npm run i18n:hardcode -- --no-baseline && node scripts/i18n/check-missing-runtime-keys.mjs`
   - `cd frontend && npm run lint`
   - `cd frontend && npm run build`
@@ -320,3 +323,7 @@ git commit -m "docs(frontend): record page archetype rollout" -m "Capture the de
   - `/tmp/admin-usage-report-shell-desktop.png`
   - `/tmp/tenant-usage-report-shell-desktop.png`
   - `/tmp/tenant-usage-report-shell-mobile-fixed.png`
+  - `/tmp/admin-billing-desktop-20260317.png`
+  - `/tmp/admin-billing-mobile-20260317.png`
+  - `/tmp/tenant-billing-desktop-20260317.png`
+  - `/tmp/tenant-billing-mobile-20260317.png`
