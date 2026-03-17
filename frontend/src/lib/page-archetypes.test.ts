@@ -95,3 +95,17 @@ test('describeReportShellLayout keeps filters near the intro, shows the main tre
     desktopContentBalance: 'lead-first',
   })
 })
+
+test('describeBillingReportLayout keeps billing summaries ahead of the primary trend, pushes context tools into the rail, and keeps detailed tables behind them on mobile', () => {
+  const describeBillingReportLayout = (
+    pageArchetypes as typeof pageArchetypes & {
+      describeBillingReportLayout?: () => unknown
+    }
+  ).describeBillingReportLayout
+
+  assert.deepEqual(describeBillingReportLayout?.(), {
+    leadSequence: 'summary-then-trend',
+    mobileContextPlacement: 'after-lead',
+    mobileDetailPlacement: 'after-context',
+  })
+})

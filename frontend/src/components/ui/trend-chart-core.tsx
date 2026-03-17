@@ -1,14 +1,16 @@
+import { useEffect, useRef, useState } from 'react'
 import {
   CartesianGrid,
   Line,
   LineChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts'
 
 import { formatDateTime } from '@/lib/i18n-format'
+
+import { coerceTrendChartViewport } from './trend-chart-viewport'
 
 export interface TrendChartProps {
   data: Array<{ timestamp: string | number; [key: string]: unknown }>
@@ -51,6 +53,9 @@ export default function TrendChartCore({
   xAxisFormatter,
   valueFormatter,
 }: TrendChartProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const [viewport, setViewport] = useState(() => coerceTrendChartViewport(0, height))
+
   const defaultFormatter = (val: string | number) => safeFormatDateTime(val, 'time', locale)
   const formatValue = (value: unknown) => {
     if (typeof value === 'number') {
@@ -67,10 +72,80 @@ export default function TrendChartCore({
     return String(value ?? '')
   }
 
+  useEffect(() => {
+    const node = containerRef.current
+    if (!node) {
+      return
+    }
+
+    let frameId: number | null = null
+
+    const measure = () => {
+      const rect = node.getBoundingClientRect()
+      const next = coerceTrendChartViewport(rect.width, rect.height)
+      setViewport((current) => {
+        if (
+          current?.width === next?.width
+          && current?.height === next?.height
+        ) {
+          return current
+        }
+        return next
+      })
+    }
+
+    const scheduleMeasure = () => {
+      if (typeof window === 'undefined') {
+        measure()
+        return
+      }
+
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId)
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null
+        measure()
+      })
+    }
+
+    scheduleMeasure()
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => {
+        scheduleMeasure()
+      })
+      observer.observe(node)
+
+      return () => {
+        observer.disconnect()
+        if (frameId !== null) {
+          window.cancelAnimationFrame(frameId)
+        }
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', scheduleMeasure)
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('resize', scheduleMeasure)
+        if (frameId !== null) {
+          window.cancelAnimationFrame(frameId)
+        }
+      }
+    }
+  }, [height])
+
   return (
-    <div style={{ width: '100%', minWidth: 0, minHeight: 1, height }}>
-      <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+    <div ref={containerRef} style={{ width: '100%', minWidth: 0, minHeight: 1, height }}>
+      {viewport ? (
         <LineChart
+          width={viewport.width}
+          height={viewport.height}
           data={data}
           margin={{
             top: 5,
@@ -121,7 +196,7 @@ export default function TrendChartCore({
             />
           ))}
         </LineChart>
-      </ResponsiveContainer>
+      ) : null}
     </div>
   )
 }

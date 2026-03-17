@@ -230,6 +230,63 @@ export function ReportShell({
   )
 }
 
+type ReportMetricGridProps = HTMLAttributes<HTMLDivElement>
+
+export function ReportMetricGrid({
+  className,
+  children,
+  ...props
+}: ReportMetricGridProps) {
+  return (
+    <div className={cn('grid gap-4 sm:grid-cols-2 2xl:grid-cols-3', className)} {...props}>
+      {children}
+    </div>
+  )
+}
+
+interface ReportMetricCardProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'> {
+  title: ReactNode
+  value: ReactNode
+  description?: ReactNode
+  valueTitle?: string
+  loading?: boolean
+}
+
+export function ReportMetricCard({
+  title,
+  value,
+  description,
+  valueTitle,
+  loading = false,
+  className,
+  ...props
+}: ReportMetricCardProps) {
+  return (
+    <PagePanel tone="secondary" className={cn('h-full space-y-3', className)} {...props}>
+      <div className="space-y-1.5">
+        <p className="text-sm font-medium text-slate-600 dark:text-slate-300">{title}</p>
+        {loading ? (
+          <div className="h-9 w-28 animate-pulse rounded-xl bg-slate-200/75 dark:bg-slate-800/75" />
+        ) : (
+          <p
+            title={valueTitle}
+            className="text-[clamp(1.4rem,2.4vw,2.05rem)] font-semibold leading-none tracking-[-0.03em] text-slate-950 dark:text-slate-50"
+          >
+            {value}
+          </p>
+        )}
+      </div>
+      {description ? (
+        loading ? (
+          <div className="h-3.5 w-36 animate-pulse rounded bg-slate-200/70 dark:bg-slate-800/70" />
+        ) : (
+          <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">{description}</p>
+        )
+      ) : null}
+    </PagePanel>
+  )
+}
+
 interface SectionHeaderProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'> {
   title: ReactNode
   description?: ReactNode

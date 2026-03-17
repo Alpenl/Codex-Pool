@@ -13,17 +13,28 @@ import {
 import { localizeApiErrorDisplay, localizeHttpStatusDisplay } from '@/api/errorI18n'
 import { systemApi, DEFAULT_SYSTEM_CAPABILITIES } from '@/api/system'
 import {
+  PageIntro,
+  PagePanel,
+  ReportMetricCard,
+  ReportMetricGrid,
+  ReportShell,
+  SectionHeader,
+} from '@/components/layout/page-archetypes'
+import {
   getServiceTierBadgeTone,
   getServiceTierDefaultLabel,
   normalizeServiceTierForDisplay,
   shouldHighlightServiceTier,
 } from '@/features/billing/service-tier'
-import { formatDateTime as formatI18nDateTime, formatNumber } from '@/lib/i18n-format'
+import {
+  formatDateTime as formatI18nDateTime,
+  formatNumber,
+} from '@/lib/i18n-format'
 import { notify } from '@/lib/notification'
+import { describeBillingReportLayout } from '@/lib/page-archetypes'
 import { formatTokenCount } from '@/lib/token-format'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import {
@@ -58,6 +69,15 @@ function formatMicrocredits(value: number | undefined, locale?: string) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
     useGrouping: false,
+  })
+}
+
+function formatMicrocreditsSummary(value: number | undefined, locale?: string) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '-'
+  return formatNumber(value / 1_000_000, {
+    locale,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   })
 }
 
@@ -1011,207 +1031,243 @@ function BusinessBillingPage() {
   }
 
   const tenantSelectValue = effectiveTenantId || '__none__'
+  const selectedTenant = useMemo(
+    () => tenants.find((tenant) => tenant.id === effectiveTenantId) ?? null,
+    [effectiveTenantId, tenants],
+  )
+  const billingLayout = describeBillingReportLayout()
+  const tableSurfaceClassName = 'border-0 bg-transparent shadow-none'
 
-  return (
-    <div className="flex-1 p-4 sm:p-6 lg:p-8 space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-3xl font-semibold tracking-tight">
-            {t('billing.title', { defaultValue: 'Billing Center' })}
-          </h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            {t('billing.subtitle', {
-              defaultValue: 'Primary view: credit ledger (actual charges), with tenant-level admin filtering.',
-            })}
-          </p>
+  const summaryGrid = (
+    <ReportMetricGrid>
+      <ReportMetricCard
+        title={t('billing.summary.currentBalance')}
+        value={formatMicrocreditsSummary(balance?.balance_microcredits, locale)}
+        description={t('billing.summary.unitCredits')}
+      />
+      <ReportMetricCard
+        title={t('billing.summary.todayConsumed')}
+        value={formatMicrocreditsSummary(todayConsumed, locale)}
+        description={t('billing.summary.deductionHint')}
+      />
+      <ReportMetricCard
+        title={t('billing.summary.monthConsumed')}
+        value={formatMicrocreditsSummary(monthConsumed, locale)}
+        description={t('billing.summary.deductionHint')}
+      />
+    </ReportMetricGrid>
+  )
+
+  const trendPanel = (
+    <PagePanel className="space-y-5">
+      <SectionHeader
+        title={t('billing.trend.title')}
+        description={t('billing.trend.subtitle', {
+          granularity:
+            granularity === 'day'
+              ? t('billing.granularity.day')
+              : t('billing.granularity.month'),
+        })}
+      />
+      {chartData.length === 0 ? (
+        <div className="flex h-[300px] items-center justify-center rounded-[1.2rem] border border-dashed border-border/60 bg-muted/20 text-sm text-muted-foreground">
+          {t('billing.trend.noData')}
         </div>
-        <div className="flex items-center gap-2">
-          <Select
-            value={tenantSelectValue}
-            onValueChange={(value) => setSelectedTenantId(value === '__none__' ? '' : value)}
-          >
-            <SelectTrigger className="min-w-[280px]" aria-label={t('billing.filters.tenantAriaLabel', { defaultValue: 'Tenant' })}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">
-                {t('billing.filters.tenantPlaceholder', { defaultValue: 'Select tenant' })}
-              </SelectItem>
-              {tenants.map((tenant) => (
-                <SelectItem key={tenant.id} value={tenant.id}>
-                  {tenant.name} ({tenant.id})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={granularity} onValueChange={(value) => setGranularity(value as BillingGranularity)}>
-            <SelectTrigger className="w-[140px]" aria-label={t('billing.filters.granularityAriaLabel', { defaultValue: 'Granularity' })}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="day">{t('billing.granularity.day', { defaultValue: 'Daily' })}</SelectItem>
-              <SelectItem value="month">{t('billing.granularity.month', { defaultValue: 'Monthly' })}</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="outline" onClick={handleExportLedgerCsv} disabled={!rows.length}>
-            <Download className="mr-2 h-4 w-4" />
-            {t('billing.exportCsv', { defaultValue: 'Export CSV' })}
-          </Button>
+      ) : (
+        <TrendChart
+          data={chartData}
+          lines={[
+            {
+              dataKey: 'consumed',
+              name: t('billing.trend.seriesConsumed'),
+              stroke: 'var(--chart-5)',
+            },
+          ]}
+          height={300}
+          locale={locale}
+          xAxisFormatter={(value) => String(value)}
+        />
+      )}
+    </PagePanel>
+  )
+
+  const rechargePanel = (
+    <PagePanel tone="secondary" className="space-y-5">
+      <SectionHeader
+        eyebrow={selectedTenant?.name ?? undefined}
+        title={t('billing.recharge.title')}
+        description={t('billing.recharge.subtitle')}
+      />
+      {selectedTenant ? (
+        <div className="rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-300">
+          <span className="font-medium text-slate-700 dark:text-slate-100">{selectedTenant.name}</span>
+          <div className="mt-1 font-mono">{selectedTenant.id}</div>
         </div>
+      ) : null}
+      <div className="space-y-3">
+        <Input
+          value={rechargeAmount}
+          onChange={(event) => setRechargeAmount(event.target.value)}
+          type="number"
+          inputMode="numeric"
+          min={0}
+          aria-label={t('billing.recharge.amountAriaLabel')}
+          placeholder={t('billing.recharge.amountPlaceholder')}
+        />
+        <Input
+          value={rechargeReason}
+          onChange={(event) => setRechargeReason(event.target.value)}
+          aria-label={t('billing.recharge.reasonAriaLabel')}
+          placeholder={t('billing.recharge.reasonPlaceholder')}
+        />
+        <Button
+          className="w-full"
+          onClick={() => rechargeMutation.mutate()}
+          disabled={rechargeMutation.isPending || !effectiveTenantId}
+        >
+          {t('billing.recharge.submit')}
+        </Button>
       </div>
+    </PagePanel>
+  )
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('billing.recharge.title', { defaultValue: 'Admin Recharge' })}</CardTitle>
-          <CardDescription>
-            {t('billing.recharge.subtitle', { defaultValue: 'Recharge the currently selected tenant.' })}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-2">
-          <Input
-            value={rechargeAmount}
-            onChange={(event) => setRechargeAmount(event.target.value)}
-            type="number"
-            inputMode="numeric"
-            min={0}
-            aria-label={t('billing.recharge.amountAriaLabel', { defaultValue: 'Recharge amount in microcredits' })}
-            placeholder={t('billing.recharge.amountPlaceholder', {
-              defaultValue: 'Recharge credits (microcredits)',
-            })}
-          />
-          <Input
-            className="min-w-[280px]"
-            value={rechargeReason}
-            onChange={(event) => setRechargeReason(event.target.value)}
-            aria-label={t('billing.recharge.reasonAriaLabel', { defaultValue: 'Recharge reason' })}
-            placeholder={t('billing.recharge.reasonPlaceholder', { defaultValue: 'Recharge reason' })}
-          />
-          <Button
-            onClick={() => rechargeMutation.mutate()}
-            disabled={rechargeMutation.isPending || !effectiveTenantId}
-          >
-            {t('billing.recharge.submit', { defaultValue: 'Execute Recharge' })}
-          </Button>
-        </CardContent>
-      </Card>
+  const snapshotPanel = (
+    <PagePanel tone="secondary" className="space-y-5">
+      <SectionHeader
+        title={t('billing.snapshot.title')}
+        description={t('billing.snapshot.subtitle', {
+          granularity:
+            granularity === 'day'
+              ? t('billing.granularity.day')
+              : t('billing.granularity.month'),
+        })}
+      />
+      <StandardDataTable
+        columns={snapshotColumns}
+        data={snapshotRows}
+        defaultPageSize={20}
+        pageSizeOptions={[20, 50, 100]}
+        density="compact"
+        className={tableSurfaceClassName}
+        emptyText={t('billing.snapshot.empty')}
+      />
+    </PagePanel>
+  )
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{t('billing.summary.currentBalance', { defaultValue: 'Current Balance' })}</CardDescription>
-            <CardTitle className="text-2xl font-bold">{formatMicrocredits(balance?.balance_microcredits, locale)}</CardTitle>
-          </CardHeader>
-          <CardContent className="text-xs text-muted-foreground">
-            {t('billing.summary.unitCredits', { defaultValue: 'Unit: credits' })}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{t('billing.summary.todayConsumed', { defaultValue: "Today's Consumption" })}</CardDescription>
-            <CardTitle className="text-2xl font-bold">{formatMicrocredits(todayConsumed, locale)}</CardTitle>
-          </CardHeader>
-          <CardContent className="text-xs text-muted-foreground">
-            {t('billing.summary.deductionHint', { defaultValue: 'Only negative ledger deduction events are counted.' })}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{t('billing.summary.monthConsumed', { defaultValue: 'This Month Consumption' })}</CardDescription>
-            <CardTitle className="text-2xl font-bold">{formatMicrocredits(monthConsumed, locale)}</CardTitle>
-          </CardHeader>
-          <CardContent className="text-xs text-muted-foreground">
-            {t('billing.summary.deductionHint', { defaultValue: 'Only negative ledger deduction events are counted.' })}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('billing.trend.title', { defaultValue: 'Consumption Trend' })}</CardTitle>
-          <CardDescription>
-            {t('billing.trend.subtitle', {
-              defaultValue: 'Show ledger deductions aggregated by {{granularity}}.',
-              granularity:
-                granularity === 'day'
-                  ? t('billing.granularity.day', { defaultValue: 'Daily' })
-                  : t('billing.granularity.month', { defaultValue: 'Monthly' }),
-            })}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {chartData.length === 0 ? (
-            <div className="h-[260px] rounded-md border border-dashed flex items-center justify-center text-sm text-muted-foreground">
-              {t('billing.trend.noData', { defaultValue: 'No trend data yet.' })}
-            </div>
-          ) : (
-            <TrendChart
-              data={chartData}
-              lines={[
-                {
-                  dataKey: 'consumed',
-                  name: t('billing.trend.seriesConsumed', { defaultValue: 'Consumed Credits' }),
-                  stroke: 'var(--chart-5)',
-                },
-              ]}
-              height={260}
-              locale={locale}
-              xAxisFormatter={(value) => String(value)}
-            />
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('billing.snapshot.title', { defaultValue: 'Settlement Snapshot' })}</CardTitle>
-          <CardDescription>
-            {t('billing.snapshot.subtitle', {
-              defaultValue: 'Aggregate deduction events by {{granularity}} for month-end settlement and reconciliation.',
-              granularity:
-                granularity === 'day'
-                  ? t('billing.granularity.day', { defaultValue: 'Daily' })
-                  : t('billing.granularity.month', { defaultValue: 'Monthly' }),
-            })}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <StandardDataTable
-            columns={snapshotColumns}
-            data={snapshotRows}
-            defaultPageSize={20}
-            pageSizeOptions={[20, 50, 100]}
-            density="compact"
-            emptyText={t('billing.snapshot.empty', { defaultValue: 'No settlement snapshots yet.' })}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <CardTitle>{t('billing.ledger.title', { defaultValue: 'Ledger Entries' })}</CardTitle>
-            <CardDescription>{t('billing.ledger.subtitle', { defaultValue: 'Filtered by current tenant.' })}</CardDescription>
-          </div>
+  const ledgerPanel = (
+    <PagePanel className="space-y-5">
+      <SectionHeader
+        title={t('billing.ledger.title')}
+        description={t('billing.ledger.subtitle')}
+        actions={(
           <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
             <Checkbox
               checked={showRawLedgerEvents}
               onCheckedChange={(checked) => setShowRawLedgerEvents(Boolean(checked))}
-              aria-label={t('billing.ledger.showRaw', { defaultValue: 'Show raw entries' })}
+              aria-label={t('billing.ledger.showRaw')}
             />
-            {t('billing.ledger.showRaw', { defaultValue: 'Show raw entries' })}
+            {t('billing.ledger.showRaw')}
           </label>
-        </CardHeader>
-        <CardContent>
-          <StandardDataTable
-            columns={columns}
-            data={rows}
-            defaultPageSize={20}
-            pageSizeOptions={[20, 50, 100]}
-            density="compact"
-            emptyText={t('billing.ledger.empty', { defaultValue: 'No ledger entries yet.' })}
+        )}
+      />
+      <StandardDataTable
+        columns={columns}
+        data={rows}
+        defaultPageSize={20}
+        pageSizeOptions={[20, 50, 100]}
+        density="compact"
+        className={tableSurfaceClassName}
+        emptyText={t('billing.ledger.empty')}
+      />
+    </PagePanel>
+  )
+
+  return (
+    <div className="flex-1 p-4 sm:p-6 lg:p-8">
+      <ReportShell
+        intro={(
+          <PageIntro
+            archetype="detail"
+            title={t('billing.title')}
+            description={t('billing.subtitle')}
           />
-        </CardContent>
-      </Card>
+        )}
+        toolbar={(
+          <PagePanel tone="secondary">
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.52fr)_auto]">
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                  {t('billing.filters.tenantAriaLabel')}
+                </p>
+                <Select
+                  value={tenantSelectValue}
+                  onValueChange={(value) => setSelectedTenantId(value === '__none__' ? '' : value)}
+                >
+                  <SelectTrigger className="w-full" aria-label={t('billing.filters.tenantAriaLabel')}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">{t('billing.filters.tenantPlaceholder')}</SelectItem>
+                    {tenants.map((tenant) => (
+                      <SelectItem key={tenant.id} value={tenant.id}>
+                        {tenant.name} ({tenant.id})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                  {t('billing.filters.granularityAriaLabel')}
+                </p>
+                <Select value={granularity} onValueChange={(value) => setGranularity(value as BillingGranularity)}>
+                  <SelectTrigger className="w-full" aria-label={t('billing.filters.granularityAriaLabel')}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="day">{t('billing.granularity.day')}</SelectItem>
+                    <SelectItem value="month">{t('billing.granularity.month')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-end">
+                <Button variant="outline" onClick={handleExportLedgerCsv} disabled={!rows.length}>
+                  <Download className="mr-2 h-4 w-4" />
+                  {t('billing.exportCsv')}
+                </Button>
+              </div>
+            </div>
+          </PagePanel>
+        )}
+        lead={(
+          <>
+            {billingLayout.leadSequence === 'summary-then-trend' ? (
+              <>
+                {summaryGrid}
+                {trendPanel}
+              </>
+            ) : (
+              <>
+                {trendPanel}
+                {summaryGrid}
+              </>
+            )}
+          </>
+        )}
+        rail={billingLayout.mobileContextPlacement === 'after-lead' ? rechargePanel : undefined}
+      >
+        {billingLayout.mobileDetailPlacement === 'after-context' ? (
+          <>
+            {snapshotPanel}
+            {ledgerPanel}
+          </>
+        ) : (
+          <>
+            {ledgerPanel}
+            {snapshotPanel}
+          </>
+        )}
+      </ReportShell>
     </div>
   )
 }

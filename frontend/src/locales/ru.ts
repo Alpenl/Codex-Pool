@@ -1703,8 +1703,8 @@ export default {
     },
     tenantBilling: {
         actions: {
-            dailyCheckin: "Ежедневная регистрация",
-            exportCsv: "Экспорт CSV-файла"
+            dailyCheckin: "Ежедневный чек-ин",
+            exportCsv: "Экспорт CSV"
         },
         failoverAction: {
             crossAccountFailover: "Переключение при отказе между учетными записями",
@@ -1724,31 +1724,31 @@ export default {
             unknown: "Неизвестно"
         },
         filters: {
-            day: "День",
-            dayShort: "Короткий день",
+            day: "По дням",
+            dayShort: "дн.",
             granularityAriaLabel: "Гранулярность биллинга",
-            month: "Месяц",
-            monthShort: "Месяц короткий"
+            month: "По месяцам",
+            monthShort: "мес."
         },
         groupPricing: {
-            allKeys: "All API keys",
-            apiKeyAriaLabel: "API key selector",
+            allKeys: "Все API-ключи",
+            apiKeyAriaLabel: "Выбор API-ключа",
             columns: {
-                apiKey: "API key",
-                finalPrice: "Final price",
-                formulaPrice: "Formula price",
-                group: "Group",
-                model: "Model",
-                state: "State"
+                apiKey: "API-ключ",
+                finalPrice: "Итоговая цена",
+                formulaPrice: "Формульная цена",
+                group: "Группа",
+                model: "Модель",
+                state: "Состояние"
             },
-            description: "Review which pricing group each API key uses, and inspect effective model prices for a selected key.",
-            groupSummary: "Configured models: {{count}} · allow-all: {{allowAll}}",
-            invalidGroup: "This API key is bound to a deleted group. Requests will fail until you change the group.",
+            description: "Проверяйте, какая ценовая группа назначена каждому API-ключу, и смотрите эффективные цены для выбранного ключа.",
+            groupSummary: "Настроено моделей: {{count}} · доступ ко всем моделям: {{allowAll}}",
+            invalidGroup: "Этот API-ключ привязан к удаленной группе. Пока вы не смените группу, запросы будут завершаться ошибкой.",
             state: {
-                active: "Active",
-                invalid: "Invalid (deleted group)"
+                active: "Активно",
+                invalid: "Недействительно (группа удалена)"
             },
-            title: "API key group pricing"
+            title: "Тарификация групп API-ключей"
         },
         ledger: {
             columns: {
@@ -1760,7 +1760,7 @@ export default {
                 requestType: "Тип запроса",
                 time: "Время"
             },
-            description: "Описание",
+            description: "Записи ledger для текущего арендатора.",
             detail: {
                 charged: "Заряжено",
                 extraCharge: "Дополнительная плата",
@@ -1780,14 +1780,14 @@ export default {
                 },
                 upstreamStatus: "Апстрим {{status}}"
             },
-            empty: "Пустой",
+            empty: "Записей в ledger пока нет.",
             requestTypes: {
                 nonStream: "Не поток",
                 stream: "Поток",
                 unknown: "-"
             },
-            showRaw: "Показать сырье",
-            title: "Заголовок"
+            showRaw: "Показать сырые записи",
+            title: "Записи ledger"
         },
         messages: {
             checkinFailed: "Регистрация не удалась",
@@ -1813,31 +1813,31 @@ export default {
                 eventCount: "Количество событий",
                 month: "Месяц"
             },
-            description: "Описание",
-            empty: "Пустой",
-            title: "Заголовок"
+            description: "Сводка списаний по периодам для закрытия и сверки.",
+            empty: "Снимков расчетов пока нет.",
+            title: "Снимок расчетов"
         },
-        subtitle: "Субтитры",
+        subtitle: "Просматривайте баланс, тренд потребления и детали списаний.",
         summary: {
             balance: "Баланс",
-            monthConsumed: "Месяц потребления",
-            negativeOnly: "Только отрицательный",
-            todayConsumed: "Сегодня потребляется",
-            unitCredits: "Единичные кредиты"
+            monthConsumed: "Списано за месяц",
+            negativeOnly: "Только отрицательные списания",
+            todayConsumed: "Списано сегодня",
+            unitCredits: "Единица: кредиты"
         },
-        title: "Заголовок",
+        title: "Платежный центр",
         tokenSegment: {
             cached: "Кэшированный",
             input: "Вход",
             output: "Выход"
         },
         trend: {
-            description: "Описание",
-            empty: "Пустой",
+            description: "Тренд списаний с агрегацией по выбранной гранулярности.",
+            empty: "Данных тренда пока нет.",
             series: {
-                consumed: "Потреблено"
+                consumed: "Списано"
             },
-            title: "Заголовок"
+            title: "Тренд списаний"
         }
     },
     groupsPage: {

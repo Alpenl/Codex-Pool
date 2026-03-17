@@ -1703,8 +1703,8 @@ export default {
     },
     tenantBilling: {
         actions: {
-            dailyCheckin: "毎日のチェックイン",
-            exportCsv: "CSVのエクスポート"
+            dailyCheckin: "毎日チェックイン",
+            exportCsv: "CSVをエクスポート"
         },
         failoverAction: {
             crossAccountFailover: "クロスアカウントフェイルオーバー",
@@ -1724,31 +1724,31 @@ export default {
             unknown: "不明"
         },
         filters: {
-            day: "日",
-            dayShort: "短い日",
+            day: "日次",
+            dayShort: "日次",
             granularityAriaLabel: "請求粒度",
-            month: "月",
-            monthShort: "月間ショート"
+            month: "月次",
+            monthShort: "月次"
         },
         groupPricing: {
-            allKeys: "All API keys",
-            apiKeyAriaLabel: "API key selector",
+            allKeys: "すべての API キー",
+            apiKeyAriaLabel: "API キーセレクター",
             columns: {
-                apiKey: "API key",
-                finalPrice: "Final price",
-                formulaPrice: "Formula price",
-                group: "Group",
-                model: "Model",
-                state: "State"
+                apiKey: "API キー",
+                finalPrice: "最終価格",
+                formulaPrice: "計算価格",
+                group: "グループ",
+                model: "モデル",
+                state: "状態"
             },
-            description: "Review which pricing group each API key uses, and inspect effective model prices for a selected key.",
-            groupSummary: "Configured models: {{count}} · allow-all: {{allowAll}}",
-            invalidGroup: "This API key is bound to a deleted group. Requests will fail until you change the group.",
+            description: "各 API キーが使用している価格グループを確認し、選択したキーの実効価格を点検します。",
+            groupSummary: "設定済みモデル {{count}} 件 · 全モデル許可 {{allowAll}}",
+            invalidGroup: "この API キーは削除済みグループに紐づいています。グループを変更するまでリクエストは失敗します。",
             state: {
-                active: "Active",
-                invalid: "Invalid (deleted group)"
+                active: "有効",
+                invalid: "無効（グループ削除済み）"
             },
-            title: "API key group pricing"
+            title: "API キーのグループ料金"
         },
         ledger: {
             columns: {
@@ -1760,7 +1760,7 @@ export default {
                 requestType: "リクエスト種別",
                 time: "時間"
             },
-            description: "説明",
+            description: "現在のテナントで絞り込んだ台帳明細。",
             detail: {
                 charged: "充電済み",
                 extraCharge: "追加料金",
@@ -1780,14 +1780,14 @@ export default {
                 },
                 upstreamStatus: "上流 {{status}}"
             },
-            empty: "空の",
+            empty: "台帳エントリはまだありません。",
             requestTypes: {
                 nonStream: "非ストリーム",
                 stream: "ストリーム",
                 unknown: "-"
             },
-            showRaw: "生のままを表示",
-            title: "タイトル"
+            showRaw: "生データを表示",
+            title: "台帳エントリ"
         },
         messages: {
             checkinFailed: "チェックインに失敗しました",
@@ -1813,31 +1813,31 @@ export default {
                 eventCount: "イベント数",
                 month: "月"
             },
-            description: "説明",
-            empty: "空の",
-            title: "タイトル"
+            description: "控除イベントを集計し、請求締めと照合に備えます。",
+            empty: "決済スナップショットはまだありません。",
+            title: "決済スナップショット"
         },
-        subtitle: "字幕",
+        subtitle: "残高、消費トレンド、台帳明細を確認します。",
         summary: {
-            balance: "バランス",
-            monthConsumed: "消費月",
-            negativeOnly: "ネガティブのみ",
+            balance: "現在の残高",
+            monthConsumed: "今月の消費",
+            negativeOnly: "負の控除のみ集計",
             todayConsumed: "今日の消費量",
-            unitCredits: "ユニットクレジット"
+            unitCredits: "単位：クレジット"
         },
-        title: "タイトル",
+        title: "請求センター",
         tokenSegment: {
             cached: "キャッシュされた",
             input: "入力",
             output: "出力"
         },
         trend: {
-            description: "説明",
-            empty: "空の",
+            description: "選択した粒度で集計した消費トレンドです。",
+            empty: "トレンドデータはまだありません。",
             series: {
-                consumed: "消費された"
+                consumed: "消費クレジット"
             },
-            title: "タイトル"
+            title: "消費トレンド"
         }
     },
     groupsPage: {

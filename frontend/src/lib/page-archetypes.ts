@@ -33,6 +33,12 @@ export interface ReportShellLayout {
   desktopContentBalance: 'lead-first' | 'balanced'
 }
 
+export interface BillingReportLayout {
+  leadSequence: 'summary-then-trend'
+  mobileContextPlacement: 'after-lead'
+  mobileDetailPlacement: 'after-context'
+}
+
 const ARCHETYPE_CONFIG: Record<PageArchetype, PageArchetypeConfig> = {
   auth: {
     name: 'auth',
@@ -167,5 +173,13 @@ export function describeReportShellLayout(): ReportShellLayout {
     mobileToolbarPlacement: 'after-intro',
     mobileRailPlacement: 'after-content',
     desktopContentBalance: 'lead-first',
+  }
+}
+
+export function describeBillingReportLayout(): BillingReportLayout {
+  return {
+    leadSequence: 'summary-then-trend',
+    mobileContextPlacement: 'after-lead',
+    mobileDetailPlacement: 'after-context',
   }
 }
