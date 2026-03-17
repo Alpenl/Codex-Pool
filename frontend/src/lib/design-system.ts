@@ -21,14 +21,14 @@ export interface DesignLanguage {
     stage: 'settled' | 'deep-settled'
   }
   density: {
-    controls: 'comfortable'
-    panels: 'relaxed'
+    controls: 'compact'
+    panels: 'measured'
   }
 }
 
 export interface SurfaceRecipe {
   kind: SurfaceKind
-  emphasis: 'high' | 'medium' | 'low'
+  emphasis: 'controlled' | 'medium' | 'low'
   border: 'etched' | 'soft' | 'quiet'
   background: 'vellum' | 'powder' | 'matte' | 'cabinet'
   shadow: 'resting' | 'barely-there' | 'settled' | 'deep-resting' | 'deep-settled' | 'none'
@@ -69,8 +69,8 @@ const DESIGN_LANGUAGES: Record<DesignMode, DesignLanguage> = {
       stage: 'settled',
     },
     density: {
-      controls: 'comfortable',
-      panels: 'relaxed',
+      controls: 'compact',
+      panels: 'measured',
     },
   },
   dark: {
@@ -90,8 +90,8 @@ const DESIGN_LANGUAGES: Record<DesignMode, DesignLanguage> = {
       stage: 'deep-settled',
     },
     density: {
-      controls: 'comfortable',
-      panels: 'relaxed',
+      controls: 'compact',
+      panels: 'measured',
     },
   },
 }
@@ -116,7 +116,7 @@ const SURFACE_RECIPES: Record<DesignMode, Record<SurfaceKind, SurfaceRecipe>> = 
     },
     stage: {
       kind: 'stage',
-      emphasis: 'medium',
+      emphasis: 'controlled',
       border: 'etched',
       background: 'matte',
       shadow: 'settled',
@@ -150,7 +150,7 @@ const SURFACE_RECIPES: Record<DesignMode, Record<SurfaceKind, SurfaceRecipe>> = 
     },
     stage: {
       kind: 'stage',
-      emphasis: 'medium',
+      emphasis: 'controlled',
       border: 'etched',
       background: 'matte',
       shadow: 'deep-settled',
@@ -158,7 +158,7 @@ const SURFACE_RECIPES: Record<DesignMode, Record<SurfaceKind, SurfaceRecipe>> = 
     },
     sidebar: {
       kind: 'sidebar',
-      emphasis: 'medium',
+      emphasis: 'low',
       border: 'soft',
       background: 'cabinet',
       shadow: 'none',

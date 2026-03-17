@@ -21,7 +21,7 @@ test('resolveDesignLanguage returns a restrained mineral palette for light mode'
   assert.equal(language.radius.panel, '20px')
   assert.equal(language.shadow.panel, 'resting')
   assert.equal(language.shadow.stage, 'settled')
-  assert.equal(language.density.controls, 'comfortable')
+  assert.equal(language.density.controls, 'compact')
 })
 
 test('resolveDesignLanguage keeps the same visual family in dark mode without becoming neon', () => {
@@ -33,7 +33,7 @@ test('resolveDesignLanguage keeps the same visual family in dark mode without be
   assert.equal(language.palette.canvasTone, 'ink')
   assert.equal(language.shadow.panel, 'deep-resting')
   assert.equal(language.shadow.stage, 'deep-settled')
-  assert.equal(language.density.panels, 'relaxed')
+  assert.equal(language.density.panels, 'measured')
 })
 
 test('resolveDesignLanguage falls back to the light redesign baseline for unknown modes', () => {
@@ -65,7 +65,7 @@ test('resolveSurfaceRecipe returns shared panel, muted panel, stage, and sidebar
 
   assert.deepEqual(resolveSurfaceRecipe('stage', 'dark'), {
     kind: 'stage',
-    emphasis: 'medium',
+    emphasis: 'controlled',
     border: 'etched',
     background: 'matte',
     shadow: 'deep-settled',
@@ -74,7 +74,7 @@ test('resolveSurfaceRecipe returns shared panel, muted panel, stage, and sidebar
 
   assert.deepEqual(resolveSurfaceRecipe('sidebar', 'dark'), {
     kind: 'sidebar',
-    emphasis: 'medium',
+    emphasis: 'low',
     border: 'soft',
     background: 'cabinet',
     shadow: 'none',
@@ -91,7 +91,7 @@ test('resolveSurfaceRecipe keeps panel tiers restrained while giving stage and s
   assert.equal(panel.shadow, 'deep-resting')
   assert.equal(mutedPanel.shadow, 'barely-there')
   assert.equal(mutedPanel.emphasis, 'low')
-  assert.equal(stage.emphasis, 'medium')
+  assert.equal(stage.emphasis, 'controlled')
   assert.equal(stage.temperature, 'warm')
   assert.equal(sidebar.background, 'cabinet')
 })
