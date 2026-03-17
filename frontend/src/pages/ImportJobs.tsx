@@ -26,6 +26,7 @@ import AnimatedContent from '@/components/AnimatedContent'
 import {
   PageIntro,
   PagePanel,
+  SectionHeader,
   WorkspaceShell,
 } from '@/components/layout/page-archetypes'
 import { Badge } from '@/components/ui/badge'
@@ -582,7 +583,7 @@ export default function ImportJobs() {
       initial={prefersReducedMotion ? undefined : { opacity: 0, y: 8 }}
       animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
       transition={{ duration: 0.35 }}
-      className="flex-1 space-y-6 overflow-y-auto px-4 py-6 md:px-8 md:py-8"
+      className="flex-1 space-y-5 overflow-y-auto px-4 py-6 md:px-8 md:py-8"
     >
       <WorkspaceShell
         intro={(
@@ -604,27 +605,24 @@ export default function ImportJobs() {
         )}
         primary={(
           <AnimatedContent>
-            <PagePanel className="space-y-5">
-              <div className="space-y-2">
-                <h2 className="text-2xl font-semibold tracking-[-0.03em] text-slate-950 dark:text-slate-50">
-                  {t('importJobs.workspace.title')}
-                </h2>
-                <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                  {t('importJobs.workspace.desc')}
-                </p>
-              </div>
+            <PagePanel className="space-y-0 overflow-hidden p-0">
+              <div className="space-y-5 px-5 py-5 sm:px-6">
+                <SectionHeader
+                  title={t('importJobs.workspace.title')}
+                  description={t('importJobs.workspace.desc')}
+                />
 
-              <div
-                className={cn(
-                  'rounded-[1.4rem] border border-dashed p-6 transition-colors sm:p-7',
-                  isDragging ? 'border-primary bg-primary/5' : 'border-border/70 bg-card/55',
-                  (uploadMutation.isPending || isInspectingFiles) && 'pointer-events-none opacity-80',
-                )}
-                onDragEnter={handleDropZoneDrag}
-                onDragOver={handleDropZoneDrag}
-                onDragLeave={handleDropZoneDrag}
-                onDrop={handleDropZoneDrag}
-              >
+                <div
+                  className={cn(
+                    'rounded-[0.95rem] border border-dashed p-5 transition-colors sm:p-6',
+                    isDragging ? 'border-primary bg-primary/5' : 'border-border/70 bg-card/55',
+                    (uploadMutation.isPending || isInspectingFiles) && 'pointer-events-none opacity-80',
+                  )}
+                  onDragEnter={handleDropZoneDrag}
+                  onDragOver={handleDropZoneDrag}
+                  onDragLeave={handleDropZoneDrag}
+                  onDrop={handleDropZoneDrag}
+                >
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -642,98 +640,97 @@ export default function ImportJobs() {
                   }}
                 />
 
-                <div className="flex flex-col items-start gap-5 text-left">
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-border/70 bg-background/80">
-                      {isInspectingFiles ? (
-                        <Loader2 className="h-7 w-7 animate-spin text-primary" />
-                      ) : (
-                        <UploadCloud className="h-7 w-7 text-primary" />
-                      )}
+                  <div className="flex flex-col items-start gap-5 text-left">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-[0.95rem] border border-border/70 bg-background/80">
+                        {isInspectingFiles ? (
+                          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                        ) : (
+                          <UploadCloud className="h-6 w-6 text-primary" />
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        <h3 className="text-base font-semibold text-foreground">
+                          {t('importJobs.dropzone.titleNew')}
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          {t('importJobs.dropzone.acceptsNew')}
+                        </p>
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <h3 className="text-lg font-semibold text-foreground">
-                        {t('importJobs.dropzone.titleNew')}
-                      </h3>
-                      <p className="text-sm text-muted-foreground">
-                        {t('importJobs.dropzone.acceptsNew')}
-                      </p>
+
+                    <div className="flex w-full flex-wrap gap-2">
+                      <Button type="button" onClick={() => fileInputRef.current?.click()}>
+                        {t('importJobs.dropzone.selectFiles')}
+                      </Button>
+                      <Button type="button" variant="outline" onClick={handleDownloadTemplate}>
+                        <HardDriveDownload className="h-4 w-4" />
+                        {t('importJobs.template.downloadJsonl')}
+                      </Button>
                     </div>
                   </div>
+                </div>
 
-                  <div className="flex w-full flex-wrap gap-2">
-                    <Button type="button" onClick={() => fileInputRef.current?.click()}>
-                      {t('importJobs.dropzone.selectFiles')}
-                    </Button>
-                    <Button type="button" variant="outline" onClick={handleDownloadTemplate}>
-                      <HardDriveDownload className="h-4 w-4" />
-                      {t('importJobs.template.downloadJsonl')}
-                    </Button>
+                {uploadError ? (
+                  <div className="flex items-start gap-2 rounded-[0.95rem] border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div>{uploadError}</div>
                   </div>
+                ) : null}
+
+                {uploadNotice ? (
+                  <div className="flex items-start gap-2 rounded-[0.95rem] border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div>{uploadNotice}</div>
+                  </div>
+                ) : null}
+
+                <div className="space-y-4 border-t border-border/70 pt-4">
+                  <div className="grid gap-px overflow-hidden rounded-[0.9rem] border border-border/70 bg-border/70 sm:grid-cols-3">
+                    <StatChip
+                      label={t('importJobs.workspace.readyFiles', { count: reviewStats.ready })}
+                      value={reviewStats.ready}
+                      tone="success"
+                    />
+                    <StatChip
+                      label={t('importJobs.workspace.warningFiles', { count: reviewStats.warning })}
+                      value={reviewStats.warning}
+                      tone="warning"
+                    />
+                    <StatChip
+                      label={t('importJobs.workspace.invalidFiles', { count: reviewStats.invalid })}
+                      value={reviewStats.invalid}
+                      tone="destructive"
+                    />
+                  </div>
+
+                  <div className="grid gap-px overflow-hidden rounded-[0.9rem] border border-border/70 bg-border/70 sm:grid-cols-2 xl:grid-cols-4">
+                    <MiniMetric title={t('importJobs.metrics.total')} value={reviewStats.estimatedRecords} />
+                    <MiniMetric title="refresh_token" value={reviewStats.refreshTokenRecords} />
+                    <MiniMetric title="access_token" value={reviewStats.accessTokenRecords} />
+                    <MiniMetric title="chatgpt_account_id" value={reviewStats.chatgptAccountIdRecords} />
+                  </div>
+
+                  <details className="rounded-[0.9rem] border border-border/60 bg-muted/12 px-4 py-3">
+                    <summary className="cursor-pointer list-none text-sm font-medium text-slate-700 marker:hidden dark:text-slate-200 [&::-webkit-details-marker]:hidden">
+                      {t('importJobs.workspace.totalFiles', { count: reviewStats.total })} ·{' '}
+                      {t('importJobs.workspace.totalSize', { size: formatBytes(reviewStats.totalBytes) })}
+                    </summary>
+                    <div className="mt-3 space-y-1 text-xs leading-5 text-muted-foreground">
+                      <div>email: {reviewStats.emailRecords}</div>
+                      <div>base_url: {formatTopValues(reviewStats.baseUrlHints)}</div>
+                      <div>source_type: {formatTopValues(reviewStats.sourceTypeHints)}</div>
+                      <div>plan_type: {formatTopValues(reviewStats.planTypeHints)}</div>
+                    </div>
+                  </details>
                 </div>
               </div>
 
-              {uploadError ? (
-                <div className="flex items-start gap-2 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                  <div>{uploadError}</div>
-                </div>
-              ) : null}
-
-              {uploadNotice ? (
-                <div className="flex items-start gap-2 rounded-2xl border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                  <div>{uploadNotice}</div>
-                </div>
-              ) : null}
-
-              <div className="grid gap-2 sm:grid-cols-3">
-                <StatChip
-                  label={t('importJobs.workspace.readyFiles', { count: reviewStats.ready })}
-                  value={reviewStats.ready}
-                  tone="success"
+              <div className="space-y-3 border-t border-border/70 px-5 py-5 sm:px-6">
+                <SectionHeader
+                  title={t('importJobs.detail.title')}
+                  description={t('importJobs.detail.searchPlaceholderModern')}
                 />
-                <StatChip
-                  label={t('importJobs.workspace.warningFiles', { count: reviewStats.warning })}
-                  value={reviewStats.warning}
-                  tone="warning"
-                />
-                <StatChip
-                  label={t('importJobs.workspace.invalidFiles', { count: reviewStats.invalid })}
-                  value={reviewStats.invalid}
-                  tone="destructive"
-                />
-              </div>
-
-              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                <MiniMetric title={t('importJobs.metrics.total')} value={reviewStats.estimatedRecords} />
-                <MiniMetric title="refresh_token" value={reviewStats.refreshTokenRecords} />
-                <MiniMetric title="access_token" value={reviewStats.accessTokenRecords} />
-                <MiniMetric title="chatgpt_account_id" value={reviewStats.chatgptAccountIdRecords} />
-              </div>
-
-              <details className="rounded-2xl border border-border/60 bg-muted/15 px-4 py-3">
-                <summary className="cursor-pointer list-none text-sm font-medium text-slate-700 marker:hidden dark:text-slate-200 [&::-webkit-details-marker]:hidden">
-                  {t('importJobs.workspace.totalFiles', { count: reviewStats.total })} ·{' '}
-                  {t('importJobs.workspace.totalSize', { size: formatBytes(reviewStats.totalBytes) })}
-                </summary>
-                <div className="mt-3 space-y-1 text-xs leading-5 text-muted-foreground">
-                  <div>email: {reviewStats.emailRecords}</div>
-                  <div>base_url: {formatTopValues(reviewStats.baseUrlHints)}</div>
-                  <div>source_type: {formatTopValues(reviewStats.sourceTypeHints)}</div>
-                  <div>plan_type: {formatTopValues(reviewStats.planTypeHints)}</div>
-                </div>
-              </details>
-
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                    {t('importJobs.detail.title')}
-                  </h3>
-                  <p className="text-xs text-muted-foreground">
-                    {t('importJobs.detail.searchPlaceholderModern')}
-                  </p>
-                </div>
 
                 <div className="h-[360px]">
                   <StandardDataTable
@@ -762,191 +759,195 @@ export default function ImportJobs() {
                 </div>
               </div>
 
-              <Button
-                type="button"
-                className="w-full"
-                disabled={uploadMutation.isPending || isInspectingFiles}
-                onClick={handleStartImport}
-              >
-                {uploadMutation.isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {t('importJobs.dropzone.uploading')}
-                  </>
-                ) : (
-                  t('importJobs.workspace.startImportWithCount', {
-                    count: importableFiles.length,
-                  })
-                )}
-              </Button>
+              <div className="border-t border-border/70 bg-muted/16 px-5 py-4 sm:px-6">
+                <Button
+                  type="button"
+                  className="w-full"
+                  disabled={uploadMutation.isPending || isInspectingFiles}
+                  onClick={handleStartImport}
+                >
+                  {uploadMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      {t('importJobs.dropzone.uploading')}
+                    </>
+                  ) : (
+                    t('importJobs.workspace.startImportWithCount', {
+                      count: importableFiles.length,
+                    })
+                  )}
+                </Button>
+              </div>
             </PagePanel>
           </AnimatedContent>
         )}
         secondary={(
-          <AnimatedContent className="space-y-6">
-            <PagePanel tone="secondary" className="space-y-4">
-              <div className="space-y-1">
-                <h2 className="text-lg font-semibold text-slate-950 dark:text-slate-50">
-                  {t('importJobs.progress.title')}
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  {effectiveSelectedJobId
-                    ? t('importJobs.progress.jobIdLabel', { jobId: effectiveSelectedJobId })
-                    : t('importJobs.progress.noJobSelected')}
-                </p>
-              </div>
+          <AnimatedContent className="space-y-5">
+            <PagePanel tone="secondary" className="space-y-0 rounded-[0.95rem] bg-transparent shadow-none">
+              <div className="space-y-4">
+                <SectionHeader
+                  title={t('importJobs.progress.title')}
+                  description={
+                    effectiveSelectedJobId
+                      ? t('importJobs.progress.jobIdLabel', { jobId: effectiveSelectedJobId })
+                      : t('importJobs.progress.noJobSelected')
+                  }
+                />
 
-              {!effectiveSelectedJobId ? (
-                <div className="rounded-2xl border border-border/60 bg-muted/20 px-4 py-10 text-center text-sm text-muted-foreground">
-                  {t('importJobs.progress.noJobSelected')}
-                </div>
-              ) : (
-                <>
-                  <div className="flex items-center justify-between">
-                    <Badge
-                      variant={selectedIsRunning ? 'warning' : 'success'}
-                      className="uppercase text-[10px]"
-                    >
-                      {getImportStatusLabel(t, selectedDisplayStatus)}
-                    </Badge>
-                    <Badge variant={selectedTrackingPaused ? 'secondary' : 'info'}>
-                      {selectedTrackingPaused
-                        ? t('accounts.actions.pauseGroup', { defaultValue: 'Paused' })
-                        : t('importJobs.queue.tracked')}
-                    </Badge>
+                {!effectiveSelectedJobId ? (
+                  <div className="rounded-[0.9rem] border border-border/60 bg-muted/20 px-4 py-10 text-center text-sm text-muted-foreground">
+                    {t('importJobs.progress.noJobSelected')}
                   </div>
-
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-xs text-muted-foreground tabular-nums">
-                      <span>
-                        {t('accounts.title', { defaultValue: 'Accounts' })} {poolProgress.inPool}/
-                        {poolProgress.total}
-                      </span>
-                      <span>{poolProgress.percent.toFixed(1)}%</span>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <Badge
+                        variant={selectedIsRunning ? 'warning' : 'success'}
+                        className="uppercase text-[10px]"
+                      >
+                        {getImportStatusLabel(t, selectedDisplayStatus)}
+                      </Badge>
+                      <Badge variant={selectedTrackingPaused ? 'secondary' : 'info'}>
+                        {selectedTrackingPaused
+                          ? t('accounts.actions.pauseGroup', { defaultValue: 'Paused' })
+                          : t('importJobs.queue.tracked')}
+                      </Badge>
                     </div>
-                    <div className="h-2.5 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full bg-primary transition-[width] duration-300"
-                        style={{ width: `${Math.min(100, poolProgress.percent)}%` }}
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground tabular-nums">
+                        <span>
+                          {t('accounts.title', { defaultValue: 'Accounts' })} {poolProgress.inPool}/
+                          {poolProgress.total}
+                        </span>
+                        <span>{poolProgress.percent.toFixed(1)}%</span>
+                      </div>
+                      <div className="h-2.5 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full bg-primary transition-[width] duration-300"
+                          style={{ width: `${Math.min(100, poolProgress.percent)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-px overflow-hidden rounded-[0.9rem] border border-border/70 bg-border/70 sm:grid-cols-2">
+                      <MiniMetric
+                        title={t('accounts.title', { defaultValue: 'Accounts' })}
+                        value={`${poolProgress.inPool}/${poolProgress.total}`}
+                      />
+                      <MiniMetric
+                        title={t('importJobs.metrics.status')}
+                        value={getImportStatusLabel(t, selectedDisplayStatus)}
                       />
                     </div>
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-2">
-                    <MiniMetric
-                      title={t('accounts.title', { defaultValue: 'Accounts' })}
-                      value={`${poolProgress.inPool}/${poolProgress.total}`}
-                    />
-                    <MiniMetric
-                      title={t('importJobs.metrics.status')}
-                      value={getImportStatusLabel(t, selectedDisplayStatus)}
-                    />
-                  </div>
-
-                  <div className="text-xs text-muted-foreground">
-                    {selectedJobItemsQuery.isFetching || accountsInPoolQuery.isFetching ? (
-                      <span className="inline-flex items-center gap-1">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        {t('common.loading')}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1">
-                        <Clock3 className="h-3.5 w-3.5" />
-                        {t('importJobs.queue.tracked')}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="button" variant="outline" size="sm" onClick={toggleTrackingPaused}>
-                      {selectedTrackingPaused ? (
-                        <>
-                          <Play className="mr-1 h-3.5 w-3.5" />
-                          {t('accounts.actions.resumeGroup', { defaultValue: 'Resume' })}
-                        </>
+                    <div className="text-xs text-muted-foreground">
+                      {selectedJobItemsQuery.isFetching || accountsInPoolQuery.isFetching ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          {t('common.loading')}
+                        </span>
                       ) : (
-                        <>
-                          <Pause className="mr-1 h-3.5 w-3.5" />
-                          {t('accounts.actions.pauseGroup', { defaultValue: 'Pause' })}
-                        </>
+                        <span className="inline-flex items-center gap-1">
+                          <Clock3 className="h-3.5 w-3.5" />
+                          {t('importJobs.queue.tracked')}
+                        </span>
                       )}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={!selectedIsRunning || cancelMutation.isPending}
-                      onClick={() => {
-                        void handleCancelSelectedJob()
-                      }}
-                    >
-                      {cancelMutation.isPending ? (
-                        <>
-                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                          {t('importJobs.actions.cancel')}
-                        </>
-                      ) : (
-                        <>
-                          <XCircle className="mr-1 h-3.5 w-3.5" />
-                          {t('importJobs.actions.cancelJob')}
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </>
-              )}
-            </PagePanel>
+                    </div>
 
-            <PagePanel tone="secondary" className="space-y-4">
-              <div className="space-y-1">
-                <h2 className="text-lg font-semibold text-slate-950 dark:text-slate-50">
-                  {t('importJobs.queue.titleRecent')}
-                </h2>
-                <p className="text-sm text-muted-foreground">{t('importJobs.queue.descRecent')}</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={toggleTrackingPaused}>
+                        {selectedTrackingPaused ? (
+                          <>
+                            <Play className="mr-1 h-3.5 w-3.5" />
+                            {t('accounts.actions.resumeGroup', { defaultValue: 'Resume' })}
+                          </>
+                        ) : (
+                          <>
+                            <Pause className="mr-1 h-3.5 w-3.5" />
+                            {t('accounts.actions.pauseGroup', { defaultValue: 'Pause' })}
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={!selectedIsRunning || cancelMutation.isPending}
+                        onClick={() => {
+                          void handleCancelSelectedJob()
+                        }}
+                      >
+                        {cancelMutation.isPending ? (
+                          <>
+                            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                            {t('importJobs.actions.cancel')}
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="mr-1 h-3.5 w-3.5" />
+                            {t('importJobs.actions.cancelJob')}
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </>
+                )}
               </div>
 
-              {recentJobs.length === 0 ? (
-                <div className="rounded-2xl border border-border/60 bg-muted/20 px-3 py-6 text-center text-sm text-muted-foreground">
-                  {t('importJobs.queue.emptyRecent')}
-                </div>
-              ) : (
-                recentJobs.map((item) => {
-                  const status = toDisplayStatus(item.summary?.status)
-                  const selected = item.jobId === effectiveSelectedJobId
-                  return (
-                    <button
-                      type="button"
-                      key={item.jobId}
-                      className={cn(
-                        'w-full rounded-xl border px-3 py-3 text-left transition-colors',
-                        selected
-                          ? 'border-primary bg-primary/5'
-                          : 'border-border/60 bg-card/65 hover:border-primary/40 hover:bg-primary/5',
-                      )}
-                      onClick={() => setSelectedJobId(item.jobId)}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="truncate font-mono text-xs">{item.jobId}</div>
-                          <div className="mt-1 text-[11px] text-muted-foreground">
-                            {item.summary
-                              ? `${item.summary.processed}/${item.summary.total}`
-                              : item.isLoading
-                                ? t('common.loading')
-                                : item.errorMessage ?? t('importJobs.messages.queryFailed')}
-                          </div>
-                        </div>
-                        <Badge
-                          variant={status === 'running' ? 'warning' : 'success'}
-                          className="uppercase text-[10px]"
+              <div className="mt-5 space-y-4 border-t border-border/70 pt-5">
+                <SectionHeader
+                  title={t('importJobs.queue.titleRecent')}
+                  description={t('importJobs.queue.descRecent')}
+                />
+
+                {recentJobs.length === 0 ? (
+                  <div className="rounded-[0.9rem] border border-border/60 bg-muted/20 px-3 py-6 text-center text-sm text-muted-foreground">
+                    {t('importJobs.queue.emptyRecent')}
+                  </div>
+                ) : (
+                  <div className="overflow-hidden rounded-[0.9rem] border border-border/70">
+                    {recentJobs.map((item, index) => {
+                      const status = toDisplayStatus(item.summary?.status)
+                      const selected = item.jobId === effectiveSelectedJobId
+                      return (
+                        <button
+                          type="button"
+                          key={item.jobId}
+                          className={cn(
+                            'w-full border-b border-border/70 px-3 py-3 text-left transition-colors last:border-b-0',
+                            selected
+                              ? 'bg-primary/6'
+                              : 'bg-background/68 hover:bg-primary/5',
+                            index === 0 && 'rounded-t-[0.9rem]',
+                            index === recentJobs.length - 1 && 'rounded-b-[0.9rem]',
+                          )}
+                          onClick={() => setSelectedJobId(item.jobId)}
                         >
-                          {getImportStatusLabel(t, status)}
-                        </Badge>
-                      </div>
-                    </button>
-                  )
-                })
-              )}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate font-mono text-xs">{item.jobId}</div>
+                              <div className="mt-1 text-[11px] text-muted-foreground">
+                                {item.summary
+                                  ? `${item.summary.processed}/${item.summary.total}`
+                                  : item.isLoading
+                                    ? t('common.loading')
+                                    : item.errorMessage ?? t('importJobs.messages.queryFailed')}
+                              </div>
+                            </div>
+                            <Badge
+                              variant={status === 'running' ? 'warning' : 'success'}
+                              className="uppercase text-[10px]"
+                            >
+                              {getImportStatusLabel(t, status)}
+                            </Badge>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </PagePanel>
           </AnimatedContent>
         )}
@@ -959,7 +960,7 @@ export default function ImportJobs() {
 
 function MiniMetric({ title, value }: { title: string; value: string | number }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-muted/20 p-2.5">
+    <div className="bg-background/88 px-3 py-3 dark:bg-card/86">
       <div className="text-[11px] text-muted-foreground">{title}</div>
       <div className="mt-1 text-sm font-semibold tabular-nums">{value}</div>
     </div>
@@ -978,10 +979,10 @@ function StatChip({
   return (
     <div
       className={cn(
-        'rounded-lg border px-3 py-2 text-xs',
-        tone === 'success' && 'border-success/30 bg-success/10 text-success',
-        tone === 'warning' && 'border-warning/30 bg-warning/10 text-warning',
-        tone === 'destructive' && 'border-destructive/30 bg-destructive/10 text-destructive',
+        'bg-background/88 px-3 py-3 text-xs dark:bg-card/86',
+        tone === 'success' && 'text-success',
+        tone === 'warning' && 'text-warning',
+        tone === 'destructive' && 'text-destructive',
       )}
     >
       <div className="font-medium">{label}</div>

@@ -76,6 +76,7 @@ import {
   formatDashboardTrendTimestampLabel,
 } from '@/lib/dashboard-number-format'
 import { formatExactCount } from '@/lib/count-number-format'
+import { describeDashboardOverviewLayout } from '@/lib/page-archetypes'
 import { cn } from '@/lib/utils'
 
 type AlertSeverity = 'critical' | 'warning' | 'info'
@@ -649,11 +650,12 @@ export default function Dashboard() {
       color: TOKEN_COMPONENT_CHART_COLORS.reasoning,
     },
   ]
-  const dashboardSelectTriggerClassName = 'min-h-11 md:min-h-0 md:h-9'
-  const dashboardButtonClassName = 'min-h-11 px-4 md:min-h-0'
+  const overviewLayout = describeDashboardOverviewLayout()
+  const dashboardSelectTriggerClassName = 'min-h-11 rounded-[0.8rem] border-border/70 bg-background/78 shadow-none md:min-h-0 md:h-9'
+  const dashboardButtonClassName = 'min-h-11 rounded-[0.8rem] px-3.5 md:min-h-0'
   const toggleBadgeButtonClassName = (pressed: boolean) =>
     cn(
-      'gap-2 rounded-full border-border/60 bg-background/80 px-3 py-1.5 text-xs font-medium shadow-none',
+      'gap-2 rounded-[0.8rem] border-border/60 bg-background/80 px-3 py-1.5 text-xs font-medium shadow-none',
       pressed
         ? 'bg-accent text-accent-foreground hover:bg-accent/90'
         : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
@@ -840,19 +842,24 @@ export default function Dashboard() {
               </div>
             )}
             actions={(
-              <>
+              <div
+                className={cn(
+                  'flex w-full flex-wrap items-center gap-2 sm:w-auto',
+                  overviewLayout.actionDensity === 'tight' && 'sm:justify-end',
+                )}
+              >
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
-                  className={cn('w-full sm:w-auto', dashboardButtonClassName)}
+                  className={cn('min-w-0 justify-center sm:w-auto sm:justify-start', dashboardButtonClassName)}
                   onClick={() => navigate({ pathname: '/logs', search: `?${logsSearch}` })}
                 >
                   {t('dashboard.actions.viewLogs', { defaultValue: 'View request logs' })}
                 </Button>
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
-                  className={cn('w-full sm:w-auto', dashboardButtonClassName)}
+                  className={cn('min-w-0 justify-center sm:w-auto sm:justify-start', dashboardButtonClassName)}
                   onClick={() => navigate({ pathname: '/billing', search: `?${billingSearch}` })}
                 >
                   {t('dashboard.actions.viewBilling', { defaultValue: 'View billing' })}
@@ -862,7 +869,7 @@ export default function Dashboard() {
                   size="sm"
                   onClick={handleRefresh}
                   disabled={isRefreshing}
-                  className={cn('group w-full transition-colors sm:w-auto', dashboardButtonClassName)}
+                  className={cn('group col-span-2 min-w-0 justify-center transition-colors sm:col-span-1 sm:w-auto sm:justify-start', dashboardButtonClassName)}
                 >
                   <RefreshCcw
                     className={cn(
@@ -872,13 +879,13 @@ export default function Dashboard() {
                   />
                   {t('common.refresh')}
                 </Button>
-              </>
+              </div>
             )}
           />
         )}
         rail={(
           <>
-            <PagePanel tone="secondary" className="space-y-4">
+            <section className="space-y-3 border-b border-border/70 pb-4">
               <SectionHeader
                 eyebrow={t('dashboard.filters.eyebrow', { defaultValue: 'Context' })}
                 title={t('dashboard.filters.title', { defaultValue: 'Scope and filters' })}
@@ -886,7 +893,7 @@ export default function Dashboard() {
                   defaultValue: 'Tighten the view to a tenant or API key when you need to isolate hotspots quickly.',
                 })}
               />
-              <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-1">
+              <div className="grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-1">
                 <Select value={scope} onValueChange={(value) => setScope(value as DashboardScope)}>
                   <SelectTrigger
                     className={cn('w-full', dashboardSelectTriggerClassName)}
@@ -966,9 +973,9 @@ export default function Dashboard() {
                   </Select>
                 ) : null}
               </div>
-            </PagePanel>
+            </section>
 
-            <PagePanel tone="secondary" className="space-y-4">
+            <section className="space-y-3">
               <SectionHeader
                 eyebrow={t('dashboard.overview.eyebrow', { defaultValue: 'Pulse' })}
                 title={t('dashboard.overview.title', { defaultValue: 'Operational pulse' })}
@@ -976,25 +983,29 @@ export default function Dashboard() {
                   defaultValue: 'A quick read on alert pressure, pipeline health, and managed inventory before you dive into charts.',
                 })}
               />
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div
+                className={cn(
+                  'overflow-hidden rounded-[0.95rem] border border-border/70',
+                  overviewLayout.pulseTreatment === 'annotated-list' && 'divide-y divide-border/70',
+                )}
+              >
                 {operationalPulseItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="rounded-2xl border border-slate-200/75 bg-white/70 px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-950/55"
-                  >
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-                      {item.label}
-                    </p>
-                    <p className={cn('mt-2 text-xl font-semibold tracking-[-0.03em]', item.tone)}>
-                      {item.value}
-                    </p>
-                    <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                  <div key={item.id} className="space-y-1.5 bg-background/70 px-4 py-3.5 dark:bg-card/72">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-[12px] font-medium tracking-[0.01em] text-muted-foreground">
+                        {item.label}
+                      </p>
+                      <p className={cn('text-[15px] font-semibold tracking-[-0.02em]', item.tone)}>
+                        {item.value}
+                      </p>
+                    </div>
+                    <p className="text-[12px] leading-5 text-muted-foreground">
                       {item.meta}
                     </p>
                   </div>
                 ))}
               </div>
-            </PagePanel>
+            </section>
           </>
         )}
       >

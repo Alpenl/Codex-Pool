@@ -65,16 +65,16 @@ export default function Login({ onLogin }: LoginProps) {
       subtitle={t('login.brand.subtitle')}
       points={brandPoints}
       rightSlot={
-        <div className="space-y-6">
-          <div className="space-y-3">
-            <p className="inline-flex items-center gap-2 text-[11px] font-medium tracking-[0.05em] text-muted-foreground">
+        <div className="space-y-5">
+          <div className="space-y-2">
+            <p className="inline-flex items-center gap-2 text-[12px] font-medium tracking-[0.01em] text-muted-foreground">
               <ShieldCheck className="h-3.5 w-3.5 text-primary" />
               {t('login.title')}
             </p>
-            <h2 className="text-balance text-[clamp(1.7rem,3.5vw,2.6rem)] font-semibold leading-[0.98] tracking-[-0.024em] text-foreground">
+            <h2 className="text-balance text-[clamp(1.2rem,2.2vw,1.55rem)] font-semibold leading-[1.04] tracking-[-0.018em] text-foreground">
               {t('login.subtitle')}
             </h2>
-            <p className="text-sm leading-6 text-muted-foreground">
+            <p className="max-w-[48ch] text-sm leading-6 text-muted-foreground">
               {t('login.securityHint')}
             </p>
           </div>
@@ -93,7 +93,7 @@ export default function Login({ onLogin }: LoginProps) {
                   spellCheck={false}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder={t('login.usernamePlaceholder')}
-                  className="h-11 rounded-[0.95rem] border-border/80 bg-background/84 shadow-none sm:h-11"
+                  className="h-11 shadow-none sm:h-11"
                 />
               </div>
             </FadeContent>
@@ -111,14 +111,14 @@ export default function Login({ onLogin }: LoginProps) {
                   autoComplete="current-password"
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder={t('login.passwordPlaceholder')}
-                  className="h-11 rounded-[0.95rem] border-border/80 bg-background/84 shadow-none sm:h-11"
+                  className="h-11 shadow-none sm:h-11"
                 />
               </div>
             </FadeContent>
 
             <FadeContent blur duration={220} delay={100}>
               <Button
-                className="h-11 w-full rounded-[0.95rem] shadow-none"
+                className="h-11 w-full shadow-none"
                 type="submit"
                 disabled={loading || !password}
               >

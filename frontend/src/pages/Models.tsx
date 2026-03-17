@@ -499,7 +499,7 @@ export default function Models() {
 
   return (
     <div className="flex-1 p-4 sm:p-6 lg:p-8">
-      <div className="space-y-6 md:space-y-8">
+      <div className="space-y-5 md:space-y-6">
         <PageIntro
           archetype="workspace"
           title={t('models.title', { defaultValue: 'Models' })}
@@ -509,7 +509,7 @@ export default function Models() {
         />
 
         {modelsLayout.mobileContextPlacement === 'after-intro' ? (
-          <PagePanel tone="secondary" className="space-y-4">
+          <PagePanel tone="secondary" className="space-y-3 rounded-[0.95rem] bg-transparent shadow-none">
             <SectionHeader
               title={t('models.actions.sync', { defaultValue: 'Sync Status' })}
               description={
@@ -522,8 +522,9 @@ export default function Models() {
               }
               actions={
                 modelsLayout.actionPlacement === 'within-status-panel' ? (
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5 rounded-[0.95rem] border border-border/70 bg-muted/20 p-1.5">
                     <Button
+                      size="sm"
                       onClick={() => syncCatalogMutation.mutate()}
                       disabled={syncCatalogMutation.isPending}
                     >
@@ -534,6 +535,7 @@ export default function Models() {
                     </Button>
                     <Button
                       variant="outline"
+                      size="sm"
                       onClick={() => probeMutation.mutate()}
                       disabled={probeMutation.isPending || modelsMeta?.catalog_sync_required}
                     >
@@ -560,24 +562,24 @@ export default function Models() {
             {modelsLayout.feedbackPlacement === 'within-status-panel' && hasStatusMessages ? (
               <div className="space-y-2">
                 {modelsMeta?.catalog_sync_required ? (
-                  <p className="break-words rounded-2xl border border-warning/20 bg-warning-muted/65 px-4 py-3 text-sm leading-6 text-warning-foreground">
+                  <p className="break-words rounded-[0.95rem] border border-warning/20 bg-warning-muted/65 px-4 py-3 text-sm leading-6 text-warning-foreground">
                     {t('models.emptySyncRequired', {
                       defaultValue: 'No official catalog yet. Sync OpenAI catalog first.',
                     })}
                   </p>
                 ) : null}
                 {modelsMeta?.catalog_last_error ? (
-                  <p className="break-words rounded-2xl border border-warning/20 bg-warning-muted/65 px-4 py-3 text-sm leading-6 text-warning-foreground">
+                  <p className="break-words rounded-[0.95rem] border border-warning/20 bg-warning-muted/65 px-4 py-3 text-sm leading-6 text-warning-foreground">
                     {modelsMeta.catalog_last_error}
                   </p>
                 ) : null}
                 {error ? (
-                  <p className="break-words rounded-2xl border border-destructive/15 bg-destructive/5 px-4 py-3 text-sm leading-6 text-destructive">
+                  <p className="break-words rounded-[0.95rem] border border-destructive/15 bg-destructive/5 px-4 py-3 text-sm leading-6 text-destructive">
                     {error}
                   </p>
                 ) : null}
                 {notice ? (
-                  <p className="break-words rounded-2xl border border-success/20 bg-success-muted/65 px-4 py-3 text-sm leading-6 text-success-foreground">
+                  <p className="break-words rounded-[0.95rem] border border-success/20 bg-success-muted/65 px-4 py-3 text-sm leading-6 text-success-foreground">
                     {notice}
                   </p>
                 ) : null}
@@ -631,7 +633,7 @@ export default function Models() {
           }
         }}
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
+        <DialogContent className="max-h-[90vh] overflow-y-auto rounded-[1rem] sm:max-w-5xl">
           <DialogHeader>
             <DialogTitle>
               {currentModel
