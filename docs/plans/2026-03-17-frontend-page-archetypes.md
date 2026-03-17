@@ -302,6 +302,9 @@ git commit -m "docs(frontend): record page archetype rollout" -m "Capture the de
 - `ImportJobs` 已迁移到 `workspace` archetype，移除 hero 化表达，保留短页头、主任务面板和次级状态区。
 - `Dashboard` 与 `TenantDashboardPage` 已迁移到共享 `dashboard` archetype，统一使用 `DashboardShell / SectionHeader / DashboardMetricCard`。
 - `DashboardShell` 已修正为 mobile 先内容后 rail、desktop 顶部不拉伸 intro panel。
+- `Usage` 与 `TenantUsagePage` 已迁移到共享 `detail/report` 节奏，统一使用 `ReportShell / PageIntro / PagePanel / SectionHeader`。
+- `frontend/src/lib/page-archetypes.ts` 已补充 `describeReportShellLayout()`，把 toolbar、主趋势和 rail 在 mobile / desktop 下的顺序规则收进共享配置层。
+- `tenantUsage` 与 `usage` 相关多语言文案已同步修正，移除日文/俄文中的占位翻译，并校正 admin Usage 图表语义。
 - 最终验证通过：
   - `cd frontend && node --test src/lib/page-archetypes.test.ts src/components/threads-utils.test.ts src/lib/dashboard-chart-a11y.test.ts`
   - `cd frontend && npm run i18n:check && npm run i18n:hardcode -- --no-baseline && node scripts/i18n/check-missing-runtime-keys.mjs`
@@ -314,3 +317,6 @@ git commit -m "docs(frontend): record page archetype rollout" -m "Capture the de
   - `/tmp/workspace-archetype-imports-mobile.png`
   - `/tmp/codex-pool-audit/admin-dashboard-1280.png`
   - `/tmp/codex-pool-audit/tenant-dashboard-after-390.png`
+  - `/tmp/admin-usage-report-shell-desktop.png`
+  - `/tmp/tenant-usage-report-shell-desktop.png`
+  - `/tmp/tenant-usage-report-shell-mobile-fixed.png`
