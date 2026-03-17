@@ -1,15 +1,24 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::Result;
+use async_trait::async_trait;
 use axum::body::Body;
 use axum::http::header::{self, HeaderValue};
 use axum::http::{Response, StatusCode, Uri};
 use axum::response::IntoResponse;
 use axum::Router;
-use data_plane::app::build_app_without_status_routes;
+use codex_pool_core::events::RequestLogEvent;
+use data_plane::app::{
+    build_app_without_status_routes, build_embedded_app_with_event_sink_without_status_routes,
+};
 use data_plane::config::DataPlaneConfig;
+use data_plane::event::EventSink;
 use include_dir::{include_dir, Dir, File};
+
+use crate::store::{ControlPlaneStore, SqliteBackedStore};
+use crate::usage::UsageIngestRepository;
 
 const CONTROL_PLANE_LISTEN_ENV: &str = "CONTROL_PLANE_LISTEN";
 const CODEX_OAUTH_CALLBACK_LISTEN_ENV: &str = "CODEX_OAUTH_CALLBACK_LISTEN";
@@ -19,6 +28,19 @@ const AUTH_VALIDATE_URL_ENV: &str = "AUTH_VALIDATE_URL";
 const AUTH_VALIDATE_PATH: &str = "/internal/v1/auth/validate";
 
 static PERSONAL_FRONTEND_DIR: Dir<'_> = include_dir!("$OUT_DIR/personal_frontend");
+
+struct EmbeddedUsageIngestEventSink {
+    repo: Arc<dyn UsageIngestRepository>,
+}
+
+#[async_trait]
+impl EventSink for EmbeddedUsageIngestEventSink {
+    async fn emit_request_log(&self, event: RequestLogEvent) {
+        if let Err(error) = self.repo.ingest_request_log(event).await {
+            tracing::warn!(error = %error, "personal runtime request log ingest failed");
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SingleBinaryRuntimeEnvDefaults {
@@ -46,6 +68,51 @@ pub fn apply_single_binary_runtime_env_defaults(
 pub async fn merge_single_binary_app(control_plane_app: Router) -> Result<Router> {
     let data_plane_config = DataPlaneConfig::from_env()?;
     let data_plane_app = build_app_without_status_routes(data_plane_config).await?;
+    Ok(control_plane_app
+        .merge(data_plane_app)
+        .fallback(single_binary_frontend_fallback))
+}
+
+pub async fn merge_personal_single_binary_app(
+    control_plane_app: Router,
+    sqlite_store: Arc<SqliteBackedStore>,
+    usage_ingest_repo: Arc<dyn UsageIngestRepository>,
+) -> Result<Router> {
+    let data_plane_config = DataPlaneConfig::from_env()?;
+    let event_sink: Arc<dyn EventSink> = Arc::new(EmbeddedUsageIngestEventSink {
+        repo: usage_ingest_repo,
+    });
+    let (data_plane_app, data_plane_state) =
+        build_embedded_app_with_event_sink_without_status_routes(data_plane_config, event_sink)
+            .await?;
+    let initial_snapshot = sqlite_store.snapshot().await?;
+    data_plane_state.apply_snapshot(initial_snapshot);
+
+    let mut revision_rx = sqlite_store.subscribe_revisions();
+    let sync_store = sqlite_store.clone();
+    let sync_state = data_plane_state.clone();
+    tokio::spawn(async move {
+        let mut last_revision = *revision_rx.borrow();
+        loop {
+            if revision_rx.changed().await.is_err() {
+                break;
+            }
+
+            let revision = *revision_rx.borrow();
+            if revision <= last_revision {
+                continue;
+            }
+            last_revision = revision;
+
+            match sync_store.snapshot().await {
+                Ok(snapshot) => sync_state.apply_snapshot(snapshot),
+                Err(error) => {
+                    tracing::warn!(error = %error, revision, "personal runtime snapshot sync failed");
+                }
+            }
+        }
+    });
+
     Ok(control_plane_app
         .merge(data_plane_app)
         .fallback(single_binary_frontend_fallback))
@@ -171,13 +238,22 @@ fn content_type_for(path: &Path) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_single_binary_runtime_env_defaults, merge_single_binary_app,
+        apply_single_binary_runtime_env_defaults, merge_personal_single_binary_app,
+        merge_single_binary_app,
         single_binary_frontend_response, single_binary_runtime_env_defaults,
     };
+    use std::sync::Arc;
+
+    use axum::Router;
     use axum::body::to_bytes;
     use axum::http::Request;
     use axum::http::{header, StatusCode};
+    use codex_pool_core::api::{CreateUpstreamAccountRequest, UsageSummary};
+    use codex_pool_core::model::{UpstreamAuthProvider, UpstreamMode};
     use tower::util::ServiceExt;
+
+    use crate::store::{normalize_sqlite_database_url, ControlPlaneStore, SqliteBackedStore};
+    use crate::usage::sqlite_repo::SqliteUsageRepo;
 
     #[test]
     fn single_binary_runtime_env_defaults_force_loopback_for_unspecified_v4() {
@@ -223,6 +299,112 @@ mod tests {
     #[tokio::test]
     async fn merged_team_app_exposes_control_plane_data_plane_and_frontend_shell() {
         assert_merged_single_binary_app("team").await;
+    }
+
+    #[tokio::test]
+    async fn merged_personal_app_tracks_store_updates_without_http_snapshot_poller() {
+        let _guard = crate::test_support::ENV_LOCK.lock().unwrap();
+        let old_admin_username = crate::test_support::set_env("ADMIN_USERNAME", Some("admin"));
+        let old_admin_password = crate::test_support::set_env("ADMIN_PASSWORD", Some("password"));
+        let old_admin_secret =
+            crate::test_support::set_env("ADMIN_JWT_SECRET", Some("test-secret-123"));
+        let old_internal_auth = crate::test_support::set_env(
+            "CONTROL_PLANE_INTERNAL_AUTH_TOKEN",
+            Some("test-internal-token"),
+        );
+        let old_edition = crate::test_support::set_env("CODEX_POOL_EDITION", Some("personal"));
+        let old_control_plane_listen = crate::test_support::set_env("CONTROL_PLANE_LISTEN", None);
+        let old_callback_listen = crate::test_support::set_env("CODEX_OAUTH_CALLBACK_LISTEN", None);
+        let old_callback_mode =
+            crate::test_support::set_env("CODEX_OAUTH_CALLBACK_LISTEN_MODE", None);
+        let old_control_plane_base_url =
+            crate::test_support::set_env("CONTROL_PLANE_BASE_URL", None);
+        let old_auth_validate_url = crate::test_support::set_env("AUTH_VALIDATE_URL", None);
+        let db_path = std::env::temp_dir().join(format!(
+            "codex-pool-personal-runtime-{}.sqlite3",
+            uuid::Uuid::new_v4()
+        ));
+        let db_url = normalize_sqlite_database_url(&db_path.display().to_string());
+        let old_database_url =
+            crate::test_support::set_env("CONTROL_PLANE_DATABASE_URL", Some(&db_url));
+        let missing_config = std::env::temp_dir().join(format!(
+            "codex-pool-personal-runtime-config-{}.toml",
+            uuid::Uuid::new_v4()
+        ));
+        let old_config_file = crate::test_support::set_env(
+            "CODEX_POOL_CONFIG_FILE",
+            Some(missing_config.to_string_lossy().as_ref()),
+        );
+        let old_data_plane_config_file = crate::test_support::set_env(
+            "DATA_PLANE_CONFIG_FILE",
+            Some(missing_config.to_string_lossy().as_ref()),
+        );
+
+        apply_single_binary_runtime_env_defaults("127.0.0.1:8090".parse().unwrap());
+        let store = Arc::new(
+            SqliteBackedStore::connect(&db_url)
+                .await
+                .expect("connect sqlite store"),
+        );
+        let usage_repo = Arc::new(
+            SqliteUsageRepo::new(store.clone_pool())
+                .await
+                .expect("connect sqlite usage repo"),
+        );
+        let app = crate::app::build_app_with_store(store.clone());
+        let merged = merge_personal_single_binary_app(app, store.clone(), usage_repo)
+            .await
+            .expect("merge personal single-binary app");
+
+        let initial_usage = fetch_usage_summary(&merged).await;
+        assert_eq!(initial_usage.account_total, 0);
+
+        store
+            .create_upstream_account(CreateUpstreamAccountRequest {
+                label: "personal-upstream".to_string(),
+                mode: UpstreamMode::OpenAiApiKey,
+                base_url: "https://api.openai.com".to_string(),
+                bearer_token: "test-token".to_string(),
+                chatgpt_account_id: None,
+                auth_provider: Some(UpstreamAuthProvider::LegacyBearer),
+                enabled: Some(true),
+                priority: Some(10),
+            })
+            .await
+            .expect("create upstream account");
+
+        let usage = wait_for_usage_account_total(&merged, 1).await;
+        assert_eq!(usage.account_total, 1);
+        assert_eq!(usage.active_account_total, 1);
+
+        crate::test_support::set_env("ADMIN_USERNAME", old_admin_username.as_deref());
+        crate::test_support::set_env("ADMIN_PASSWORD", old_admin_password.as_deref());
+        crate::test_support::set_env("ADMIN_JWT_SECRET", old_admin_secret.as_deref());
+        crate::test_support::set_env(
+            "CONTROL_PLANE_INTERNAL_AUTH_TOKEN",
+            old_internal_auth.as_deref(),
+        );
+        crate::test_support::set_env("CODEX_POOL_EDITION", old_edition.as_deref());
+        crate::test_support::set_env("CONTROL_PLANE_LISTEN", old_control_plane_listen.as_deref());
+        crate::test_support::set_env(
+            "CODEX_OAUTH_CALLBACK_LISTEN",
+            old_callback_listen.as_deref(),
+        );
+        crate::test_support::set_env(
+            "CODEX_OAUTH_CALLBACK_LISTEN_MODE",
+            old_callback_mode.as_deref(),
+        );
+        crate::test_support::set_env(
+            "CONTROL_PLANE_BASE_URL",
+            old_control_plane_base_url.as_deref(),
+        );
+        crate::test_support::set_env("AUTH_VALIDATE_URL", old_auth_validate_url.as_deref());
+        crate::test_support::set_env("CONTROL_PLANE_DATABASE_URL", old_database_url.as_deref());
+        crate::test_support::set_env("CODEX_POOL_CONFIG_FILE", old_config_file.as_deref());
+        crate::test_support::set_env(
+            "DATA_PLANE_CONFIG_FILE",
+            old_data_plane_config_file.as_deref(),
+        );
     }
 
     async fn assert_merged_single_binary_app(edition: &str) {
@@ -328,5 +510,35 @@ mod tests {
             "DATA_PLANE_CONFIG_FILE",
             old_data_plane_config_file.as_deref(),
         );
+    }
+
+    async fn wait_for_usage_account_total(app: &Router, expected_total: usize) -> UsageSummary {
+        for _ in 0..20 {
+            let usage = fetch_usage_summary(app).await;
+            if usage.account_total == expected_total {
+                return usage;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+
+        fetch_usage_summary(app).await
+    }
+
+    async fn fetch_usage_summary(app: &Router) -> UsageSummary {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/codex/usage")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("usage response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read usage body");
+        serde_json::from_slice(&body).expect("decode usage summary")
     }
 }

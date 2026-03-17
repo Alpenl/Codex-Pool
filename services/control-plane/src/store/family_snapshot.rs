@@ -345,9 +345,11 @@ impl InMemoryStore {
         approved_upstream_error_templates
             .sort_by(|left, right| left.fingerprint.cmp(&right.fingerprint));
 
+        let revision = self.revision.load(Ordering::Relaxed).max(1);
+
         Ok(DataPlaneSnapshot {
-            revision: self.revision.load(Ordering::Relaxed),
-            cursor: 0,
+            revision,
+            cursor: revision,
             accounts,
             account_traits: account_traits_map.into_values().collect(),
             compiled_routing_plan,

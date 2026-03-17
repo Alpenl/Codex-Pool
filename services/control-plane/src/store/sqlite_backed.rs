@@ -1,6 +1,7 @@
 use anyhow::Context;
 use sqlx_core::pool::PoolOptions;
 use sqlx_sqlite::SqlitePool;
+use tokio::sync::watch;
 
 const SQLITE_STORE_STATE_ROW_ID: i64 = 1;
 const SQLITE_STORE_STATE_VERSION: i64 = 1;
@@ -137,6 +138,7 @@ impl InMemoryStore {
 pub struct SqliteBackedStore {
     pool: SqlitePool,
     inner: InMemoryStore,
+    revision_tx: watch::Sender<u64>,
 }
 
 impl SqliteBackedStore {
@@ -155,12 +157,21 @@ impl SqliteBackedStore {
             Some(state) => InMemoryStore::from_sqlite_state(state, oauth_client, credential_cipher),
             None => InMemoryStore::new_with_oauth(oauth_client, credential_cipher),
         };
+        let (revision_tx, _) = watch::channel(inner.revision.load(Ordering::Relaxed).max(1));
 
-        Ok(Self { pool, inner })
+        Ok(Self {
+            pool,
+            inner,
+            revision_tx,
+        })
     }
 
     pub fn clone_pool(&self) -> SqlitePool {
         self.pool.clone()
+    }
+
+    pub fn subscribe_revisions(&self) -> watch::Receiver<u64> {
+        self.revision_tx.subscribe()
     }
 
     fn current_revision(&self) -> u64 {
@@ -237,6 +248,8 @@ impl SqliteBackedStore {
         .execute(&self.pool)
         .await
         .context("failed to persist sqlite control-plane state")?;
+
+        let _ = self.revision_tx.send(self.current_revision());
 
         Ok(())
     }
@@ -741,5 +754,60 @@ mod sqlite_backed_store_tests {
             .await
             .expect_err("stale cursor should force full reload");
         assert!(error.to_string().contains("cursor_gone"));
+    }
+
+    #[tokio::test]
+    async fn sqlite_backed_store_snapshot_cursor_matches_revision() {
+        let database_url = temp_sqlite_url("cp-store-snapshot-cursor");
+        let store = SqliteBackedStore::connect(&database_url)
+            .await
+            .expect("connect sqlite store");
+
+        store
+            .create_upstream_account(CreateUpstreamAccountRequest {
+                label: "personal-upstream".to_string(),
+                mode: UpstreamMode::OpenAiApiKey,
+                base_url: "https://api.openai.com".to_string(),
+                bearer_token: "test-token".to_string(),
+                chatgpt_account_id: None,
+                auth_provider: Some(UpstreamAuthProvider::LegacyBearer),
+                enabled: Some(true),
+                priority: Some(10),
+            })
+            .await
+            .expect("create upstream account");
+
+        let snapshot = store.snapshot().await.expect("load sqlite snapshot");
+        assert_eq!(snapshot.cursor, snapshot.revision);
+    }
+
+    #[tokio::test]
+    async fn sqlite_backed_store_revision_subscription_observes_writes() {
+        let database_url = temp_sqlite_url("cp-store-revision-subscribe");
+        let store = SqliteBackedStore::connect(&database_url)
+            .await
+            .expect("connect sqlite store");
+        let mut revision_rx = store.subscribe_revisions();
+        let initial_revision = *revision_rx.borrow();
+
+        store
+            .create_upstream_account(CreateUpstreamAccountRequest {
+                label: "personal-upstream".to_string(),
+                mode: UpstreamMode::OpenAiApiKey,
+                base_url: "https://api.openai.com".to_string(),
+                bearer_token: "test-token".to_string(),
+                chatgpt_account_id: None,
+                auth_provider: Some(UpstreamAuthProvider::LegacyBearer),
+                enabled: Some(true),
+                priority: Some(10),
+            })
+            .await
+            .expect("create upstream account");
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), revision_rx.changed())
+            .await
+            .expect("revision notification should arrive")
+            .expect("revision sender should stay open");
+        assert!(*revision_rx.borrow() > initial_revision);
     }
 }

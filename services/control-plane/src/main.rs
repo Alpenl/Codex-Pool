@@ -14,7 +14,8 @@ use control_plane::app::{
 use control_plane::config::ControlPlaneConfig;
 use control_plane::import_jobs::{InMemoryOAuthImportJobStore, PostgresOAuthImportJobStore};
 use control_plane::single_binary::{
-    apply_single_binary_runtime_env_defaults, merge_single_binary_app,
+    apply_single_binary_runtime_env_defaults, merge_personal_single_binary_app,
+    merge_single_binary_app,
 };
 use control_plane::store::postgres::PostgresStore;
 use control_plane::store::{
@@ -398,19 +399,21 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    let (store, import_job_store, admin_auth): (
+    let (store, import_job_store, admin_auth, personal_runtime_store): (
         Arc<dyn ControlPlaneStore>,
         Arc<dyn control_plane::import_jobs::OAuthImportJobStore>,
         AdminAuthService,
+        Option<Arc<SqliteBackedStore>>,
     ) = match (edition, config.database_url.as_deref()) {
         (ProductEdition::Personal, raw_database_url) => {
             let database_url = personal_sqlite_database_url(raw_database_url)?;
-            let sqlite_store = SqliteBackedStore::connect(&database_url).await?;
+            let sqlite_store = Arc::new(SqliteBackedStore::connect(&database_url).await?);
             let admin_auth = AdminAuthService::from_env()?;
             (
-                Arc::new(sqlite_store),
+                sqlite_store.clone(),
                 Arc::new(InMemoryOAuthImportJobStore::default()),
                 admin_auth,
+                Some(sqlite_store),
             )
         }
         (_, Some(database_url)) => {
@@ -419,12 +422,18 @@ async fn main() -> anyhow::Result<()> {
                 PostgresOAuthImportJobStore::new(postgres_store.clone_pool()).await?;
             let admin_auth = AdminAuthService::from_env_with_postgres(postgres_store.clone_pool())?;
             admin_auth.ensure_bootstrap_admin_user().await?;
-            (Arc::new(postgres_store), Arc::new(import_store), admin_auth)
+            (
+                Arc::new(postgres_store),
+                Arc::new(import_store),
+                admin_auth,
+                None,
+            )
         }
         (_, None) => (
             Arc::new(InMemoryStore::default()),
             Arc::new(InMemoryOAuthImportJobStore::default()),
             AdminAuthService::from_env()?,
+            None,
         ),
     };
 
@@ -830,10 +839,18 @@ async fn main() -> anyhow::Result<()> {
         import_job_store,
         admin_auth,
     );
-    let app = if matches!(edition, ProductEdition::Personal | ProductEdition::Team) {
-        merge_single_binary_app(app).await?
-    } else {
-        app
+    let app = match edition {
+        ProductEdition::Personal => {
+            let sqlite_store = personal_runtime_store
+                .expect("personal edition should keep sqlite runtime store");
+            let usage_ingest_repo = personal_sqlite_usage_repo
+                .clone()
+                .expect("personal edition should keep sqlite usage ingest repo")
+                as Arc<dyn UsageIngestRepository>;
+            merge_personal_single_binary_app(app, sqlite_store, usage_ingest_repo).await?
+        }
+        ProductEdition::Team => merge_single_binary_app(app).await?,
+        ProductEdition::Business => app,
     };
     let listener = tokio::net::TcpListener::bind(config.listen_addr).await?;
     let codex_callback_listen_addr = codex_oauth_callback_listen_addr_from_env()?;

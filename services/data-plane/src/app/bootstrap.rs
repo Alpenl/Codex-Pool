@@ -190,6 +190,12 @@ enum EventSinkKind {
     Noop,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapshotPollerMode {
+    Enabled,
+    Disabled,
+}
+
 fn select_event_sink_kind(
     edition: ProductEdition,
     redis_url: Option<&str>,
@@ -210,7 +216,7 @@ fn select_event_sink_kind(
     EventSinkKind::Noop
 }
 
-pub async fn build_app(config: DataPlaneConfig) -> anyhow::Result<Router> {
+fn build_default_event_sink(config: &DataPlaneConfig) -> anyhow::Result<Arc<dyn EventSink>> {
     let control_plane_base_url = resolve_control_plane_base_url(&config);
     let edition = ProductEdition::from_env_var(CODEX_POOL_EDITION_ENV);
     let event_sink: Arc<dyn EventSink> = match select_event_sink_kind(
@@ -241,55 +247,87 @@ pub async fn build_app(config: DataPlaneConfig) -> anyhow::Result<Router> {
         EventSinkKind::Noop => Arc::new(NoopEventSink),
     };
 
-    build_app_with_options(config, event_sink, allowed_api_keys_from_env(), true).await
+    Ok(event_sink)
+}
+
+pub async fn build_app(config: DataPlaneConfig) -> anyhow::Result<Router> {
+    let event_sink = build_default_event_sink(&config)?;
+
+    build_app_with_options(
+        config,
+        event_sink,
+        allowed_api_keys_from_env(),
+        true,
+        SnapshotPollerMode::Enabled,
+    )
+    .await
+    .map(|(app, _)| app)
 }
 
 pub async fn build_app_without_status_routes(config: DataPlaneConfig) -> anyhow::Result<Router> {
-    let control_plane_base_url = resolve_control_plane_base_url(&config);
-    let edition = ProductEdition::from_env_var(CODEX_POOL_EDITION_ENV);
-    let event_sink: Arc<dyn EventSink> = match select_event_sink_kind(
-        edition,
-        config.redis_url.as_deref(),
-        control_plane_base_url.as_deref(),
-    ) {
-        EventSinkKind::Redis => {
-            let Some(redis_url) = config.redis_url.as_deref() else {
-                return Err(anyhow!("redis event sink selected without redis_url"));
-            };
-            Arc::new(RedisStreamEventSink::new(
-                redis_url,
-                config.request_log_stream(),
-            ))
-        }
-        EventSinkKind::ControlPlaneHttp => {
-            let Some(base_url) = control_plane_base_url.as_deref() else {
-                return Err(anyhow!(
-                    "control plane http event sink selected without control_plane_base_url"
-                ));
-            };
-            Arc::new(ControlPlaneHttpEventSink::new(
-                base_url,
-                resolve_internal_auth_token()?,
-            ))
-        }
-        EventSinkKind::Noop => Arc::new(NoopEventSink),
-    };
+    let event_sink = build_default_event_sink(&config)?;
 
-    build_app_with_options(config, event_sink, allowed_api_keys_from_env(), false).await
+    build_app_with_options(
+        config,
+        event_sink,
+        allowed_api_keys_from_env(),
+        false,
+        SnapshotPollerMode::Enabled,
+    )
+    .await
+    .map(|(app, _)| app)
+}
+
+pub async fn build_embedded_app_without_status_routes(
+    config: DataPlaneConfig,
+) -> anyhow::Result<(Router, Arc<AppState>)> {
+    let event_sink = build_default_event_sink(&config)?;
+
+    build_embedded_app_with_event_sink_without_status_routes(config, event_sink).await
+}
+
+pub async fn build_embedded_app_with_event_sink_without_status_routes(
+    config: DataPlaneConfig,
+    event_sink: Arc<dyn EventSink>,
+) -> anyhow::Result<(Router, Arc<AppState>)> {
+    build_app_with_options(
+        config,
+        event_sink,
+        allowed_api_keys_from_env(),
+        false,
+        SnapshotPollerMode::Disabled,
+    )
+    .await
 }
 
 pub async fn build_app_with_event_sink(
     config: DataPlaneConfig,
     event_sink: Arc<dyn EventSink>,
 ) -> anyhow::Result<Router> {
-    build_app_with_options(config, event_sink, allowed_api_keys_from_env(), true).await
+    build_app_with_options(
+        config,
+        event_sink,
+        allowed_api_keys_from_env(),
+        true,
+        SnapshotPollerMode::Enabled,
+    )
+    .await
+    .map(|(app, _)| app)
 }
 
 pub async fn build_app_with_event_sink_without_status_routes(
     config: DataPlaneConfig,
     event_sink: Arc<dyn EventSink>,
 ) -> anyhow::Result<Router> {
-    build_app_with_options(config, event_sink, allowed_api_keys_from_env(), false).await
+    build_app_with_options(
+        config,
+        event_sink,
+        allowed_api_keys_from_env(),
+        false,
+        SnapshotPollerMode::Enabled,
+    )
+    .await
+    .map(|(app, _)| app)
 }
 
 pub async fn build_app_with_event_sink_and_allowed_keys(
@@ -297,7 +335,15 @@ pub async fn build_app_with_event_sink_and_allowed_keys(
     event_sink: Arc<dyn EventSink>,
     allowed_api_keys: Vec<String>,
 ) -> anyhow::Result<Router> {
-    build_app_with_options(config, event_sink, allowed_api_keys, true).await
+    build_app_with_options(
+        config,
+        event_sink,
+        allowed_api_keys,
+        true,
+        SnapshotPollerMode::Enabled,
+    )
+    .await
+    .map(|(app, _)| app)
 }
 
 async fn build_app_with_options(
@@ -305,7 +351,8 @@ async fn build_app_with_options(
     event_sink: Arc<dyn EventSink>,
     allowed_api_keys: Vec<String>,
     include_status_routes: bool,
-) -> anyhow::Result<Router> {
+    snapshot_poller_mode: SnapshotPollerMode,
+) -> anyhow::Result<(Router, Arc<AppState>)> {
     let control_plane_base_url = resolve_control_plane_base_url(&config);
     let control_plane_internal_auth_token = resolve_internal_auth_token()?;
     let enable_internal_debug_routes = config.enable_internal_debug_routes;
@@ -467,10 +514,12 @@ async fn build_app_with_options(
         invalid_request_guard_block_total: AtomicU64::new(0),
     });
 
-    if let Some(poller) = SnapshotPoller::from_env(state.http_client.clone(), state.clone()) {
-        tokio::spawn(async move {
-            poller.run().await;
-        });
+    if matches!(snapshot_poller_mode, SnapshotPollerMode::Enabled) {
+        if let Some(poller) = SnapshotPoller::from_env(state.http_client.clone(), state.clone()) {
+            tokio::spawn(async move {
+                poller.run().await;
+            });
+        }
     }
 
     let protected_routes = Router::new()
@@ -562,9 +611,9 @@ async fn build_app_with_options(
 
     let app = app
         .layer(middleware::from_fn(request_id_middleware))
-        .with_state(state);
+        .with_state(state.clone());
 
-    Ok(app)
+    Ok((app, state))
 }
 
 fn read_request_id_from_headers(headers: &HeaderMap) -> Option<String> {
