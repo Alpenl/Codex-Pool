@@ -490,7 +490,7 @@ export default {
         filters: {
             apiKeyAriaLabel: "API キーフィルター",
             apiKeyPlaceholder: "APIキーを選択",
-            description: "ホットスポットを素早く切り分けたいときは、表示をテナントや API キーまで絞り込みます。",
+            description: "まず全体を見て、アラートや急増、コスト変化の理由を確認したいときにテナントや API キーまで絞り込みます。",
             eyebrow: "コンテキスト",
             range: {
                 last24Hours: "過去 24 時間",
@@ -550,7 +550,7 @@ export default {
             global: "グローバルビュー",
             tenant: "テナントビュー"
         },
-        subtitle: "グローバルゲートウェイプロキシ指標",
+        subtitle: "ゲートウェイの健全性、使用量の変化、管理対象リソースを 1 つの運用ビューで確認します。",
         table: {
             apiKey: "APIキー",
             requests: "リクエスト"
@@ -573,7 +573,7 @@ export default {
             attentionNeeded: "対応を推奨",
             autoRefresh: "30 秒ごとに自動更新",
             degraded: "劣化",
-            description: "チャートに入る前に、アラート圧力、利用パイプラインの健全性、管理対象の在庫状況を手早く確認できます。",
+            description: "最初にここを見れば、アラート、利用パイプライン、在庫のどこに先に手を付けるべきか分かります。",
             eyebrow: "パルス",
             inventory: "利用可能なアップストリーム在庫",
             managedScope: "現在の管理対象範囲",
@@ -595,7 +595,7 @@ export default {
                 tableLabel: "Token 使用推移データ表",
                 timestamp: "時刻"
             },
-            description: "Token コンポーネントごとの時間別トレンド。表示切替で消費元を絞り込めます。",
+            description: "入力・キャッシュ・出力・推論 Token の推移を比較できます。表示を切り替えて、どこで消費が増えているかを切り分けます。",
             empty: "Token トレンドデータはまだありません",
             title: "Token 使用トレンド"
         },
@@ -937,14 +937,14 @@ export default {
     },
     login: {
         brand: {
-            badge: "Control Plane Access",
+            badge: "管理ワークスペースへのアクセス",
             points: {
-                audit: "高リスク操作は request id で一貫して追跡できます。",
-                resilience: "高可用性ルーティングで管理操作の安定性を維持します。",
-                security: "テナント分離と資格情報ガバナンスを標準で適用します。"
+                audit: "サインイン、ルート変更、高リスク操作はあとから request id で追跡できます。",
+                resilience: "テナント、キー、使用量、請求を確認するときも管理系の操作を安定して保ちます。",
+                security: "テナント境界と資格情報の制御は常に有効です。"
             },
-            subtitle: "管理者向けの強化された認証入口です。",
-            title: "信頼できる運用で Codex Pool を管理"
+            subtitle: "システム管理者向けの統制されたサインイン入口です。",
+            title: "毎日の運用作業を安心して進めるための Codex Pool 管理入口"
         },
         messages: {
             failed: "ログインに失敗しました。ユーザー名とパスワードを確認してください。",
@@ -953,7 +953,7 @@ export default {
         },
         password: "パスワード",
         passwordPlaceholder: "管理者パスワードを入力",
-        securityHint: "セキュリティ通知: 連続失敗は監査ログに関連付けられます。",
+        securityHint: "サインイン失敗が続くと、あとで確認できるよう監査ログに記録されます。",
         submit: "ログイン",
         subtitle: "管理者アカウントでログインしてください",
         title: "Codex-Pool 管理コンソール",
@@ -1383,6 +1383,7 @@ export default {
         api: {
             unauthorized: "認証に失敗しました。もう一度ログインしてください。",
             invalidRequest: "無効なリクエストです。",
+            invalidProxyUrl: "プロキシ URL が無効です。",
             notFound: "リソースが見つかりません。",
             serviceUnavailable: "サービスを利用できません。",
             internalError: "サーバー内部エラーです。",
@@ -1412,37 +1413,119 @@ export default {
         }
     },
     proxies: {
-        check: "ヘルスチェックを実行",
+        actions: {
+            add: "プロキシを追加",
+            delete: "削除",
+            edit: "編集",
+            test: "テスト",
+            testAll: "すべてテスト"
+        },
+        badges: {
+            auth: "認証あり"
+        },
         columns: {
             actions: "アクション",
-            health: "ヘルス",
-            lastPing: "最後の Ping",
-            latency: "平均遅延",
-            url: "プロキシノード URL",
-            weight: "ルーティングの重み"
+            lastTest: "最終テスト",
+            latency: "遅延",
+            proxy: "プロキシ",
+            status: "状態",
+            weight: "重み"
         },
-        empty: "バックエンドプロキシが設定されていません。",
+        deleteDialog: {
+            confirm: "プロキシを削除",
+            description: "{{label}} をグローバルな送信プロキシプールから削除しますか。既存クライアントは次回更新後にこのノードを使わなくなります。",
+            title: "プロキシを削除"
+        },
+        editor: {
+            create: "プロキシを作成",
+            createTitle: "送信プロキシを追加",
+            description: "グローバル送信プロキシノードを設定します。編集時に URL を空欄のまま保存すると、現在のシークレットは保持されます。",
+            editTitle: "送信プロキシを編集",
+            enabledHint: "無効化したノードは一覧に残りますが、選択や自動テストの対象にはなりません。",
+            errors: {
+                labelRequired: "プロキシラベルを入力してください。",
+                proxyUrlRequired: "プロキシ URL を入力してください。",
+                weightInvalid: "重みは 0 より大きい値にしてください。"
+            },
+            fields: {
+                enabled: "有効",
+                label: "ラベル",
+                proxyUrl: "プロキシ URL",
+                weight: "重み"
+            },
+            proxyUrlHint: "http://、https://、socks5:// をサポートします。ホストとポートは必須で、認証情報は URL に埋め込めます。",
+            proxyUrlPlaceholder: "http://user:password@127.0.0.1:6152",
+            save: "変更を保存"
+        },
+        empty: "送信プロキシはまだ設定されていません。",
+        failModeDescriptions: {
+            allowDirectFallback: "正常なプロキシがすべて失敗した場合、プラットフォームは直接接続へフォールバックできます。",
+            strictProxy: "正常なプロキシがない場合、送信リクエストは即座に失敗し、プールを迂回しません。"
+        },
+        failModes: {
+            allowDirectFallback: "直接接続へフォールバック",
+            strictProxy: "必ずプロキシを使用"
+        },
         filters: {
             all: "すべてのノード",
-            degraded: "低下",
+            degraded: "劣化",
             disabled: "無効",
             healthy: "正常",
-            label: "ヘルスフィルター",
+            label: "状態フィルター",
             offline: "オフライン"
         },
         health: {
-            degraded: "低下",
+            degraded: "劣化",
             disabled: "無効",
             healthy: "正常",
             offline: "オフライン"
         },
-        loading: "ネットワークトポロジをスキャンしています…",
-        manage: "管理",
-        pending: "保留中",
-        retry: "再試行",
-        searchPlaceholder: "ノード URL またはラベルを検索…",
-        subtitle: "リバースプロキシノードとトラフィックルーティングトポロジを管理します。",
-        title: "プロキシノード"
+        list: {
+            description: "重み付きプロキシノードの追加、編集、削除、テストを行います。管理 API はシークレットを保存しますが、返す URL は常にマスク済みです。",
+            title: "プロキシノード一覧"
+        },
+        loading: "送信プロキシプールを読み込み中…",
+        meta: {
+            enabled: "{{count}} 個が有効",
+            healthy: "{{count}} 個が正常",
+            total: "{{count}} ノード"
+        },
+        notifications: {
+            nodeCreateFailedTitle: "プロキシの作成に失敗しました",
+            nodeCreatedDescription: "プロキシノードをグローバルプールに追加しました。",
+            nodeCreatedTitle: "プロキシを作成しました",
+            nodeDeleteFailedTitle: "プロキシの削除に失敗しました",
+            nodeDeletedDescription: "プロキシノードをグローバルプールから削除しました。",
+            nodeDeletedTitle: "プロキシを削除しました",
+            nodeUpdateFailedTitle: "プロキシの更新に失敗しました",
+            nodeUpdatedDescription: "プロキシノードを更新しました。",
+            nodeUpdatedTitle: "プロキシを更新しました",
+            settingsFailedTitle: "プロキシ設定の保存に失敗しました",
+            settingsSavedDescription: "グローバル送信プロキシプール設定を保存しました。",
+            settingsSavedTitle: "プロキシ設定を保存しました",
+            singleTestCompletedDescription: "単一ノードのプロキシテストが完了しました。",
+            testCompletedDescription: "{{count}} 個のプロキシノードのテストが完了しました。",
+            testCompletedTitle: "プロキシテスト完了",
+            testFailedTitle: "プロキシテストに失敗しました",
+            validationFailedTitle: "プロキシフォームを確認してください"
+        },
+        pending: "まだテストされていません",
+        searchPlaceholder: "ラベル、マスク済み URL、最新エラーで検索…",
+        settings: {
+            description: "この設定は、プラットフォーム内のすべての外部 HTTP / WebSocket 送信リクエストに適用されます。",
+            enabled: "送信プロキシプールを有効化",
+            enabledHint: "無効時はすべての送信トラフィックが直接接続のままです。有効にすると、下の重み付きプロキシプールから選択されます。",
+            failMode: "失敗時の動作",
+            save: "設定を保存",
+            title: "グローバルプロキシプール設定"
+        },
+        stats: {
+            enabled: "有効ノード",
+            healthy: "正常ノード",
+            total: "総ノード数"
+        },
+        subtitle: "すべての上流トラフィック向けにグローバル送信プロキシプールを設定します。このページは以前のノード健全性プレースホルダーではありません。",
+        title: "送信プロキシプール"
     },
     system: {
         columns: {
@@ -1618,18 +1701,18 @@ export default {
                 verifyEmail: "メールの確認"
             },
             brand: {
-                badge: "Tenant Workspace Access",
+                badge: "テナントワークスペースへのアクセス",
                 points: {
-                    audit: "ポリシーと課金の判断をエンドツーエンドで可視化します。",
-                    resilience: "フェイルオーバー対応ルーティングで可用性を維持します。",
-                    security: "資格情報とセッションはテナント単位で分離されます。"
+                    audit: "使用量、請求、ポリシー変更は、あとから文脈を追えるよう記録されます。",
+                    resilience: "上流が不安定でも、フェイルオーバー対応ルーティングがテナントトラフィックの可用性を支えます。",
+                    security: "キー、セッション、アカウントアクセスはテナントごとに分離されます。"
                 },
-                subtitle: "認証後は、使用量・課金・キー管理を1つの安全なワークスペースで行えます。",
-                title: "エンタープライズ AI 運用のための安定したアクセス"
+                subtitle: "一度サインインすれば、使用量、請求、API キー管理を同じ安全なワークスペースで進められます。",
+                title: "日々の運用に必要なものを 1 つにまとめたテナントアクセス"
             },
             error: {
-                invalidCredentialsOrUnverified: "サインインに失敗しました: 電子メールまたはパスワードが間違っているか、電子メールがまだ検証されていません。",
-                loginFailed: "サインインに失敗しました。",
+                invalidCredentialsOrUnverified: "サインインに失敗しました。メールアドレスとパスワードを確認し、初回ログインならメール認証を完了してください。",
+                loginFailed: "サインインに失敗しました。時間をおいてもう一度お試しください。",
                 passwordMismatch: "パスワードと確認用パスワードが一致しません。",
                 passwordResetFailed: "パスワードのリセットに失敗しました。",
                 registerFailed: "登録に失敗しました。",
@@ -1647,7 +1730,7 @@ export default {
                 verificationCode: "検証コード"
             },
             forgot: {
-                drawerHint: "コード送信後、下からスライドするドロワーで「リセットコード + 新しいパスワード」を入力します。",
+                drawerHint: "まずこのメールアドレスにリセットコードを送信します。届いたら、下でコードと新しいパスワードを入力してください。",
                 stepResetPassword: "新しいパスワード設定",
                 stepSendCode: "コード送信"
             },
@@ -1656,11 +1739,11 @@ export default {
                 loginSuccess: "サインインに成功しました。",
                 passwordResetSuccess: "パスワードのリセットが成功しました。再度サインインしてください。",
                 registerDebugCode: "登録は成功しました。確認コード (デバッグ): {{code}}",
-                registerSuccess: "登録が成功しました。電子メール確認コードを入力してアカウントを有効にします。",
+                registerSuccess: "登録が完了しました。メール内の確認コードを入力してアカウントを有効化してください。",
                 resetCodeDebug: "パスワード リセット コード (デバッグ): {{code}}",
-                resetCodeSentIfExists: "電子メールが存在する場合は、リセット コードが送信されます。",
+                resetCodeSentIfExists: "このメールアドレスが存在する場合、まもなくリセットコードを送信します。",
                 sessionExpired: "テナントセッションの有効期限が切れました。再度サインインしてください。",
-                verifyCodeHint: "コードが届かない場合は、60秒後に再送してください。"
+                verifyCodeHint: "まだ届かない場合は、60 秒待ってから再送してください。"
             },
             placeholders: {
                 confirmPassword: "パスワードを再入力",
@@ -1672,12 +1755,12 @@ export default {
                 verificationCode: "確認コードを入力"
             },
             sections: {
-                authSubtitle: "1つのカード内でサインインと登録を切り替えます。",
+                authSubtitle: "サインインまたは登録を選び、そのまま同じ作業面で続きを進めます。",
                 forgotPasswordTitle: "パスワードのリセット",
-                forgotPasswordSubtitle: "ドロワー式の2ステップ: 先にコード送信、その後に新しいパスワード設定。",
+                forgotPasswordSubtitle: "先にリセットコードを受け取り、この画面のまま新しいパスワードを設定します。",
                 loginTitle: "テナントのサインイン",
                 registerTitle: "テナント登録",
-                verifyEmailSubtitle: "メールに届いた確認コードを入力してアカウントを有効化します。",
+                verifyEmailSubtitle: "メール内のコードを入力して有効化を完了し、そのままサインインに戻ります。",
                 verifyEmailTitle: "メール認証"
             },
             social: {
@@ -1698,7 +1781,7 @@ export default {
             billing: "請求センター",
             dashboard: "ダッシュボード",
             logs: "ログ",
-            usage: "使用法"
+            usage: "使用量"
         }
     },
     tenantBilling: {
@@ -2536,7 +2619,7 @@ export default {
                 ariaLabel: "テナントプロファイルタブ",
                 keys: "APIキー",
                 profile: "プロフィール",
-                usage: "使用法"
+                usage: "使用量"
             }
         },
         recharge: {

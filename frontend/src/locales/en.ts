@@ -490,7 +490,7 @@ export default {
         filters: {
             apiKeyAriaLabel: "API key filter",
             apiKeyPlaceholder: "Select API key",
-            description: "Tighten the view to a tenant or API key when you need to isolate hotspots quickly.",
+            description: "Start broad, then narrow to one tenant or API key when a spike, alert, or cost change needs explanation.",
             eyebrow: "Context",
             range: {
                 last24Hours: "Last 24 hours",
@@ -563,7 +563,7 @@ export default {
             attentionNeeded: "Action recommended",
             autoRefresh: "Auto-refresh every 30 seconds",
             degraded: "Degraded",
-            description: "A quick read on alert pressure, pipeline health, and managed inventory before you dive into charts.",
+            description: "Read this strip first to see whether alerts, the usage pipeline, or managed inventory needs attention.",
             eyebrow: "Pulse",
             inventory: "Available upstream inventory",
             managedScope: "Managed scope right now",
@@ -577,7 +577,7 @@ export default {
             global: "Global View",
             tenant: "Tenant View"
         },
-        subtitle: "Global gateway proxy metrics.",
+        subtitle: "Monitor gateway health, usage shifts, and managed inventory from one operating view.",
         table: {
             apiKey: "API Key",
             requests: "Requests"
@@ -595,7 +595,7 @@ export default {
                 tableLabel: "Token usage trend data table",
                 timestamp: "Timestamp"
             },
-            description: "Hourly token trend by component. Toggle components to focus specific consumption.",
+            description: "Compare input, cached, output, and reasoning tokens over time. Turn components on or off to isolate where spend is moving.",
             empty: "No token trend data yet",
             title: "Token usage trend"
         },
@@ -937,14 +937,14 @@ export default {
     },
     login: {
         brand: {
-            badge: "Control Plane Access",
+            badge: "Admin Workspace Access",
             points: {
-                audit: "Every high-risk operation is fully traceable by request ID.",
-                resilience: "High-availability routing keeps management workflows stable.",
-                security: "Tenant isolation and credential governance are enforced by default."
+                audit: "Every sign-in, route change, and high-risk action can be traced later by request ID.",
+                resilience: "Routing stays stable while you review tenants, keys, usage, and billing.",
+                security: "Tenant boundaries and credential controls stay enforced by default."
             },
-            subtitle: "A hardened entry point for system operators.",
-            title: "Operate Codex Pool with confidence"
+            subtitle: "A controlled entry point for daily system operations.",
+            title: "Sign in to run Codex Pool with confidence"
         },
         messages: {
             failed: "Sign in failed. Please check username and password.",
@@ -953,7 +953,7 @@ export default {
         },
         password: "Password",
         passwordPlaceholder: "Enter admin password",
-        securityHint: "Security note: repeated failures will be correlated in audit logs.",
+        securityHint: "Repeated sign-in failures are recorded in audit logs for later review.",
         submit: "Sign In",
         subtitle: "Sign in with your admin account",
         title: "Codex-Pool Console",
@@ -1383,6 +1383,7 @@ export default {
         api: {
             unauthorized: "Unauthorized. Please sign in again.",
             invalidRequest: "Invalid request.",
+            invalidProxyUrl: "The proxy URL is invalid.",
             notFound: "Resource not found.",
             serviceUnavailable: "Service unavailable.",
             internalError: "Internal server error.",
@@ -1412,22 +1413,65 @@ export default {
         }
     },
     proxies: {
-        check: "Run Health Check",
+        actions: {
+            add: "Add Proxy",
+            delete: "Delete",
+            edit: "Edit",
+            test: "Test",
+            testAll: "Test All"
+        },
+        badges: {
+            auth: "Auth"
+        },
         columns: {
             actions: "Actions",
-            health: "Health",
-            lastPing: "Last Ping",
-            latency: "Avg Latency",
-            url: "Proxy Node URL",
-            weight: "Routing Wt"
+            lastTest: "Last Test",
+            latency: "Latency",
+            proxy: "Proxy",
+            status: "Status",
+            weight: "Weight"
         },
-        empty: "No backend proxies configured.",
+        deleteDialog: {
+            confirm: "Delete Proxy",
+            description: "Delete {{label}} from the outbound proxy pool? Existing clients will stop using it after the next refresh.",
+            title: "Delete Proxy"
+        },
+        editor: {
+            create: "Create Proxy",
+            createTitle: "Create Outbound Proxy",
+            description: "Configure a global outbound proxy node. Leave the URL blank during edit to keep the current secret unchanged.",
+            editTitle: "Edit Outbound Proxy",
+            enabledHint: "Disabled nodes stay in the list but will not be selected or tested automatically.",
+            errors: {
+                labelRequired: "Please enter a proxy label.",
+                proxyUrlRequired: "Please enter a proxy URL.",
+                weightInvalid: "Weight must be greater than zero."
+            },
+            fields: {
+                enabled: "Enabled",
+                label: "Label",
+                proxyUrl: "Proxy URL",
+                weight: "Weight"
+            },
+            proxyUrlHint: "Supported schemes: http://, https://, socks5://. Host and port are required; credentials can be embedded in the URL.",
+            proxyUrlPlaceholder: "http://user:password@127.0.0.1:6152",
+            save: "Save Changes"
+        },
+        empty: "No outbound proxies configured yet.",
+        failModeDescriptions: {
+            allowDirectFallback: "If every healthy proxy fails, the platform may fall back to a direct connection.",
+            strictProxy: "If no healthy proxy is available, outbound requests fail immediately instead of bypassing the pool."
+        },
+        failModes: {
+            allowDirectFallback: "Allow direct fallback",
+            strictProxy: "Strict proxy only"
+        },
         filters: {
             all: "All nodes",
             degraded: "Degraded",
             disabled: "Disabled",
             healthy: "Healthy",
-            label: "Health filter",
+            label: "Status filter",
             offline: "Offline"
         },
         health: {
@@ -1436,13 +1480,52 @@ export default {
             healthy: "Healthy",
             offline: "Offline"
         },
-        loading: "Scanning network topology…",
-        manage: "Manage",
-        pending: "Pending",
-        retry: "Retry",
-        searchPlaceholder: "Search node URL or label…",
-        subtitle: "Manage reverse proxy nodes and traffic routing topology.",
-        title: "Proxy Nodes"
+        list: {
+            description: "Add, edit, delete, and test weighted proxy nodes. The admin API stores secrets but only returns masked URLs.",
+            title: "Proxy Nodes"
+        },
+        loading: "Loading outbound proxy pool…",
+        meta: {
+            enabled: "{{count}} enabled",
+            healthy: "{{count}} healthy",
+            total: "{{count}} nodes"
+        },
+        notifications: {
+            nodeCreateFailedTitle: "Failed to create proxy",
+            nodeCreatedDescription: "The proxy node has been added to the global pool.",
+            nodeCreatedTitle: "Proxy created",
+            nodeDeleteFailedTitle: "Failed to delete proxy",
+            nodeDeletedDescription: "The proxy node has been removed from the global pool.",
+            nodeDeletedTitle: "Proxy deleted",
+            nodeUpdateFailedTitle: "Failed to update proxy",
+            nodeUpdatedDescription: "The proxy node has been updated.",
+            nodeUpdatedTitle: "Proxy updated",
+            settingsFailedTitle: "Failed to save proxy settings",
+            settingsSavedDescription: "The global outbound proxy pool settings have been saved.",
+            settingsSavedTitle: "Proxy settings saved",
+            singleTestCompletedDescription: "The proxy test has finished.",
+            testCompletedDescription: "Finished testing {{count}} proxy nodes.",
+            testCompletedTitle: "Proxy test finished",
+            testFailedTitle: "Proxy test failed",
+            validationFailedTitle: "Please review the proxy form"
+        },
+        pending: "Not tested yet",
+        searchPlaceholder: "Search label, masked URL, or latest error…",
+        settings: {
+            description: "These settings apply to every outbound HTTP and WebSocket request that goes through the platform.",
+            enabled: "Enable outbound proxy pool",
+            enabledHint: "When disabled, all outbound traffic stays direct. When enabled, traffic is selected from the weighted proxy pool below.",
+            failMode: "Failure mode",
+            save: "Save Settings",
+            title: "Global Proxy Pool"
+        },
+        stats: {
+            enabled: "Enabled Nodes",
+            healthy: "Healthy Nodes",
+            total: "Total Nodes"
+        },
+        subtitle: "Configure a global outbound proxy pool for all upstream traffic. This replaces the old node-health placeholder page.",
+        title: "Outbound Proxy Pool"
     },
     system: {
         columns: {
@@ -1620,16 +1703,16 @@ export default {
             brand: {
                 badge: "Tenant Workspace Access",
                 points: {
-                    audit: "Policy and billing decisions are observable end to end.",
-                    resilience: "Failover-aware routing keeps requests available.",
-                    security: "Credentials and account sessions are isolated by tenant."
+                    audit: "Usage, billing, and policy changes stay traceable when your team needs context.",
+                    resilience: "Failover-aware routing keeps tenant traffic available during upstream instability.",
+                    security: "Keys, sessions, and account access stay isolated per tenant."
                 },
-                subtitle: "Authenticate once, then manage usage, billing, and keys in one secure workspace.",
-                title: "Stability-first access for enterprise AI operations"
+                subtitle: "Sign in once to manage usage, billing, and API keys from one secure workspace.",
+                title: "Tenant access for everyday operations"
             },
             error: {
-                invalidCredentialsOrUnverified: "Sign-in failed: incorrect email or password, or email not verified yet.",
-                loginFailed: "Sign-in failed.",
+                invalidCredentialsOrUnverified: "Sign-in failed. Check your email and password, then verify the account if this is your first login.",
+                loginFailed: "Sign-in failed. Please try again.",
                 passwordMismatch: "Password and confirm password do not match.",
                 passwordResetFailed: "Password reset failed.",
                 registerFailed: "Registration failed.",
@@ -1647,7 +1730,7 @@ export default {
                 verificationCode: "Verification Code"
             },
             forgot: {
-                drawerHint: "After sending the code, a drawer appears from the bottom for reset code and new password.",
+                drawerHint: "Send a reset code to this email first. Once it arrives, enter the code and your new password below.",
                 stepResetPassword: "Set New Password",
                 stepSendCode: "Send Code"
             },
@@ -1656,11 +1739,11 @@ export default {
                 loginSuccess: "Sign-in successful.",
                 passwordResetSuccess: "Password reset successful. Please sign in again.",
                 registerDebugCode: "Registration successful, verification code (debug): {{code}}",
-                registerSuccess: "Registration successful. Enter the email verification code to activate your account.",
+                registerSuccess: "Registration complete. Enter the verification code from your email to activate the account.",
                 resetCodeDebug: "Password reset code (debug): {{code}}",
-                resetCodeSentIfExists: "If the email exists, a reset code will be sent.",
+                resetCodeSentIfExists: "If this email exists, we'll send a reset code shortly.",
                 sessionExpired: "Tenant session expired. Please sign in again.",
-                verifyCodeHint: "Didn’t receive it? Wait 60s and request a new code."
+                verifyCodeHint: "No code yet? Wait 60 seconds, then request another."
             },
             placeholders: {
                 confirmPassword: "Re-enter password",
@@ -1672,12 +1755,12 @@ export default {
                 verificationCode: "Enter verification code"
             },
             sections: {
-                authSubtitle: "Switch between sign in and registration in one focused card.",
+                authSubtitle: "Choose sign in or registration, then continue in the same focused workspace.",
                 forgotPasswordTitle: "Reset Password",
-                forgotPasswordSubtitle: "Two-step drawer flow: send code first, then set a new password.",
+                forgotPasswordSubtitle: "Request a reset code first, then set a new password without leaving this flow.",
                 loginTitle: "Tenant Sign In",
                 registerTitle: "Tenant Registration",
-                verifyEmailSubtitle: "Use the code sent to your email to activate your account.",
+                verifyEmailSubtitle: "Enter the code from your email to finish activation and return to sign in.",
                 verifyEmailTitle: "Email Verification"
             },
             social: {

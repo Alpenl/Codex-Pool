@@ -8,7 +8,8 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
       type={type}
       data-slot="input"
       className={cn(
-        "file:text-foreground placeholder:text-muted-foreground/90 selection:bg-primary selection:text-primary-foreground border-input h-10 w-full min-w-0 rounded-[10px] border bg-background/88 px-3.5 py-2 text-[0.95rem] shadow-[inset_0_1px_0_rgba(255,255,255,0.26)] transition-[border-color,box-shadow,background-color] outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.045] md:text-sm",
+        "file:text-foreground placeholder:text-muted-foreground/90 selection:bg-primary selection:text-primary-foreground border-input h-10 w-full min-w-0 rounded-[10px] border bg-background/88 px-3.5 py-2 text-[0.95rem] shadow-[inset_0_1px_0_rgba(255,255,255,0.26)] transition-[border-color,box-shadow,background-color,transform] duration-180 ease-[cubic-bezier(0.16,1,0.3,1)] outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.045] md:text-sm motion-reduce:transform-none",
+        "hover:border-border hover:bg-background/94 dark:hover:bg-white/[0.055]",
         "focus-visible:border-ring focus-visible:bg-background focus-visible:ring-[3px] focus-visible:ring-ring/24 dark:focus-visible:bg-white/[0.06]",
         "aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
         className

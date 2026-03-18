@@ -490,7 +490,7 @@ export default {
         filters: {
             apiKeyAriaLabel: "API 金鑰篩選",
             apiKeyPlaceholder: "選擇 API 金鑰",
-            description: "當你需要快速定位熱點時，可將視角收斂到租戶或 API 金鑰。",
+            description: "先看全域，再在告警、尖峰或成本波動需要解釋時收斂到單一租戶或 API 金鑰。",
             eyebrow: "上下文",
             range: {
                 last24Hours: "過去 24 小時",
@@ -550,7 +550,7 @@ export default {
             global: "全球視野",
             tenant: "租戶視圖"
         },
-        subtitle: "閘道全域代理指標視角",
+        subtitle: "在同一個總覽視角裡查看閘道健康、用量變化與受管資源。",
         table: {
             apiKey: "API 金鑰",
             requests: "請求數"
@@ -573,7 +573,7 @@ export default {
             attentionNeeded: "建議盡快處理",
             autoRefresh: "每 30 秒自動刷新",
             degraded: "已降級",
-            description: "在進入圖表前，先快速查看告警壓力、用量鏈路健康度與目前託管盤面。",
+            description: "先讀這裡，快速判斷告警、用量鏈路或庫存哪一項需要你先處理。",
             eyebrow: "運行脈搏",
             inventory: "可用上游庫存",
             managedScope: "目前納管範圍",
@@ -595,7 +595,7 @@ export default {
                 tableLabel: "Token 使用趨勢資料表",
                 timestamp: "時間"
             },
-            description: "按小時展示 Token 元件趨勢，可透過開關聚焦消耗來源。",
+            description: "比較輸入、快取、輸出與推理 Token 的時間變化，可透過元件開關定位消耗從哪裡升高。",
             empty: "暫無 Token 趨勢資料",
             title: "Token 使用趨勢"
         },
@@ -937,14 +937,14 @@ export default {
     },
     login: {
         brand: {
-            badge: "控制平面入口",
+            badge: "管理員工作區入口",
             points: {
-                audit: "所有高風險操作都可透過 request id 全鏈路追蹤。",
-                resilience: "高可用路由保障管理操作穩定可達。",
-                security: "租戶隔離與憑證治理預設啟用。"
+                audit: "登入、路由調整與高風險操作都能依 request id 回溯。",
+                resilience: "查看租戶、金鑰、用量與帳單時，管理鏈路保持穩定可用。",
+                security: "租戶邊界與憑證控制預設維持生效。"
             },
-            subtitle: "為系統管理員提供加固認證入口。",
-            title: "以可控且可信的方式管理 Codex Pool"
+            subtitle: "面向系統管理員的受控登入入口。",
+            title: "登入後即可安心處理 Codex Pool 日常維運"
         },
         messages: {
             failed: "登入失敗，請檢查帳號密碼",
@@ -953,7 +953,7 @@ export default {
         },
         password: "密碼",
         passwordPlaceholder: "請輸入管理員密碼",
-        securityHint: "安全提示：連續失敗會在審計日誌中關聯記錄。",
+        securityHint: "連續登入失敗會寫入審計日誌，方便後續排查。",
         submit: "登入",
         subtitle: "使用管理員帳號登入控制台",
         title: "Codex-Pool 管理台",
@@ -1383,6 +1383,7 @@ export default {
         api: {
             unauthorized: "未授權，請重新登入。",
             invalidRequest: "請求參數無效。",
+            invalidProxyUrl: "代理 URL 無效。",
             notFound: "資源不存在。",
             serviceUnavailable: "服務暫不可用。",
             internalError: "伺服器內部錯誤。",
@@ -1412,22 +1413,65 @@ export default {
         }
     },
     proxies: {
-        check: "立即檢查",
+        actions: {
+            add: "新增代理",
+            delete: "刪除",
+            edit: "編輯",
+            test: "測試",
+            testAll: "全部測試"
+        },
+        badges: {
+            auth: "含驗證"
+        },
         columns: {
             actions: "操作",
-            health: "健康狀況",
-            lastPing: "最近檢查時間",
-            latency: "平均回應時間",
-            url: "代理節點 URL",
-            weight: "路由權重"
+            lastTest: "最近測試",
+            latency: "延遲",
+            proxy: "代理節點",
+            status: "狀態",
+            weight: "權重"
         },
-        empty: "尚未配置任何後端代理節點。",
+        deleteDialog: {
+            confirm: "刪除代理",
+            description: "確定要從全域出站代理池刪除 {{label}} 嗎？現有請求會在下一次刷新後停止使用它。",
+            title: "刪除代理"
+        },
+        editor: {
+            create: "建立代理",
+            createTitle: "新增出站代理",
+            description: "設定一個全域出站代理節點。編輯時若留空代理 URL，會沿用目前的密鑰與憑證。",
+            editTitle: "編輯出站代理",
+            enabledHint: "停用後的節點仍會保留在列表中，但不會參與選路，也不會自動測試。",
+            errors: {
+                labelRequired: "請輸入代理標籤。",
+                proxyUrlRequired: "請輸入代理 URL。",
+                weightInvalid: "權重必須大於 0。"
+            },
+            fields: {
+                enabled: "啟用節點",
+                label: "標籤",
+                proxyUrl: "代理 URL",
+                weight: "權重"
+            },
+            proxyUrlHint: "支援 http://、https://、socks5://。必須包含主機與連接埠，使用者名稱密碼可直接寫在 URL 中。",
+            proxyUrlPlaceholder: "http://user:password@127.0.0.1:6152",
+            save: "儲存變更"
+        },
+        empty: "尚未設定任何出站代理。",
+        failModeDescriptions: {
+            allowDirectFallback: "當所有健康代理都失敗時，平台可退回直連。",
+            strictProxy: "當沒有可用健康代理時，請求會立即失敗，不會繞過代理池。"
+        },
+        failModes: {
+            allowDirectFallback: "允許直連回退",
+            strictProxy: "嚴格走代理"
+        },
         filters: {
             all: "全部節點",
             degraded: "降級",
             disabled: "已停用",
             healthy: "健康",
-            label: "健康篩選",
+            label: "狀態篩選",
             offline: "離線"
         },
         health: {
@@ -1436,13 +1480,52 @@ export default {
             healthy: "健康",
             offline: "離線"
         },
-        loading: "掃描網路拓撲中…",
-        manage: "查看",
-        pending: "尚未檢查",
-        retry: "重試",
-        searchPlaceholder: "搜尋節點 URL 或標籤…",
-        subtitle: "在這裡查看代理是否可用，並管理代理節點。",
-        title: "代理池"
+        list: {
+            description: "在這裡增刪改測加權代理節點。管理端會保存明文密鑰，但對外僅回傳遮罩後的 URL。",
+            title: "代理節點列表"
+        },
+        loading: "正在載入出站代理池…",
+        meta: {
+            enabled: "{{count}} 個啟用",
+            healthy: "{{count}} 個健康",
+            total: "{{count}} 個節點"
+        },
+        notifications: {
+            nodeCreateFailedTitle: "建立代理失敗",
+            nodeCreatedDescription: "該代理節點已加入全域代理池。",
+            nodeCreatedTitle: "代理已建立",
+            nodeDeleteFailedTitle: "刪除代理失敗",
+            nodeDeletedDescription: "該代理節點已從全域代理池移除。",
+            nodeDeletedTitle: "代理已刪除",
+            nodeUpdateFailedTitle: "更新代理失敗",
+            nodeUpdatedDescription: "該代理節點已更新。",
+            nodeUpdatedTitle: "代理已更新",
+            settingsFailedTitle: "儲存代理設定失敗",
+            settingsSavedDescription: "全域出站代理池設定已儲存。",
+            settingsSavedTitle: "代理設定已儲存",
+            singleTestCompletedDescription: "單節點代理測試已完成。",
+            testCompletedDescription: "已完成 {{count}} 個代理節點的測試。",
+            testCompletedTitle: "代理測試完成",
+            testFailedTitle: "代理測試失敗",
+            validationFailedTitle: "請檢查代理表單"
+        },
+        pending: "尚未測試",
+        searchPlaceholder: "搜尋標籤、遮罩 URL 或最近錯誤…",
+        settings: {
+            description: "這些設定會套用到平台內所有外部 HTTP 與 WebSocket 出站請求。",
+            enabled: "啟用出站代理池",
+            enabledHint: "關閉後，所有外部流量保持直連；開啟後，流量會從下方的加權代理池中選擇。",
+            failMode: "失敗策略",
+            save: "儲存設定",
+            title: "全域代理池設定"
+        },
+        stats: {
+            enabled: "已啟用節點",
+            healthy: "健康節點",
+            total: "總節點數"
+        },
+        subtitle: "為所有上游流量設定統一的全域出站代理池。這一頁已不再是舊的資料面節點占位頁。",
+        title: "出站代理池"
     },
     system: {
         columns: {
@@ -1620,16 +1703,16 @@ export default {
             brand: {
                 badge: "租戶工作區入口",
                 points: {
-                    audit: "策略與計費決策全程可觀測、可審計。",
-                    resilience: "具備故障切換感知的路由保持請求可用。",
-                    security: "憑證與會話按租戶隔離。"
+                    audit: "當團隊需要回溯時，用量、計費與策略變更都有據可查。",
+                    resilience: "上游波動時，具備故障切換感知的路由會盡量維持租戶請求可用。",
+                    security: "金鑰、會話與帳號存取始終按租戶隔離。"
                 },
-                subtitle: "完成認證後，在同一安全工作區管理用量、計費與金鑰。",
-                title: "面向企業 AI 營運的穩定存取入口"
+                subtitle: "登入一次，即可在同一安全工作區完成日常租戶營運。",
+                title: "一個租戶工作區，處理日常用量、帳單與金鑰"
             },
             error: {
-                invalidCredentialsOrUnverified: "登入失敗：電子郵件或密碼不正確，或電子郵件尚未驗證。",
-                loginFailed: "登入失敗。",
+                invalidCredentialsOrUnverified: "登入失敗。請檢查信箱與密碼；如果是首次登入，請先完成信箱驗證。",
+                loginFailed: "登入失敗，請稍後再試。",
                 passwordMismatch: "兩次輸入的密碼不一致。",
                 passwordResetFailed: "密碼重置失敗。",
                 registerFailed: "註冊失敗。",
@@ -1647,7 +1730,7 @@ export default {
                 verificationCode: "驗證碼"
             },
             forgot: {
-                drawerHint: "送出驗證碼後，會自底部上滑抽屜顯示「重置碼 + 新密碼」輸入。",
+                drawerHint: "先向該信箱發送重設碼。收到後，在下方輸入重設碼與新密碼。",
                 stepResetPassword: "設定新密碼",
                 stepSendCode: "發送驗證碼"
             },
@@ -1656,11 +1739,11 @@ export default {
                 loginSuccess: "登入成功。",
                 passwordResetSuccess: "密碼重置成功。請重新登入。",
                 registerDebugCode: "註冊成功，驗證碼（偵錯）：{{code}}",
-                registerSuccess: "註冊成功。輸入電子郵件驗證碼以啟動您的帳號。",
+                registerSuccess: "註冊已完成。請輸入郵件中的驗證碼以啟用帳號。",
                 resetCodeDebug: "密碼重設代碼（偵錯）：{{code}}",
-                resetCodeSentIfExists: "如果電子郵件存在，將發送重置代碼。",
+                resetCodeSentIfExists: "如果該信箱存在，我們會盡快發送重設碼。",
                 sessionExpired: "租戶會話已過期。請重新登入。",
-                verifyCodeHint: "尚未收到驗證碼？請等待 60 秒後重新發送。"
+                verifyCodeHint: "還沒收到驗證碼？請等待 60 秒後再次發送。"
             },
             placeholders: {
                 confirmPassword: "請再次輸入密碼",
@@ -1672,12 +1755,12 @@ export default {
                 verificationCode: "請輸入驗證碼"
             },
             sections: {
-                authSubtitle: "在同一卡片中切換登入與註冊。",
+                authSubtitle: "在同一塊工作區裡選擇登入或註冊，然後繼續完成後續操作。",
                 forgotPasswordTitle: "重設密碼",
-                forgotPasswordSubtitle: "抽屜式兩步流程：先發送驗證碼，再設定新密碼。",
+                forgotPasswordSubtitle: "先申請重設碼，再在目前流程裡設定新密碼。",
                 loginTitle: "租戶登入",
                 registerTitle: "租戶登記",
-                verifyEmailSubtitle: "輸入郵件中的驗證碼以啟用帳號。",
+                verifyEmailSubtitle: "輸入郵件中的驗證碼，完成啟用後返回登入。",
                 verifyEmailTitle: "電子郵件驗證"
             },
             social: {

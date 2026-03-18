@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
     LayoutDashboard,
     KeyRound,
@@ -87,6 +87,7 @@ export function AppLayout({
     role = 'admin',
 }: AppLayoutProps) {
     const { t } = useTranslation()
+    const location = useLocation()
     const prefersReducedMotion = useReducedMotion()
     const shellEnterMotion = resolvePageEnterMotion(prefersReducedMotion)
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -416,8 +417,17 @@ export function AppLayout({
                     </header>
 
                     <div className="flex-1 relative overflow-auto">
-                        <AnimatePresence mode="popLayout">
-                            <Outlet />
+                        <AnimatePresence mode="wait" initial={false}>
+                            <motion.div
+                                key={location.pathname}
+                                initial={shellEnterMotion.initial}
+                                animate={shellEnterMotion.animate}
+                                exit={shellEnterMotion.exit}
+                                transition={shellEnterMotion.transition}
+                                className="h-full"
+                            >
+                                <Outlet />
+                            </motion.div>
                         </AnimatePresence>
                     </div>
                 </main>

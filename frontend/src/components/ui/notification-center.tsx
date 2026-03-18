@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { CircleAlert, CircleCheck, Info, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -49,8 +49,15 @@ function VariantIcon({ variant }: { variant: NotificationVariant }) {
 
 export function NotificationCenter() {
   const { t } = useTranslation()
+  const prefersReducedMotion = useReducedMotion()
   const [items, setItems] = useState<NotificationItem[]>([])
   const timers = useRef<Map<string, number>>(new Map())
+  const transition = prefersReducedMotion
+    ? { duration: 0.16, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] }
+    : { duration: 0.24, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] }
+  const layoutTransition = prefersReducedMotion
+    ? { duration: 0.14 }
+    : { duration: 0.22, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] }
 
   const remove = (id: string) => {
     const timer = timers.current.get(id)
@@ -103,16 +110,20 @@ export function NotificationCenter() {
       aria-relevant="additions text"
       aria-atomic="false"
     >
-      <AnimatePresence initial={false}>
+      <AnimatePresence initial={false} mode="popLayout">
         {items.map((item) => (
           <motion.div
             key={item.id}
-            initial={{ opacity: 0, y: -12, scale: 0.98 }}
+            layout="position"
+            initial={{ opacity: 0, y: -10, scale: 0.985 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.98 }}
-            transition={{ type: 'spring', stiffness: 360, damping: 28 }}
+            exit={{ opacity: 0, y: -6, scale: 0.985 }}
+            transition={{
+              ...transition,
+              layout: layoutTransition,
+            }}
             className={cn(
-              'pointer-events-auto rounded-xl border px-3 py-2 shadow-xl backdrop-blur-md',
+              'pointer-events-auto rounded-[1rem] border px-3.5 py-3 shadow-[0_18px_36px_rgba(30,41,59,0.12)] backdrop-blur-md dark:shadow-[0_20px_38px_rgba(2,8,16,0.3)]',
               variantClasses(item.variant)
             )}
             role="status"
@@ -127,7 +138,7 @@ export function NotificationCenter() {
               </div>
               <button
                 type="button"
-                className="rounded p-0.5 opacity-70 transition hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/10"
+                className="rounded-md p-1 opacity-70 transition-[background-color,opacity,color,transform] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-black/5 hover:opacity-100 active:translate-y-px dark:hover:bg-white/10 motion-reduce:transform-none"
                 onClick={() => remove(item.id)}
                 aria-label={t('notifications.dismiss', {
                   defaultValue: 'Dismiss notification',
