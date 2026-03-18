@@ -167,8 +167,8 @@ export function StandardDataTable<TData, TValue>({
   }
 
   return (
-    <div className={cn('flex h-full flex-col overflow-hidden rounded-[0.95rem] border border-border/65 bg-background/74 shadow-none dark:border-white/8 dark:bg-card/78', className)}>
-      <div className="flex flex-col gap-3 border-b border-border/65 bg-background/48 px-3.5 py-3 lg:flex-row lg:items-center lg:justify-between dark:bg-white/[0.025]">
+    <div className={cn('flex h-full flex-col overflow-hidden rounded-[1rem] border border-border/70 bg-background/78 shadow-[0_10px_24px_rgba(79,90,112,0.04)] dark:border-white/8 dark:bg-card/80 dark:shadow-[0_12px_28px_rgba(0,0,0,0.18)]', className)}>
+      <div className="flex flex-col gap-3 border-b border-border/65 bg-[linear-gradient(180deg,rgba(71,89,118,0.06),rgba(255,255,255,0))] px-3.5 py-3 lg:flex-row lg:items-center lg:justify-between dark:bg-[linear-gradient(180deg,rgba(111,128,160,0.08),rgba(255,255,255,0))]">
         <div className="flex flex-wrap items-center gap-2 min-w-0">{filters}</div>
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
           {actions}
@@ -199,7 +199,7 @@ export function StandardDataTable<TData, TValue>({
             density === 'compact' && '[&_th]:h-8 [&_th]:px-2 [&_td]:px-2 [&_td]:py-1.5 [&_td]:text-xs',
           )}
         >
-          <TableHeader className="sticky top-0 z-10 bg-[rgba(246,243,237,0.9)] supports-[backdrop-filter]:bg-[rgba(246,243,237,0.84)] dark:bg-[rgba(29,35,41,0.94)] dark:supports-[backdrop-filter]:bg-[rgba(29,35,41,0.9)]">
+          <TableHeader className="sticky top-0 z-10 bg-[rgba(246,243,237,0.92)] supports-[backdrop-filter]:bg-[rgba(246,243,237,0.86)] dark:bg-[rgba(29,35,41,0.94)] dark:supports-[backdrop-filter]:bg-[rgba(29,35,41,0.9)]">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
@@ -246,7 +246,7 @@ export function StandardDataTable<TData, TValue>({
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && 'selected'}
-                  className={cn('border-b border-border/45 transition-colors hover:bg-muted/36 dark:border-white/6 dark:hover:bg-white/[0.028]', resolvedRowClassName)}
+                  className={cn('border-b border-border/45 transition-colors hover:bg-muted/38 dark:border-white/6 dark:hover:bg-white/[0.03]', resolvedRowClassName)}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>

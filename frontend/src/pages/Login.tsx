@@ -65,24 +65,24 @@ export default function Login({ onLogin }: LoginProps) {
       subtitle={t('login.brand.subtitle')}
       points={brandPoints}
       rightSlot={
-        <div className="space-y-5">
-          <div className="space-y-2">
-            <p className="inline-flex items-center gap-2 text-[12px] font-medium tracking-[0.01em] text-muted-foreground">
+        <div className="space-y-6">
+          <div className="space-y-3">
+            <p className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               <ShieldCheck className="h-3.5 w-3.5 text-primary" />
               {t('login.title')}
             </p>
-            <h2 className="text-balance text-[clamp(1.2rem,2.2vw,1.55rem)] font-semibold leading-[1.04] tracking-[-0.018em] text-foreground">
+            <h2 className="max-w-[14ch] text-balance text-[clamp(1.5rem,2.8vw,2.2rem)] font-semibold leading-[0.96] tracking-[-0.042em] text-foreground">
               {t('login.subtitle')}
             </h2>
-            <p className="max-w-[48ch] text-sm leading-6 text-muted-foreground">
+            <div className="max-w-[48ch] border-l-2 border-primary/40 pl-4 text-sm leading-7 text-muted-foreground">
               {t('login.securityHint')}
-            </p>
+            </div>
           </div>
 
-          <form className="space-y-3.5 sm:space-y-4" onSubmit={submit}>
+          <form className="space-y-4 sm:space-y-5" onSubmit={submit}>
             <FadeContent blur duration={220}>
               <div className="space-y-2">
-                <label htmlFor="admin-username" className="text-sm text-muted-foreground">
+                <label htmlFor="admin-username" className="text-[12px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                   {t('login.username')}
                 </label>
                 <Input
@@ -93,14 +93,14 @@ export default function Login({ onLogin }: LoginProps) {
                   spellCheck={false}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder={t('login.usernamePlaceholder')}
-                  className="h-11 shadow-none sm:h-11"
+                  className="h-12 shadow-none sm:h-12"
                 />
               </div>
             </FadeContent>
 
             <FadeContent blur duration={220} delay={60}>
               <div className="space-y-2">
-                <label htmlFor="admin-password" className="text-sm text-muted-foreground">
+                <label htmlFor="admin-password" className="text-[12px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                   {t('login.password')}
                 </label>
                 <Input
@@ -111,14 +111,14 @@ export default function Login({ onLogin }: LoginProps) {
                   autoComplete="current-password"
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder={t('login.passwordPlaceholder')}
-                  className="h-11 shadow-none sm:h-11"
+                  className="h-12 shadow-none sm:h-12"
                 />
               </div>
             </FadeContent>
 
             <FadeContent blur duration={220} delay={100}>
               <Button
-                className="h-11 w-full shadow-none"
+                className="h-12 w-full shadow-none"
                 type="submit"
                 disabled={loading || !password}
               >

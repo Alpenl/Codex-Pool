@@ -246,7 +246,7 @@ export function AppLayout({
                     aria-modal={mobileSidebarOpen ? true : undefined}
                     aria-label={t('nav.mainNavigation', { defaultValue: 'Main navigation' })}
                     className={cn(
-                        "relative flex shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar z-40",
+                        "app-shell-sidebar relative flex shrink-0 flex-col overflow-hidden border-r border-sidebar-border z-40",
                         "fixed inset-y-0 left-0 w-56 transform transition-transform md:static md:translate-x-0",
                         sidebarCollapsed ? "md:w-20" : "md:w-56",
                         mobileSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
@@ -254,7 +254,7 @@ export function AppLayout({
                 >
                     <div
                         className={cn(
-                            "relative z-[1] flex shrink-0 items-center justify-start border-b border-sidebar-border/80 bg-sidebar",
+                            "relative z-[1] flex shrink-0 items-center justify-start border-b border-sidebar-border/85",
                             sidebarCollapsed ? "h-[3.75rem] px-3 pr-10" : "h-[4.5rem] px-4 pr-12",
                         )}
                     >
@@ -276,8 +276,11 @@ export function AppLayout({
                                 />
                             </div>
                             {!sidebarCollapsed ? (
-                                <div className="min-w-0 flex-1">
-                                    <h1 className="max-h-[2.5rem] overflow-hidden break-words text-[13px] font-semibold leading-5 tracking-[0.005em] text-sidebar-foreground">
+                                <div className="min-w-0 flex-1 space-y-0.5">
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground/42">
+                                        Codex
+                                    </p>
+                                    <h1 className="max-h-[2.5rem] overflow-hidden break-words text-[13px] font-semibold leading-5 tracking-[0.02em] text-sidebar-foreground">
                                         {appName}
                                     </h1>
                                 </div>
@@ -304,9 +307,12 @@ export function AppLayout({
                         {visibleMenuGroups.map((group, i) => (
                             <div key={i} className={cn(sidebarCollapsed ? "px-2" : "px-4")}>
                                 {!sidebarCollapsed ? (
-                                    <h2 className="mb-2 px-2 text-[11px] font-medium tracking-[0.01em] text-muted-foreground/78">
-                                        {group.label}
-                                    </h2>
+                                    <div className="mb-2 flex items-center gap-2 px-2">
+                                        <span className="h-px flex-1 bg-sidebar-border/90" />
+                                        <h2 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/78">
+                                            {group.label}
+                                        </h2>
+                                    </div>
                                 ) : null}
                                 <ul className="space-y-1">
                                     {group.items.map(item => (
@@ -317,11 +323,11 @@ export function AppLayout({
                                                 onClick={() => setMobileSidebarOpen(false)}
                                                 className={({ isActive }) =>
                                                     cn(
-                                                        "group relative flex items-center rounded-[0.8rem] border text-sm font-medium transition-[background-color,border-color,color,box-shadow]",
+                                                        "group relative flex items-center overflow-hidden rounded-[0.85rem] border text-sm font-medium transition-[background-color,border-color,color,box-shadow,transform]",
                                                         sidebarCollapsed ? "justify-center px-2 py-2.5" : "px-3 py-2.5",
                                                         isActive
-                                                            ? "border-sidebar-border bg-background/84 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]"
-                                                            : "border-transparent text-muted-foreground hover:border-sidebar-border/70 hover:bg-background/50 hover:text-foreground"
+                                                            ? "border-sidebar-border/90 bg-background/92 text-foreground shadow-[0_10px_22px_rgba(67,79,97,0.08),inset_0_1px_0_rgba(255,255,255,0.3)]"
+                                                            : "border-transparent text-muted-foreground hover:border-sidebar-border/70 hover:bg-background/62 hover:text-foreground"
                                                     )
                                                 }
                                             >
@@ -330,14 +336,14 @@ export function AppLayout({
                                                         {isActive && (
                                                             <motion.div
                                                                 layoutId="activeNavIndicator"
-                                                                className="absolute inset-y-[7px] left-[6px] w-[2px] rounded-full bg-primary"
+                                                                className="absolute inset-y-[6px] left-[7px] w-[3px] rounded-full bg-primary"
                                                                 initial={false}
                                                                 transition={{ duration: 0.18 }}
                                                             />
                                                         )}
                                                         <item.icon className={cn("relative z-10 h-4 w-4", !sidebarCollapsed && "mr-2.5", isActive && "text-primary")} />
                                                         {!sidebarCollapsed ? (
-                                                            <span className="relative z-10 truncate">{item.label}</span>
+                                                            <span className="relative z-10 truncate tracking-[0.01em]">{item.label}</span>
                                                         ) : null}
                                                     </>
                                                 )}
@@ -372,7 +378,7 @@ export function AppLayout({
                 {/* Main Content */}
                 <main id="main-content" tabIndex={-1} className="relative z-20 flex flex-1 flex-col overflow-hidden bg-transparent">
                     {/* Top Action Header */}
-                    <header className="flex h-14 items-center justify-between gap-3 border-b border-border/60 bg-background/88 px-4 sm:px-6 lg:px-8">
+                    <header className="app-shell-header flex h-14 items-center justify-between gap-3 border-b border-border/60 px-4 sm:px-6 lg:px-8">
                         <div className="md:hidden">
                             <Button
                                 ref={mobileOpenButtonRef}

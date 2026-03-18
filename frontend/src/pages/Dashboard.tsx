@@ -651,13 +651,13 @@ export default function Dashboard() {
     },
   ]
   const overviewLayout = describeDashboardOverviewLayout()
-  const dashboardSelectTriggerClassName = 'min-h-11 rounded-[0.8rem] border-border/70 bg-background/78 shadow-none md:min-h-0 md:h-9'
-  const dashboardButtonClassName = 'min-h-11 rounded-[0.8rem] px-3.5 md:min-h-0'
+  const dashboardSelectTriggerClassName = 'min-h-11 rounded-[0.8rem] border-border/75 bg-background/84 shadow-[inset_0_1px_0_rgba(255,255,255,0.24)] md:min-h-0 md:h-10'
+  const dashboardButtonClassName = 'min-h-11 rounded-[0.8rem] px-3.5 md:min-h-0 md:h-10'
   const toggleBadgeButtonClassName = (pressed: boolean) =>
     cn(
-      'gap-2 rounded-[0.8rem] border-border/60 bg-background/80 px-3 py-1.5 text-xs font-medium shadow-none',
+      'gap-2 rounded-[0.8rem] border-border/70 bg-background/84 px-3 py-1.5 text-xs font-medium shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]',
       pressed
-        ? 'bg-accent text-accent-foreground hover:bg-accent/90'
+        ? 'bg-accent text-accent-foreground hover:bg-accent/92'
         : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
     )
   const visibleTokenComponentKeys = useMemo(
@@ -824,17 +824,17 @@ export default function Dashboard() {
             title={t('dashboard.title')}
             description={t('dashboard.subtitle')}
             meta={(
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm leading-6">
-                <span>
+              <div className="flex flex-wrap items-center gap-2 text-sm leading-6">
+                <span className="inline-flex items-center rounded-full border border-border/70 bg-background/74 px-3 py-1 text-[12px] font-medium tracking-[0.01em]">
                   {t('dashboard.currentScope', {
                     defaultValue: 'Current: {{scope}}',
                     scope: scopeLabel(scope),
                   })}
                 </span>
-                <span className="text-slate-300 dark:text-slate-600">·</span>
-                <span>{rangeLabel}</span>
-                <span className="text-slate-300 dark:text-slate-600">·</span>
-                <span>
+                <span className="inline-flex items-center rounded-full border border-border/70 bg-background/74 px-3 py-1 text-[12px] font-medium tracking-[0.01em]">
+                  {rangeLabel}
+                </span>
+                <span className="inline-flex items-center rounded-full border border-border/70 bg-background/74 px-3 py-1 text-[12px] font-medium tracking-[0.01em]">
                   {t('dashboard.meta.autoRefresh', {
                     defaultValue: 'Auto-refresh every 30 seconds',
                   })}

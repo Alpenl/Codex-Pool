@@ -35,26 +35,26 @@ export function PageIntro({
   return (
     <div
       className={cn(
-        'flex flex-col gap-2.5 md:gap-3',
-        regions.introAlignment === 'between' && 'lg:flex-row lg:items-end lg:justify-between lg:gap-6',
+        'flex flex-col gap-3 md:gap-4',
+        regions.introAlignment === 'between' && 'lg:flex-row lg:items-end lg:justify-between lg:gap-8',
         className,
       )}
       {...props}
     >
-      <div className={cn('min-w-0 space-y-2.5', config.introStyle === 'stage' && 'max-w-2xl md:space-y-3')}>
+      <div className={cn('min-w-0 space-y-3', config.introStyle === 'stage' && 'max-w-[46rem] md:space-y-4')}>
         {eyebrow ? (
-          <div className="inline-flex w-fit items-center gap-2 text-[12px] font-medium tracking-[0.01em] text-muted-foreground">
-            <span className="h-1 w-1 rounded-full bg-current/70" />
+          <div className="inline-flex w-fit items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            <span className="h-px w-9 bg-current/70" />
             {eyebrow}
           </div>
         ) : null}
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <h1
             className={cn(
-              'text-balance font-semibold tracking-[-0.024em] text-foreground',
+              'max-w-[18ch] text-balance font-semibold tracking-[-0.034em] text-foreground',
               config.introStyle === 'stage'
-                ? 'text-[clamp(1.9rem,4.2vw,3.15rem)] leading-[1.01]'
-                : 'text-[clamp(1.45rem,2.8vw,2.15rem)] leading-[1.03]',
+                ? 'text-[clamp(2.1rem,5.6vw,3.8rem)] leading-[0.96]'
+                : 'text-[clamp(1.7rem,3.6vw,2.7rem)] leading-[0.98]',
             )}
           >
             {title}
@@ -62,17 +62,17 @@ export function PageIntro({
           {description ? (
             <p
               className={cn(
-                'max-w-[64ch] text-sm leading-6 text-muted-foreground sm:text-[15px]',
-                config.introStyle === 'stage' && 'max-w-[68ch] text-[15px] leading-7 sm:text-[16px]',
+                'max-w-[60ch] text-[14px] leading-7 text-muted-foreground sm:text-[15px]',
+                config.introStyle === 'stage' && 'max-w-[64ch] text-[15px] leading-8 sm:text-[17px]',
               )}
             >
               {description}
             </p>
           ) : null}
         </div>
-        {meta ? <div className="text-[13px] leading-6 text-muted-foreground">{meta}</div> : null}
+        {meta ? <div className="border-t border-border/70 pt-3 text-[13px] leading-6 text-muted-foreground">{meta}</div> : null}
       </div>
-      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-1.5 lg:justify-end">{actions}</div> : null}
+      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2 lg:max-w-[24rem] lg:justify-end">{actions}</div> : null}
     </div>
   )
 }
@@ -146,7 +146,7 @@ export function PagePanel({
     <Component
       className={cn(
         tone === 'primary' ? 'page-panel-surface' : 'page-panel-surface-muted',
-        'relative overflow-hidden rounded-[0.85rem] p-4 sm:rounded-[0.95rem] sm:p-[1.05rem] lg:p-[1.15rem]',
+        'relative overflow-hidden rounded-[0.95rem] p-4 sm:rounded-[1rem] sm:p-[1.15rem] lg:p-[1.25rem]',
         className,
       )}
       {...props}
@@ -266,19 +266,19 @@ export function ReportMetricCard({
   return (
     <div
       className={cn(
-        'h-full space-y-2.5 bg-background/82 px-4 py-3.5 dark:bg-card/84',
+        'h-full space-y-3 bg-background/84 px-4 py-4 dark:bg-card/84',
         className,
       )}
       {...props}
     >
       <div className="space-y-1.5">
-        <p className="text-sm font-medium text-muted-foreground">{title}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{title}</p>
         {loading ? (
           <div className="h-8 w-28 animate-pulse rounded-lg bg-slate-200/75 dark:bg-slate-800/75" />
         ) : (
           <p
             title={valueTitle}
-            className="text-[clamp(1.24rem,2vw,1.7rem)] font-semibold leading-none tracking-[-0.02em] text-foreground"
+            className="text-[clamp(1.45rem,2.4vw,2rem)] font-semibold leading-none tracking-[-0.03em] text-foreground"
           >
             {value}
           </p>
@@ -288,7 +288,7 @@ export function ReportMetricCard({
         loading ? (
           <div className="h-3.5 w-36 animate-pulse rounded bg-slate-200/70 dark:bg-slate-800/70" />
         ) : (
-          <p className="text-xs leading-5 text-muted-foreground">{description}</p>
+          <p className="text-[12px] leading-6 text-muted-foreground">{description}</p>
         )
         ) : null}
     </div>
@@ -313,25 +313,25 @@ export function SectionHeader({
   return (
     <div
       className={cn(
-        'flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4',
+        'flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between sm:gap-4',
         className,
       )}
       {...props}
     >
-      <div className="min-w-0 space-y-1">
+      <div className="min-w-0 space-y-1.5">
         {eyebrow ? (
-          <p className="text-[12px] font-medium tracking-[0.01em] text-muted-foreground">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
             {eyebrow}
           </p>
         ) : null}
-        <h2 className="text-[1.02rem] font-semibold tracking-[-0.016em] text-foreground">
+        <h2 className="text-[1.12rem] font-semibold tracking-[-0.024em] text-foreground">
           {title}
         </h2>
         {description ? (
           <p className="max-w-[62ch] text-sm leading-6 text-muted-foreground">{description}</p>
         ) : null}
       </div>
-      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-1.5">{actions}</div> : null}
+      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
   )
 }
@@ -363,7 +363,7 @@ export function DashboardShell({
     >
       <div
         className={cn(
-          'relative order-1 min-w-0 border-b border-border/70 pb-3 md:pb-4',
+          'relative order-1 min-w-0 border-b border-border/70 pb-4 md:pb-5',
           rail && 'xl:col-start-1 xl:row-start-1',
           config.headerSurface === 'section' && 'page-panel-surface rounded-[1rem] p-4 sm:p-5',
         )}
@@ -402,7 +402,7 @@ export function DashboardMetricGrid({
     <div
       className={cn(
         overview.metricPresentation === 'strip' &&
-          'grid gap-px overflow-hidden rounded-[0.95rem] border border-border/70 bg-border/70 sm:grid-cols-2 2xl:grid-cols-4',
+          'grid gap-px overflow-hidden rounded-[1rem] border border-border/70 bg-border/70 sm:grid-cols-2 2xl:grid-cols-4',
         overview.metricPresentation !== 'strip' && 'grid gap-3 sm:grid-cols-2 2xl:grid-cols-4',
         className,
       )}
@@ -437,7 +437,7 @@ export function DashboardMetricCard({
   return (
     <div
       className={cn(
-        'h-full space-y-4 bg-background/78 px-4 py-4 dark:bg-card/82',
+        'h-full space-y-4 bg-background/82 px-4 py-4 dark:bg-card/82',
         className,
       )}
       {...props}
@@ -445,14 +445,14 @@ export function DashboardMetricCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           {eyebrow ? (
-            <p className="text-[11px] font-medium tracking-[0.01em] text-muted-foreground">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
               {eyebrow}
             </p>
           ) : null}
-          <p className="text-[13px] font-medium text-foreground/82">{title}</p>
+          <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-foreground/76">{title}</p>
         </div>
         {icon ? (
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[0.7rem] border border-border/60 bg-background/52 text-muted-foreground">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[0.8rem] border border-border/70 bg-background/62 text-muted-foreground">
             {icon}
           </div>
         ) : null}
@@ -463,7 +463,7 @@ export function DashboardMetricCard({
         ) : (
           <p
             title={valueTitle}
-            className="text-[clamp(1.45rem,2.1vw,1.95rem)] font-semibold leading-none tracking-[-0.024em] text-foreground"
+            className="text-[clamp(1.7rem,2.7vw,2.35rem)] font-semibold leading-none tracking-[-0.04em] text-foreground"
           >
             {value}
           </p>
@@ -472,7 +472,7 @@ export function DashboardMetricCard({
           loading ? (
             <div className="h-3.5 w-40 animate-pulse rounded bg-slate-200/70 dark:bg-slate-800/70" />
           ) : (
-            <p className="text-[12px] leading-5 text-muted-foreground">{description}</p>
+            <p className="text-[12px] leading-6 text-muted-foreground">{description}</p>
           )
         ) : null}
       </div>

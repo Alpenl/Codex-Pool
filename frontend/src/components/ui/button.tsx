@@ -6,16 +6,16 @@ import { Slot } from "radix-ui"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] text-sm font-medium tracking-[0.01em] transition-[color,background-color,border-color,box-shadow,opacity] duration-150 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] text-sm font-medium tracking-[0.02em] transition-[color,background-color,border-color,box-shadow,opacity,transform] duration-150 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
   {
     variants: {
       variant: {
         default:
-          "border border-primary/85 bg-primary text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] hover:bg-primary/92 active:bg-primary/95 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:bg-primary/88",
+          "border border-primary/90 bg-primary text-primary-foreground shadow-[0_12px_24px_rgba(51,66,91,0.16),inset_0_1px_0_rgba(255,255,255,0.12)] hover:-translate-y-px hover:bg-primary/94 hover:shadow-[0_14px_28px_rgba(51,66,91,0.2),inset_0_1px_0_rgba(255,255,255,0.12)] active:translate-y-0 active:bg-primary dark:shadow-[0_12px_24px_rgba(0,0,0,0.24),inset_0_1px_0_rgba(255,255,255,0.06)] dark:hover:bg-primary/88",
         destructive:
           "border border-destructive/80 bg-destructive text-white shadow-none hover:bg-destructive/92 active:bg-destructive/95 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/65 dark:hover:bg-destructive/58",
         outline:
-          "border border-border/75 bg-background/86 text-foreground shadow-none hover:border-border hover:bg-accent/62 hover:text-accent-foreground dark:bg-white/[0.04] dark:border-white/10 dark:hover:bg-white/[0.065]",
+          "border border-border/80 bg-background/88 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.26)] hover:-translate-y-px hover:border-border hover:bg-accent/68 hover:text-accent-foreground dark:bg-white/[0.04] dark:border-white/10 dark:hover:bg-white/[0.065]",
         secondary:
           "border border-border/55 bg-secondary/88 text-secondary-foreground shadow-none hover:bg-secondary active:bg-secondary/94",
         ghost:
