@@ -16,25 +16,9 @@ use axum::Json;
 use axum::{response::IntoResponse, Router};
 use chrono::{DateTime, Utc};
 use codex_pool_core::api::{
-    AccountUsageLeaderboardResponse, AdminLoginRequest, AdminMeResponse,
-    AiErrorLearningSettingsResponse, ApiKeyUsageLeaderboardResponse, BuiltinErrorTemplateResponse,
-    BuiltinErrorTemplatesResponse, CreateApiKeyRequest, CreateTenantRequest,
-    CreateUpstreamAccountRequest, ErrorEnvelope, HourlyAccountUsagePoint,
-    HourlyTenantApiKeyUsagePoint, ImportOAuthRefreshTokenRequest, ModelRoutingPoliciesResponse,
-    ModelRoutingSettingsResponse, OAuthAccountStatusResponse, OAuthFamilyActionResponse,
-    OAuthImportItemStatus, OAuthImportJobActionResponse, OAuthImportJobItemsResponse,
-    OAuthImportJobSummary, OAuthRateLimitRefreshJobStatus, OAuthRateLimitRefreshJobSummary,
-    OAuthRateLimitSnapshot, OAuthRateLimitWindow, PolicyResponse, ProductEdition,
-    ResolveUpstreamErrorTemplateRequest, ResolveUpstreamErrorTemplateResponse,
-    RoutingPlanVersionsResponse, RoutingProfilesResponse, SystemCapabilitiesResponse,
-    TenantUsageLeaderboardResponse, UpdateAiErrorLearningSettingsRequest,
-    UpdateBuiltinErrorTemplateRequest, UpdateModelRoutingSettingsRequest,
-    UpdateUpstreamErrorTemplateRequest, UpsertModelRoutingPolicyRequest, UpsertRetryPolicyRequest,
-    UpsertRoutingPolicyRequest, UpsertRoutingProfileRequest, UpsertStreamRetryPolicyRequest,
-    UpstreamErrorTemplateResponse, UpstreamErrorTemplatesResponse, UsageHourlyTenantTrendsResponse,
-    UsageHourlyTrendsResponse, UsageLeaderboardOverviewResponse, UsageQueryResponse,
-    UsageSummaryQueryResponse, ValidateApiKeyRequest, ValidateApiKeyResponse,
-    ValidateOAuthRefreshTokenRequest, ValidateOAuthRefreshTokenResponse,
+    ErrorEnvelope, ProductEdition, ResolveUpstreamErrorTemplateRequest,
+    ResolveUpstreamErrorTemplateResponse, SystemCapabilitiesResponse, ValidateApiKeyRequest,
+    ValidateApiKeyResponse,
 };
 use codex_pool_core::model::{
     ApiKey, BuiltinErrorTemplateKind, BuiltinErrorTemplateOverrideRecord,
@@ -47,6 +31,30 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::admin_auth::{AdminAuthService, AdminPrincipal};
+use crate::contracts::{
+    AccountUsageLeaderboardItem, AccountUsageLeaderboardResponse, AdminLoginRequest,
+    AdminMeResponse, AdminOutboundProxyNodeMutationResponse, AdminOutboundProxyNodeView,
+    AdminOutboundProxyPoolResponse, AdminOutboundProxyPoolSettingsResponse,
+    AdminOutboundProxyTestResponse, AiErrorLearningSettingsResponse,
+    ApiKeyUsageLeaderboardItem, ApiKeyUsageLeaderboardResponse, BuiltinErrorTemplateResponse,
+    BuiltinErrorTemplatesResponse, CreateApiKeyRequest, CreateApiKeyResponse,
+    CreateOutboundProxyNodeRequest, CreateTenantRequest, CreateUpstreamAccountRequest,
+    HourlyAccountUsagePoint, HourlyTenantApiKeyUsagePoint, ImportOAuthRefreshTokenRequest,
+    ModelRoutingPoliciesResponse, ModelRoutingSettingsResponse, OAuthAccountStatusResponse,
+    OAuthFamilyActionResponse, OAuthImportItemStatus, OAuthImportJobActionResponse,
+    OAuthImportJobItemsResponse, OAuthImportJobSummary, OAuthRateLimitRefreshJobStatus,
+    OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot, OAuthRateLimitWindow,
+    PolicyResponse, RoutingPlanVersionsResponse, RoutingProfilesResponse,
+    TenantUsageLeaderboardItem, TenantUsageLeaderboardResponse,
+    UpdateAiErrorLearningSettingsRequest, UpdateBuiltinErrorTemplateRequest,
+    UpdateModelRoutingSettingsRequest, UpdateOutboundProxyNodeRequest,
+    UpdateOutboundProxyPoolSettingsRequest, UpdateUpstreamErrorTemplateRequest,
+    UpsertModelRoutingPolicyRequest, UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest,
+    UpsertRoutingProfileRequest, UpsertStreamRetryPolicyRequest, UpstreamErrorTemplateResponse,
+    UpstreamErrorTemplatesResponse, UsageHourlyTenantTrendsResponse,
+    UsageHourlyTrendsResponse, UsageLeaderboardOverviewResponse, UsageQueryResponse,
+    UsageSummaryQueryResponse, ValidateOAuthRefreshTokenRequest, ValidateOAuthRefreshTokenResponse,
+};
 use crate::import_jobs::{
     CreateOAuthImportJobOptions, ImportUploadFile, InMemoryOAuthImportJobStore,
     OAuthImportJobManager, OAuthImportJobStore,
@@ -237,9 +245,9 @@ struct AdminUsageOverviewResponse {
     start_ts: i64,
     end_ts: i64,
     summary: UsageSummaryQueryResponse,
-    tenants: Vec<codex_pool_core::api::TenantUsageLeaderboardItem>,
-    accounts: Vec<codex_pool_core::api::AccountUsageLeaderboardItem>,
-    api_keys: Vec<codex_pool_core::api::ApiKeyUsageLeaderboardItem>,
+    tenants: Vec<TenantUsageLeaderboardItem>,
+    accounts: Vec<AccountUsageLeaderboardItem>,
+    api_keys: Vec<ApiKeyUsageLeaderboardItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1389,9 +1397,11 @@ mod usage_cost_surface_tests {
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use chrono::Utc;
-    use codex_pool_core::api::{
+    use crate::contracts::{
+        AccountUsageLeaderboardItem, ApiKeyUsageLeaderboardItem, HourlyAccountUsagePoint,
+        HourlyTenantApiKeyUsagePoint, HourlyTenantUsageTotalPoint, HourlyUsageTotalPoint,
         UsageDashboardMetrics, UsageDashboardModelDistributionItem, UsageDashboardTokenBreakdown,
-        UsageDashboardTokenTrendPoint, UsageSummaryQueryResponse,
+        UsageDashboardTokenTrendPoint, UsageSummaryQueryResponse, TenantUsageLeaderboardItem,
     };
     use serde_json::{json, Value};
     use std::sync::Arc;
@@ -1417,7 +1427,7 @@ mod usage_cost_surface_tests {
             _end_ts: i64,
             _limit: u32,
             _account_id: Option<Uuid>,
-        ) -> anyhow::Result<Vec<codex_pool_core::api::HourlyAccountUsagePoint>> {
+        ) -> anyhow::Result<Vec<HourlyAccountUsagePoint>> {
             Ok(Vec::new())
         }
 
@@ -1428,7 +1438,7 @@ mod usage_cost_surface_tests {
             _limit: u32,
             _tenant_id: Option<Uuid>,
             _api_key_id: Option<Uuid>,
-        ) -> anyhow::Result<Vec<codex_pool_core::api::HourlyTenantApiKeyUsagePoint>> {
+        ) -> anyhow::Result<Vec<HourlyTenantApiKeyUsagePoint>> {
             Ok(Vec::new())
         }
 
@@ -1438,7 +1448,7 @@ mod usage_cost_surface_tests {
             _end_ts: i64,
             _limit: u32,
             _account_id: Option<Uuid>,
-        ) -> anyhow::Result<Vec<codex_pool_core::api::HourlyUsageTotalPoint>> {
+        ) -> anyhow::Result<Vec<HourlyUsageTotalPoint>> {
             Ok(Vec::new())
         }
 
@@ -1449,7 +1459,7 @@ mod usage_cost_surface_tests {
             _limit: u32,
             _tenant_id: Option<Uuid>,
             _api_key_id: Option<Uuid>,
-        ) -> anyhow::Result<Vec<codex_pool_core::api::HourlyUsageTotalPoint>> {
+        ) -> anyhow::Result<Vec<HourlyUsageTotalPoint>> {
             Ok(Vec::new())
         }
 
@@ -1460,7 +1470,7 @@ mod usage_cost_surface_tests {
             _limit: u32,
             _tenant_id: Option<Uuid>,
             _api_key_id: Option<Uuid>,
-        ) -> anyhow::Result<Vec<codex_pool_core::api::HourlyTenantUsageTotalPoint>> {
+        ) -> anyhow::Result<Vec<HourlyTenantUsageTotalPoint>> {
             Ok(Vec::new())
         }
 
@@ -1481,7 +1491,7 @@ mod usage_cost_surface_tests {
             _end_ts: i64,
             _limit: u32,
             _tenant_id: Option<Uuid>,
-        ) -> anyhow::Result<Vec<codex_pool_core::api::TenantUsageLeaderboardItem>> {
+        ) -> anyhow::Result<Vec<TenantUsageLeaderboardItem>> {
             Ok(Vec::new())
         }
 
@@ -1491,7 +1501,7 @@ mod usage_cost_surface_tests {
             _end_ts: i64,
             _limit: u32,
             _account_id: Option<Uuid>,
-        ) -> anyhow::Result<Vec<codex_pool_core::api::AccountUsageLeaderboardItem>> {
+        ) -> anyhow::Result<Vec<AccountUsageLeaderboardItem>> {
             Ok(Vec::new())
         }
 
@@ -1502,7 +1512,7 @@ mod usage_cost_surface_tests {
             _limit: u32,
             _tenant_id: Option<Uuid>,
             _api_key_id: Option<Uuid>,
-        ) -> anyhow::Result<Vec<codex_pool_core::api::ApiKeyUsageLeaderboardItem>> {
+        ) -> anyhow::Result<Vec<ApiKeyUsageLeaderboardItem>> {
             Ok(Vec::new())
         }
 
@@ -2009,6 +2019,8 @@ pub fn build_app_with_store_ttl_usage_repos_import_store_admin_auth_and_sqlite_r
             usage_ingest_repo,
             import_job_store,
             admin_auth,
+            system_capabilities: system_capabilities_from_env(),
+            tenant_auth_service: None,
             sqlite_usage_repo,
             outbound_proxy_runtime,
         },
@@ -2021,6 +2033,8 @@ pub struct AppBuildServices {
     pub usage_ingest_repo: Option<Arc<dyn UsageIngestRepository>>,
     pub import_job_store: Arc<dyn OAuthImportJobStore>,
     pub admin_auth: AdminAuthService,
+    pub system_capabilities: SystemCapabilitiesResponse,
+    pub tenant_auth_service: Option<Arc<TenantAuthService>>,
     pub sqlite_usage_repo: Option<Arc<SqliteUsageRepo>>,
     pub outbound_proxy_runtime: Arc<crate::outbound_proxy_runtime::OutboundProxyRuntime>,
 }
@@ -2035,6 +2049,8 @@ pub fn build_app_with_store_and_services(
         usage_ingest_repo,
         import_job_store,
         admin_auth,
+        system_capabilities: edition_capabilities,
+        tenant_auth_service,
         sqlite_usage_repo,
         outbound_proxy_runtime,
     } = services;
@@ -2051,14 +2067,7 @@ pub fn build_app_with_store_and_services(
     let oauth_import_max_body_bytes = oauth_import_multipart_max_bytes();
     let codex_oauth_callback_listen_mode = codex_oauth_callback_listen_mode_from_env();
     let codex_oauth_callback_listen_addr = codex_oauth_callback_listen_addr_from_env();
-    let tenant_auth_service = store.postgres_pool().map(|pool| {
-        Arc::new(
-            TenantAuthService::from_pool(pool)
-                .expect("TENANT_JWT_SECRET (or ADMIN_JWT_SECRET fallback) must be set"),
-        )
-    });
 
-    let edition_capabilities = system_capabilities_from_env();
     let state = AppState {
         store,
         usage_repo,

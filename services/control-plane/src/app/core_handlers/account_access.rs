@@ -975,7 +975,7 @@ async fn create_api_key(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(req): Json<CreateApiKeyRequest>,
-) -> Result<Json<codex_pool_core::api::CreateApiKeyResponse>, (StatusCode, Json<ErrorEnvelope>)> {
+) -> Result<Json<CreateApiKeyResponse>, (StatusCode, Json<ErrorEnvelope>)> {
     let _principal = require_admin_principal(&state, &headers)?;
     state
         .store

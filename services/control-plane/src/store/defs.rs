@@ -5,19 +5,7 @@ use std::sync::{Arc, RwLock};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use codex_pool_core::api::{
-    CreateApiKeyRequest, CreateApiKeyResponse, CreateOutboundProxyNodeRequest, CreateTenantRequest,
-    CreateUpstreamAccountRequest, DataPlaneSnapshot, DataPlaneSnapshotEventsResponse,
-    ImportOAuthRefreshTokenRequest, OAuthAccountStatusResponse, OAuthFamilyActionResponse,
-    OAuthRateLimitRefreshErrorSummary, OAuthRateLimitRefreshJobStatus,
-    OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot, OAuthRefreshStatus,
-    SessionCredentialKind, UpdateAiErrorLearningSettingsRequest,
-    UpdateModelRoutingSettingsRequest, UpdateOutboundProxyNodeRequest,
-    UpdateOutboundProxyPoolSettingsRequest, UpsertModelRoutingPolicyRequest,
-    UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest, UpsertRoutingProfileRequest,
-    UpsertStreamRetryPolicyRequest, ValidateOAuthRefreshTokenRequest,
-    ValidateOAuthRefreshTokenResponse,
-};
+use codex_pool_core::api::{DataPlaneSnapshot, DataPlaneSnapshotEventsResponse};
 use codex_pool_core::model::{
     default_builtin_error_templates, AccountRoutingTraits, AiErrorLearningSettings, ApiKey,
     BuiltinErrorTemplateKind, BuiltinErrorTemplateOverrideRecord, BuiltinErrorTemplateRecord,
@@ -31,12 +19,30 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use sqlx_postgres::PgPool;
 use uuid::Uuid;
 
+use crate::contracts::{
+    CreateApiKeyRequest, CreateApiKeyResponse, CreateOutboundProxyNodeRequest,
+    CreateTenantRequest, CreateUpstreamAccountRequest, ImportOAuthRefreshTokenRequest,
+    OAuthAccountStatusResponse, OAuthFamilyActionResponse, OAuthRateLimitRefreshErrorSummary,
+    OAuthRateLimitRefreshJobStatus, OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot,
+    OAuthRefreshStatus, SessionCredentialKind, UpdateAiErrorLearningSettingsRequest,
+    UpdateModelRoutingSettingsRequest, UpdateOutboundProxyNodeRequest,
+    UpdateOutboundProxyPoolSettingsRequest, UpsertModelRoutingPolicyRequest,
+    UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest, UpsertRoutingProfileRequest,
+    UpsertStreamRetryPolicyRequest, ValidateOAuthRefreshTokenRequest,
+    ValidateOAuthRefreshTokenResponse,
+};
 use crate::crypto::CredentialCipher;
 use crate::oauth::{OAuthTokenClient, OAuthTokenInfo, OpenAiOAuthClient};
 
+#[cfg(feature = "postgres-backend")]
+pub use sqlx_postgres::PgPool;
+#[cfg(not(feature = "postgres-backend"))]
+#[derive(Debug, Clone)]
+pub struct PgPool;
+
+#[cfg(feature = "postgres-backend")]
 pub mod postgres;
 
 const OAUTH_MANAGED_BEARER_SENTINEL: &str = "__managed_oauth__";
@@ -468,11 +474,16 @@ pub struct UpsertOneTimeSessionAccountRequest {
     pub source_type: Option<String>,
 }
 
+pub struct RuntimeStorePorts {
+    pub control_plane: Arc<dyn ControlPlaneStore>,
+    pub snapshot_policy: Arc<dyn SnapshotPolicyStore>,
+    pub tenant_catalog: Arc<dyn TenantCatalogStore>,
+    pub oauth_runtime: Arc<dyn OAuthRuntimeStore>,
+    pub edition_migration: Arc<dyn EditionMigrationStore>,
+}
+
 #[async_trait]
 pub trait ControlPlaneStore: Send + Sync {
-    fn postgres_pool(&self) -> Option<PgPool> {
-        None
-    }
     async fn create_tenant(&self, req: CreateTenantRequest) -> Result<Tenant>;
     async fn list_tenants(&self) -> Result<Vec<Tenant>>;
     async fn create_api_key(&self, req: CreateApiKeyRequest) -> Result<CreateApiKeyResponse>;
@@ -825,6 +836,212 @@ pub trait ControlPlaneStore: Send + Sync {
         _observed_at: DateTime<Utc>,
     ) -> Result<()> {
         Ok(())
+    }
+}
+
+#[async_trait]
+pub trait SnapshotPolicyStore: Send + Sync {
+    async fn snapshot(&self) -> Result<DataPlaneSnapshot>;
+    async fn flush_snapshot_revision(&self, max_batch: usize) -> Result<u32>;
+    async fn cleanup_data_plane_outbox(&self, retention: Duration) -> Result<u64>;
+    async fn data_plane_snapshot_events(
+        &self,
+        after: u64,
+        limit: u32,
+    ) -> Result<DataPlaneSnapshotEventsResponse>;
+}
+
+#[async_trait]
+impl<T> SnapshotPolicyStore for T
+where
+    T: ControlPlaneStore + Send + Sync + ?Sized,
+{
+    async fn snapshot(&self) -> Result<DataPlaneSnapshot> {
+        ControlPlaneStore::snapshot(self).await
+    }
+
+    async fn flush_snapshot_revision(&self, max_batch: usize) -> Result<u32> {
+        ControlPlaneStore::flush_snapshot_revision(self, max_batch).await
+    }
+
+    async fn cleanup_data_plane_outbox(&self, retention: Duration) -> Result<u64> {
+        ControlPlaneStore::cleanup_data_plane_outbox(self, retention).await
+    }
+
+    async fn data_plane_snapshot_events(
+        &self,
+        after: u64,
+        limit: u32,
+    ) -> Result<DataPlaneSnapshotEventsResponse> {
+        ControlPlaneStore::data_plane_snapshot_events(self, after, limit).await
+    }
+}
+
+#[async_trait]
+pub trait TenantCatalogStore: Send + Sync {
+    async fn create_tenant(&self, req: CreateTenantRequest) -> Result<Tenant>;
+    async fn list_tenants(&self) -> Result<Vec<Tenant>>;
+    async fn create_api_key(&self, req: CreateApiKeyRequest) -> Result<CreateApiKeyResponse>;
+    async fn list_api_keys(&self) -> Result<Vec<ApiKey>>;
+    async fn validate_api_key(&self, token: &str) -> Result<Option<ValidatedPrincipal>>;
+}
+
+#[async_trait]
+impl<T> TenantCatalogStore for T
+where
+    T: ControlPlaneStore + Send + Sync + ?Sized,
+{
+    async fn create_tenant(&self, req: CreateTenantRequest) -> Result<Tenant> {
+        ControlPlaneStore::create_tenant(self, req).await
+    }
+
+    async fn list_tenants(&self) -> Result<Vec<Tenant>> {
+        ControlPlaneStore::list_tenants(self).await
+    }
+
+    async fn create_api_key(&self, req: CreateApiKeyRequest) -> Result<CreateApiKeyResponse> {
+        ControlPlaneStore::create_api_key(self, req).await
+    }
+
+    async fn list_api_keys(&self) -> Result<Vec<ApiKey>> {
+        ControlPlaneStore::list_api_keys(self).await
+    }
+
+    async fn validate_api_key(&self, token: &str) -> Result<Option<ValidatedPrincipal>> {
+        ControlPlaneStore::validate_api_key(self, token).await
+    }
+}
+
+#[async_trait]
+pub trait OAuthRuntimeStore: Send + Sync {
+    async fn create_upstream_account(
+        &self,
+        req: CreateUpstreamAccountRequest,
+    ) -> Result<UpstreamAccount>;
+    async fn list_upstream_accounts(&self) -> Result<Vec<UpstreamAccount>>;
+    async fn refresh_expiring_oauth_accounts(&self) -> Result<()>;
+    async fn activate_oauth_refresh_token_vault(&self) -> Result<u64>;
+    async fn refresh_due_oauth_rate_limit_caches(&self) -> Result<u64>;
+    async fn recover_oauth_rate_limit_refresh_jobs(&self) -> Result<u64>;
+    async fn mark_account_seen_ok(
+        &self,
+        account_id: Uuid,
+        seen_ok_at: DateTime<Utc>,
+        min_write_interval_sec: i64,
+    ) -> Result<bool>;
+    async fn maybe_refresh_oauth_rate_limit_cache_on_seen_ok(&self, account_id: Uuid) -> Result<()>;
+    async fn update_oauth_rate_limit_cache_from_observation(
+        &self,
+        account_id: Uuid,
+        rate_limits: Vec<OAuthRateLimitSnapshot>,
+        observed_at: DateTime<Utc>,
+    ) -> Result<()>;
+}
+
+#[async_trait]
+impl<T> OAuthRuntimeStore for T
+where
+    T: ControlPlaneStore + Send + Sync + ?Sized,
+{
+    async fn create_upstream_account(
+        &self,
+        req: CreateUpstreamAccountRequest,
+    ) -> Result<UpstreamAccount> {
+        ControlPlaneStore::create_upstream_account(self, req).await
+    }
+
+    async fn list_upstream_accounts(&self) -> Result<Vec<UpstreamAccount>> {
+        ControlPlaneStore::list_upstream_accounts(self).await
+    }
+
+    async fn refresh_expiring_oauth_accounts(&self) -> Result<()> {
+        ControlPlaneStore::refresh_expiring_oauth_accounts(self).await
+    }
+
+    async fn activate_oauth_refresh_token_vault(&self) -> Result<u64> {
+        ControlPlaneStore::activate_oauth_refresh_token_vault(self).await
+    }
+
+    async fn refresh_due_oauth_rate_limit_caches(&self) -> Result<u64> {
+        ControlPlaneStore::refresh_due_oauth_rate_limit_caches(self).await
+    }
+
+    async fn recover_oauth_rate_limit_refresh_jobs(&self) -> Result<u64> {
+        ControlPlaneStore::recover_oauth_rate_limit_refresh_jobs(self).await
+    }
+
+    async fn mark_account_seen_ok(
+        &self,
+        account_id: Uuid,
+        seen_ok_at: DateTime<Utc>,
+        min_write_interval_sec: i64,
+    ) -> Result<bool> {
+        ControlPlaneStore::mark_account_seen_ok(self, account_id, seen_ok_at, min_write_interval_sec)
+            .await
+    }
+
+    async fn maybe_refresh_oauth_rate_limit_cache_on_seen_ok(&self, account_id: Uuid) -> Result<()> {
+        ControlPlaneStore::maybe_refresh_oauth_rate_limit_cache_on_seen_ok(self, account_id).await
+    }
+
+    async fn update_oauth_rate_limit_cache_from_observation(
+        &self,
+        account_id: Uuid,
+        rate_limits: Vec<OAuthRateLimitSnapshot>,
+        observed_at: DateTime<Utc>,
+    ) -> Result<()> {
+        ControlPlaneStore::update_oauth_rate_limit_cache_from_observation(
+            self,
+            account_id,
+            rate_limits,
+            observed_at,
+        )
+        .await
+    }
+}
+
+#[async_trait]
+pub trait EditionMigrationStore: Send + Sync {
+    async fn list_tenants(&self) -> Result<Vec<Tenant>>;
+    async fn list_api_keys(&self) -> Result<Vec<ApiKey>>;
+    async fn list_upstream_accounts(&self) -> Result<Vec<UpstreamAccount>>;
+    async fn list_routing_profiles(&self) -> Result<Vec<RoutingProfile>>;
+    async fn list_model_routing_policies(&self) -> Result<Vec<ModelRoutingPolicy>>;
+    async fn model_routing_settings(&self) -> Result<ModelRoutingSettings>;
+    async fn snapshot(&self) -> Result<DataPlaneSnapshot>;
+}
+
+#[async_trait]
+impl<T> EditionMigrationStore for T
+where
+    T: ControlPlaneStore + Send + Sync + ?Sized,
+{
+    async fn list_tenants(&self) -> Result<Vec<Tenant>> {
+        ControlPlaneStore::list_tenants(self).await
+    }
+
+    async fn list_api_keys(&self) -> Result<Vec<ApiKey>> {
+        ControlPlaneStore::list_api_keys(self).await
+    }
+
+    async fn list_upstream_accounts(&self) -> Result<Vec<UpstreamAccount>> {
+        ControlPlaneStore::list_upstream_accounts(self).await
+    }
+
+    async fn list_routing_profiles(&self) -> Result<Vec<RoutingProfile>> {
+        ControlPlaneStore::list_routing_profiles(self).await
+    }
+
+    async fn list_model_routing_policies(&self) -> Result<Vec<ModelRoutingPolicy>> {
+        ControlPlaneStore::list_model_routing_policies(self).await
+    }
+
+    async fn model_routing_settings(&self) -> Result<ModelRoutingSettings> {
+        ControlPlaneStore::model_routing_settings(self).await
+    }
+
+    async fn snapshot(&self) -> Result<DataPlaneSnapshot> {
+        ControlPlaneStore::snapshot(self).await
     }
 }
 

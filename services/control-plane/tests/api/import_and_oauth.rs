@@ -366,7 +366,7 @@ async fn codex_oauth_login_session_updates_existing_chatgpt_account_user_id() {
         Some(cipher),
     );
     let seeded = store
-        .import_oauth_refresh_token(codex_pool_core::api::ImportOAuthRefreshTokenRequest {
+        .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
             label: "seeded-oauth".to_string(),
             base_url: "https://chatgpt.com/backend-api/codex".to_string(),
             refresh_token: "rt-seeded".to_string(),
@@ -511,7 +511,7 @@ async fn codex_oauth_login_session_keeps_distinct_accounts_with_shared_chatgpt_a
         Some(cipher),
     );
     let seeded = store
-        .import_oauth_refresh_token(codex_pool_core::api::ImportOAuthRefreshTokenRequest {
+        .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
             label: "seeded-oauth".to_string(),
             base_url: "https://chatgpt.com/backend-api/codex".to_string(),
             refresh_token: "rt-seeded-workspace-a".to_string(),

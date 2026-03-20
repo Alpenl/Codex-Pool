@@ -777,10 +777,10 @@ mod tests {
     use async_trait::async_trait;
     use base64::Engine;
     use chrono::{DateTime, Duration, Utc};
-    use codex_pool_core::api::{
+    use crate::contracts::{
         CreateApiKeyRequest, CreateTenantRequest, ImportOAuthRefreshTokenRequest,
-        OAuthRateLimitSnapshot, OAuthRateLimitWindow, UpsertModelRoutingPolicyRequest,
-        UpsertRoutingProfileRequest,
+        OAuthRateLimitRefreshJobStatus, OAuthRateLimitSnapshot, OAuthRateLimitWindow,
+        UpsertModelRoutingPolicyRequest, UpsertRoutingProfileRequest,
     };
     use codex_pool_core::model::{RoutingProfileSelector, UpstreamMode};
     use serde_json::json;
@@ -1156,7 +1156,7 @@ mod tests {
             .expect("load rate-limit refresh job");
         assert_eq!(
             summary.status,
-            codex_pool_core::api::OAuthRateLimitRefreshJobStatus::Completed
+            OAuthRateLimitRefreshJobStatus::Completed
         );
         assert_eq!(summary.total, 1);
         assert_eq!(summary.processed, 1);

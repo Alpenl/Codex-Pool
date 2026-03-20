@@ -1,13 +1,17 @@
+#[cfg(feature = "postgres-backend")]
 use serde::de::DeserializeOwned;
 
 use crate::edition_migration::{
     AccountAuthProviderMigrationRecord, AccountModelSupportMigrationRecord,
-    ApiKeyTokenMigrationRecord, ControlPlaneMigrationBundle, EditionMigrationArchiveItem,
-    EditionMigrationArchiveKind, EditionMigrationArchiveManifest,
-    OAuthCredentialMigrationRecord, SessionProfileMigrationRecord,
-    UpstreamAccountHealthStateMigrationRecord,
+    ApiKeyTokenMigrationRecord, ControlPlaneMigrationBundle, OAuthCredentialMigrationRecord,
+    SessionProfileMigrationRecord, UpstreamAccountHealthStateMigrationRecord,
+};
+#[cfg(feature = "postgres-backend")]
+use crate::edition_migration::{
+    EditionMigrationArchiveItem, EditionMigrationArchiveKind, EditionMigrationArchiveManifest,
 };
 
+#[cfg(feature = "postgres-backend")]
 fn enum_string<T: ::serde::Serialize>(value: &T, label: &str) -> Result<String> {
     serde_json::to_value(value)
         .with_context(|| format!("failed to encode {label}"))?
@@ -16,11 +20,13 @@ fn enum_string<T: ::serde::Serialize>(value: &T, label: &str) -> Result<String> 
         .ok_or_else(|| ::anyhow::anyhow!("{label} did not serialize to a string"))
 }
 
+#[cfg(feature = "postgres-backend")]
 fn parse_enum<T: DeserializeOwned>(raw: &str, label: &str) -> Result<T> {
     serde_json::from_value(serde_json::Value::String(raw.to_string()))
         .with_context(|| format!("failed to decode {label}: {raw}"))
 }
 
+#[cfg(feature = "postgres-backend")]
 fn archive_item(
     kind: EditionMigrationArchiveKind,
     description: &str,
@@ -34,6 +40,7 @@ fn archive_item(
     }
 }
 
+#[cfg(feature = "postgres-backend")]
 async fn export_tenant_user_archive_rows(pool: &PgPool) -> Result<Vec<serde_json::Value>> {
     sqlx::query(
         r#"
@@ -71,6 +78,7 @@ async fn export_tenant_user_archive_rows(pool: &PgPool) -> Result<Vec<serde_json
     .collect()
 }
 
+#[cfg(feature = "postgres-backend")]
 async fn export_credit_account_archive_rows(pool: &PgPool) -> Result<Vec<serde_json::Value>> {
     sqlx::query(
         r#"
@@ -93,6 +101,7 @@ async fn export_credit_account_archive_rows(pool: &PgPool) -> Result<Vec<serde_j
     .collect()
 }
 
+#[cfg(feature = "postgres-backend")]
 async fn export_credit_ledger_archive_rows(pool: &PgPool) -> Result<Vec<serde_json::Value>> {
     sqlx::query(
         r#"
@@ -138,6 +147,7 @@ async fn export_credit_ledger_archive_rows(pool: &PgPool) -> Result<Vec<serde_js
     .collect()
 }
 
+#[cfg(feature = "postgres-backend")]
 async fn export_credit_authorization_archive_rows(
     pool: &PgPool,
 ) -> Result<Vec<serde_json::Value>> {
@@ -474,6 +484,7 @@ async fn ensure_sqlite_target_empty(pool: &sqlx_sqlite::SqlitePool) -> Result<()
     Ok(())
 }
 
+#[cfg(feature = "postgres-backend")]
 async fn ensure_postgres_target_empty(pool: &sqlx_postgres::PgPool) -> Result<()> {
     let mut occupied = Vec::new();
     for (label, table_name) in [
@@ -539,13 +550,14 @@ impl SqliteBackedStore {
     }
 }
 
+#[cfg(feature = "postgres-backend")]
 impl postgres::PostgresStore {
     pub async fn export_migration_bundle(&self) -> Result<ControlPlaneMigrationBundle> {
         let pool = self.clone_pool();
 
-        let tenants = self.list_tenants().await?;
-        let api_keys = self.list_api_keys().await?;
-        let accounts = self.list_upstream_accounts().await?;
+        let tenants = ControlPlaneStore::list_tenants(self).await?;
+        let api_keys = ControlPlaneStore::list_api_keys(self).await?;
+        let accounts = ControlPlaneStore::list_upstream_accounts(self).await?;
         let routing_policies = sqlx::query(
             "SELECT tenant_id, strategy, max_retries, stream_max_retries, updated_at FROM routing_policies ORDER BY tenant_id ASC",
         )
@@ -568,9 +580,10 @@ impl postgres::PostgresStore {
             })
         })
         .collect::<Result<Vec<_>>>()?;
-        let routing_profiles = self.list_routing_profiles().await?;
-        let model_routing_policies = self.list_model_routing_policies().await?;
-        let model_routing_settings = Some(self.model_routing_settings().await?);
+        let routing_profiles = ControlPlaneStore::list_routing_profiles(self).await?;
+        let model_routing_policies =
+            ControlPlaneStore::list_model_routing_policies(self).await?;
+        let model_routing_settings = Some(ControlPlaneStore::model_routing_settings(self).await?);
         let outbound_proxy_pool_settings = Some(self.outbound_proxy_pool_settings().await?);
         let outbound_proxy_nodes = self.list_outbound_proxy_nodes().await?;
         let upstream_error_learning_settings = Some(self.upstream_error_learning_settings().await?);

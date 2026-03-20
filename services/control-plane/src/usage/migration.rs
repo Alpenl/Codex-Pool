@@ -1,14 +1,21 @@
+#![cfg_attr(
+    not(feature = "postgres-backend"),
+    allow(dead_code, unused_imports)
+)]
+
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::edition_migration::query_window;
 use crate::store::normalize_sqlite_database_url;
+#[cfg(feature = "postgres-backend")]
 use crate::store::postgres::PostgresStore;
 use crate::usage::clickhouse_repo::UsageQueryRepository;
 use crate::usage::{aggregate_by_hour, RequestLogQuery, RequestLogRow, UsageAggregationEvent};
 use sqlx_core::pool::PoolOptions;
 use sqlx_sqlite::Sqlite;
 
+#[cfg(feature = "postgres-backend")]
 use super::postgres_repo::PostgresUsageRepo;
 use super::sqlite_repo::SqliteUsageRepo;
 
@@ -57,6 +64,7 @@ pub async fn export_sqlite_usage_bundle(
     Ok(UsageMigrationBundle { request_logs })
 }
 
+#[cfg(feature = "postgres-backend")]
 pub async fn export_postgres_usage_bundle(database_url: &str) -> Result<UsageMigrationBundle> {
     let store = PostgresStore::connect(database_url).await?;
     let repo = PostgresUsageRepo::new(store.clone_pool());
@@ -135,6 +143,7 @@ pub async fn import_sqlite_usage_bundle(
     Ok(())
 }
 
+#[cfg(feature = "postgres-backend")]
 pub async fn import_postgres_usage_bundle(
     database_url: &str,
     bundle: &UsageMigrationBundle,

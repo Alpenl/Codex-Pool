@@ -353,10 +353,6 @@ fn refresh_token_sha256(token: &str) -> String {
 
 #[async_trait]
 impl ControlPlaneStore for PostgresStore {
-    fn postgres_pool(&self) -> Option<PgPool> {
-        Some(self.clone_pool())
-    }
-
     async fn create_tenant(&self, req: CreateTenantRequest) -> Result<Tenant> {
         self.insert_tenant(req).await
     }
@@ -740,7 +736,7 @@ impl ControlPlaneStore for PostgresStore {
 mod tests {
     use super::{SeenOkRateLimitRefreshContext, should_refresh_rate_limit_cache_on_seen_ok};
     use chrono::{Duration, Utc};
-    use codex_pool_core::api::OAuthRefreshStatus;
+    use crate::contracts::OAuthRefreshStatus;
 
     #[test]
     fn seen_ok_refresh_policy_does_not_skip_fresh_cache() {

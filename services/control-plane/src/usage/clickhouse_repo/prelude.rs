@@ -1,15 +1,15 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use clickhouse::{Client, Row};
-use codex_pool_core::api::{
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use crate::contracts::{
     AccountUsageLeaderboardItem, ApiKeyUsageLeaderboardItem, HourlyAccountUsagePoint,
     HourlyTenantApiKeyUsagePoint, HourlyTenantUsageTotalPoint, HourlyUsageTotalPoint,
     TenantUsageLeaderboardItem, UsageDashboardMetrics, UsageDashboardModelDistributionItem,
     UsageDashboardTokenBreakdown, UsageDashboardTokenTrendPoint, UsageSummaryQueryResponse,
 };
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-
 use crate::usage::worker::UsageAggregationRepository;
 use crate::usage::{
     BillingReconcileFact, HourlyAccountUsageRow, HourlyTenantAccountUsageRow,

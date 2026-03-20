@@ -4,7 +4,8 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Duration, Utc};
-use codex_pool_core::api::{OAuthRefreshStatus, ProductEdition, SessionCredentialKind};
+use codex_pool_core::api::ProductEdition;
+use crate::contracts::{OAuthRefreshStatus, SessionCredentialKind};
 use codex_pool_core::model::{
     AiErrorLearningSettings, ApiKey, BuiltinErrorTemplateOverrideRecord, ModelRoutingPolicy,
     ModelRoutingSettings, ModelRoutingTriggerMode, OutboundProxyNode, OutboundProxyPoolSettings,
@@ -15,12 +16,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+#[cfg(feature = "postgres-backend")]
 use crate::store::postgres::PostgresStore;
 use crate::store::SqliteBackedStore;
 use crate::usage::migration::{
-    export_postgres_usage_bundle, export_sqlite_usage_bundle, import_postgres_usage_bundle,
-    import_sqlite_usage_bundle, UsageMigrationBundle,
+    export_sqlite_usage_bundle, import_sqlite_usage_bundle, UsageMigrationBundle,
 };
+#[cfg(feature = "postgres-backend")]
+use crate::usage::migration::{export_postgres_usage_bundle, import_postgres_usage_bundle};
 
 pub const EDITION_MIGRATION_SCHEMA_VERSION: u32 = 2;
 
@@ -307,6 +310,7 @@ pub async fn build_sqlite_package(
     })
 }
 
+#[cfg(feature = "postgres-backend")]
 pub async fn build_postgres_package(
     source_edition: ProductEdition,
     database_url: &str,
@@ -348,6 +352,7 @@ pub async fn import_package_into_sqlite(
     Ok(())
 }
 
+#[cfg(feature = "postgres-backend")]
 pub async fn import_package_into_postgres(
     target_edition: ProductEdition,
     database_url: &str,
@@ -515,10 +520,11 @@ mod tests {
     use crate::usage::sqlite_repo::SqliteUsageRepo;
     use crate::usage::UsageIngestRepository;
     use chrono::Utc;
-    use codex_pool_core::api::{
-        CreateApiKeyRequest, CreateTenantRequest, CreateUpstreamAccountRequest, ProductEdition,
+    use crate::contracts::{
+        CreateApiKeyRequest, CreateTenantRequest, CreateUpstreamAccountRequest,
         UpsertModelRoutingPolicyRequest, UpsertRoutingProfileRequest,
     };
+    use codex_pool_core::api::ProductEdition;
     use codex_pool_core::events::RequestLogEvent;
     use codex_pool_core::model::{RoutingProfileSelector, UpstreamMode};
     use uuid::Uuid;

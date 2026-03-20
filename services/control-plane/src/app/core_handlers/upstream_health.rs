@@ -1,6 +1,10 @@
+#[cfg(feature = "redis-backend")]
 const UPSTREAM_HEALTH_REDIS_PREFIX_ENV: &str = "CONTROL_PLANE_HEALTH_REDIS_PREFIX";
+#[cfg(feature = "redis-backend")]
 const DEFAULT_UPSTREAM_HEALTH_REDIS_PREFIX: &str = "codex_pool:health";
+#[cfg(feature = "redis-backend")]
 const UPSTREAM_HEALTH_ALIVE_RING_SIZE_ENV: &str = "CONTROL_PLANE_ALIVE_RING_SIZE";
+#[cfg(feature = "redis-backend")]
 const DEFAULT_UPSTREAM_HEALTH_ALIVE_RING_SIZE: usize = 5_000;
 const UPSTREAM_SEEN_OK_MIN_WRITE_INTERVAL_SEC_ENV: &str =
     "CONTROL_PLANE_UPSTREAM_SEEN_OK_MIN_WRITE_INTERVAL_SEC";
@@ -9,6 +13,7 @@ const UPSTREAM_SEEN_OK_RATE_LIMIT_REFRESH_ENABLED_ENV: &str =
     "CONTROL_PLANE_UPSTREAM_SEEN_OK_RATE_LIMIT_REFRESH_ENABLED";
 const DEFAULT_UPSTREAM_SEEN_OK_RATE_LIMIT_REFRESH_ENABLED: bool = true;
 
+#[cfg(feature = "redis-backend")]
 #[derive(Clone)]
 struct UpstreamAliveRingClient {
     client: redis::Client,
@@ -16,6 +21,11 @@ struct UpstreamAliveRingClient {
     max_size: i64,
 }
 
+#[cfg(not(feature = "redis-backend"))]
+#[derive(Clone)]
+struct UpstreamAliveRingClient;
+
+#[cfg(feature = "redis-backend")]
 impl UpstreamAliveRingClient {
     fn from_redis_url(redis_url: &str) -> Option<Self> {
         let client = redis::Client::open(redis_url).ok()?;
@@ -65,6 +75,14 @@ impl UpstreamAliveRingClient {
     }
 }
 
+#[cfg(not(feature = "redis-backend"))]
+impl UpstreamAliveRingClient {
+    async fn touch(&self, _account_id: Uuid) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(feature = "redis-backend")]
 fn build_alive_ring_client_from_state(state: &AppState) -> Option<UpstreamAliveRingClient> {
     let redis_url = state
         .runtime_config
@@ -72,6 +90,11 @@ fn build_alive_ring_client_from_state(state: &AppState) -> Option<UpstreamAliveR
         .ok()
         .and_then(|runtime| runtime.redis_url.clone())?;
     UpstreamAliveRingClient::from_redis_url(&redis_url)
+}
+
+#[cfg(not(feature = "redis-backend"))]
+fn build_alive_ring_client_from_state(_state: &AppState) -> Option<UpstreamAliveRingClient> {
+    None
 }
 
 fn upstream_seen_ok_min_write_interval_sec_from_env() -> i64 {

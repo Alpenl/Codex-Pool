@@ -1,12 +1,13 @@
 use async_trait::async_trait;
 use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
-use codex_pool_core::api::{OAuthRateLimitSnapshot, OAuthRateLimitWindow};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use thiserror::Error;
+
+use crate::contracts::{OAuthRateLimitSnapshot, OAuthRateLimitWindow};
 
 const DEFAULT_OPENAI_OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const DEFAULT_OPENAI_OAUTH_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";

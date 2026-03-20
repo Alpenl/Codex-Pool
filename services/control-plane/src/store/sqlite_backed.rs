@@ -294,26 +294,36 @@ impl SqliteBackedStore {
     }
 }
 
+pub fn build_sqlite_store_ports(store: Arc<SqliteBackedStore>) -> RuntimeStorePorts {
+    RuntimeStorePorts {
+        control_plane: store.clone(),
+        snapshot_policy: store.clone(),
+        tenant_catalog: store.clone(),
+        oauth_runtime: store.clone(),
+        edition_migration: store,
+    }
+}
+
 #[async_trait]
 impl ControlPlaneStore for SqliteBackedStore {
     async fn create_tenant(&self, req: CreateTenantRequest) -> Result<Tenant> {
-        let tenant = self.inner.create_tenant(req).await?;
+        let tenant = ControlPlaneStore::create_tenant(&self.inner, req).await?;
         self.persist_state().await?;
         Ok(tenant)
     }
 
     async fn list_tenants(&self) -> Result<Vec<Tenant>> {
-        self.inner.list_tenants().await
+        ControlPlaneStore::list_tenants(&self.inner).await
     }
 
     async fn create_api_key(&self, req: CreateApiKeyRequest) -> Result<CreateApiKeyResponse> {
-        let response = self.inner.create_api_key(req).await?;
+        let response = ControlPlaneStore::create_api_key(&self.inner, req).await?;
         self.persist_state().await?;
         Ok(response)
     }
 
     async fn list_api_keys(&self) -> Result<Vec<ApiKey>> {
-        self.inner.list_api_keys().await
+        ControlPlaneStore::list_api_keys(&self.inner).await
     }
 
     async fn set_api_key_enabled(&self, api_key_id: Uuid, enabled: bool) -> Result<ApiKey> {
@@ -386,21 +396,21 @@ impl ControlPlaneStore for SqliteBackedStore {
     }
 
     async fn validate_api_key(&self, token: &str) -> Result<Option<ValidatedPrincipal>> {
-        self.inner.validate_api_key(token).await
+        ControlPlaneStore::validate_api_key(&self.inner, token).await
     }
 
     async fn create_upstream_account(
         &self,
         req: CreateUpstreamAccountRequest,
     ) -> Result<UpstreamAccount> {
-        let account = self.inner.create_upstream_account(req).await?;
+        let account = ControlPlaneStore::create_upstream_account(&self.inner, req).await?;
         self.persist_state().await?;
         Ok(account)
     }
 
     async fn list_upstream_accounts(&self) -> Result<Vec<UpstreamAccount>> {
         let before = self.current_revision();
-        let items = self.inner.list_upstream_accounts().await?;
+        let items = ControlPlaneStore::list_upstream_accounts(&self.inner).await?;
         self.persist_if_revision_changed(before).await?;
         Ok(items)
     }
@@ -505,7 +515,7 @@ impl ControlPlaneStore for SqliteBackedStore {
     }
 
     async fn list_routing_profiles(&self) -> Result<Vec<RoutingProfile>> {
-        self.inner.list_routing_profiles().await
+        ControlPlaneStore::list_routing_profiles(&self.inner).await
     }
 
     async fn upsert_routing_profile(
@@ -523,7 +533,7 @@ impl ControlPlaneStore for SqliteBackedStore {
     }
 
     async fn list_model_routing_policies(&self) -> Result<Vec<ModelRoutingPolicy>> {
-        self.inner.list_model_routing_policies().await
+        ControlPlaneStore::list_model_routing_policies(&self.inner).await
     }
 
     async fn upsert_model_routing_policy(
@@ -541,7 +551,7 @@ impl ControlPlaneStore for SqliteBackedStore {
     }
 
     async fn model_routing_settings(&self) -> Result<ModelRoutingSettings> {
-        self.inner.model_routing_settings().await
+        ControlPlaneStore::model_routing_settings(&self.inner).await
     }
 
     async fn update_model_routing_settings(
@@ -657,23 +667,25 @@ impl ControlPlaneStore for SqliteBackedStore {
 
     async fn refresh_expiring_oauth_accounts(&self) -> Result<()> {
         let before = self.current_revision();
-        self.inner.refresh_expiring_oauth_accounts().await?;
+        ControlPlaneStore::refresh_expiring_oauth_accounts(&self.inner).await?;
         self.persist_if_revision_changed(before).await
     }
 
     async fn activate_oauth_refresh_token_vault(&self) -> Result<u64> {
-        self.inner.activate_oauth_refresh_token_vault().await
+        ControlPlaneStore::activate_oauth_refresh_token_vault(&self.inner).await
     }
 
     async fn refresh_due_oauth_rate_limit_caches(&self) -> Result<u64> {
         let before = self.current_revision();
-        let refreshed = self.inner.refresh_due_oauth_rate_limit_caches().await?;
+        let refreshed =
+            ControlPlaneStore::refresh_due_oauth_rate_limit_caches(&self.inner).await?;
         self.persist_if_revision_changed(before).await?;
         Ok(refreshed)
     }
 
     async fn recover_oauth_rate_limit_refresh_jobs(&self) -> Result<u64> {
-        let recovered = self.inner.recover_oauth_rate_limit_refresh_jobs().await?;
+        let recovered =
+            ControlPlaneStore::recover_oauth_rate_limit_refresh_jobs(&self.inner).await?;
         if recovered > 0 {
             self.persist_state().await?;
         }
@@ -700,7 +712,7 @@ impl ControlPlaneStore for SqliteBackedStore {
     }
 
     async fn flush_snapshot_revision(&self, max_batch: usize) -> Result<u32> {
-        self.inner.flush_snapshot_revision(max_batch).await
+        ControlPlaneStore::flush_snapshot_revision(&self.inner, max_batch).await
     }
 
     async fn set_oauth_family_enabled(
@@ -714,11 +726,11 @@ impl ControlPlaneStore for SqliteBackedStore {
     }
 
     async fn snapshot(&self) -> Result<DataPlaneSnapshot> {
-        self.inner.snapshot().await
+        ControlPlaneStore::snapshot(&self.inner).await
     }
 
     async fn cleanup_data_plane_outbox(&self, retention: Duration) -> Result<u64> {
-        self.inner.cleanup_data_plane_outbox(retention).await
+        ControlPlaneStore::cleanup_data_plane_outbox(&self.inner, retention).await
     }
 
     async fn data_plane_snapshot_events(
@@ -730,7 +742,7 @@ impl ControlPlaneStore for SqliteBackedStore {
         if after < current {
             return Err(anyhow!("cursor_gone"));
         }
-        self.inner.data_plane_snapshot_events(after, limit).await
+        ControlPlaneStore::data_plane_snapshot_events(&self.inner, after, limit).await
     }
 
     async fn mark_account_seen_ok(
@@ -739,10 +751,13 @@ impl ControlPlaneStore for SqliteBackedStore {
         seen_ok_at: DateTime<Utc>,
         min_write_interval_sec: i64,
     ) -> Result<bool> {
-        let changed = self
-            .inner
-            .mark_account_seen_ok(account_id, seen_ok_at, min_write_interval_sec)
-            .await?;
+        let changed = ControlPlaneStore::mark_account_seen_ok(
+            &self.inner,
+            account_id,
+            seen_ok_at,
+            min_write_interval_sec,
+        )
+        .await?;
         if changed {
             self.persist_state().await?;
         }
@@ -754,8 +769,7 @@ impl ControlPlaneStore for SqliteBackedStore {
         account_id: Uuid,
     ) -> Result<()> {
         let before = self.current_revision();
-        self.inner
-            .maybe_refresh_oauth_rate_limit_cache_on_seen_ok(account_id)
+        ControlPlaneStore::maybe_refresh_oauth_rate_limit_cache_on_seen_ok(&self.inner, account_id)
             .await?;
         self.persist_if_revision_changed(before).await
     }
@@ -766,9 +780,13 @@ impl ControlPlaneStore for SqliteBackedStore {
         rate_limits: Vec<OAuthRateLimitSnapshot>,
         observed_at: DateTime<Utc>,
     ) -> Result<()> {
-        self.inner
-            .update_oauth_rate_limit_cache_from_observation(account_id, rate_limits, observed_at)
-            .await?;
+        ControlPlaneStore::update_oauth_rate_limit_cache_from_observation(
+            &self.inner,
+            account_id,
+            rate_limits,
+            observed_at,
+        )
+        .await?;
         self.persist_state().await
     }
 }
@@ -777,7 +795,7 @@ impl ControlPlaneStore for SqliteBackedStore {
 mod sqlite_backed_store_tests {
     use super::{normalize_sqlite_database_url, SqliteBackedStore};
     use crate::store::ControlPlaneStore;
-    use codex_pool_core::api::{
+    use crate::contracts::{
         CreateApiKeyRequest, CreateTenantRequest, CreateUpstreamAccountRequest,
     };
     use codex_pool_core::model::{UpstreamAuthProvider, UpstreamMode};

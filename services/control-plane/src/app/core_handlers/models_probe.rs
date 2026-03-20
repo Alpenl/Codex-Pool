@@ -901,6 +901,7 @@ fn spawn_model_probe_loop(state: AppState) {
 #[cfg(test)]
 mod models_probe_tests {
     use super::*;
+    use crate::contracts::{HourlyTenantUsageTotalPoint, HourlyUsageTotalPoint};
 
     fn test_account(label: &str) -> UpstreamAccount {
         UpstreamAccount {
@@ -1238,7 +1239,7 @@ mod models_probe_tests {
             _end_ts: i64,
             _limit: u32,
             _account_id: Option<Uuid>,
-        ) -> anyhow::Result<Vec<codex_pool_core::api::HourlyAccountUsagePoint>> {
+        ) -> anyhow::Result<Vec<HourlyAccountUsagePoint>> {
             Ok(Vec::new())
         }
 
@@ -1249,7 +1250,7 @@ mod models_probe_tests {
             _limit: u32,
             _tenant_id: Option<Uuid>,
             _api_key_id: Option<Uuid>,
-        ) -> anyhow::Result<Vec<codex_pool_core::api::HourlyTenantApiKeyUsagePoint>> {
+        ) -> anyhow::Result<Vec<HourlyTenantApiKeyUsagePoint>> {
             Ok(Vec::new())
         }
 
@@ -1259,7 +1260,7 @@ mod models_probe_tests {
             _end_ts: i64,
             _limit: u32,
             _account_id: Option<Uuid>,
-        ) -> anyhow::Result<Vec<codex_pool_core::api::HourlyUsageTotalPoint>> {
+        ) -> anyhow::Result<Vec<HourlyUsageTotalPoint>> {
             Ok(Vec::new())
         }
 
@@ -1270,7 +1271,7 @@ mod models_probe_tests {
             _limit: u32,
             _tenant_id: Option<Uuid>,
             _api_key_id: Option<Uuid>,
-        ) -> anyhow::Result<Vec<codex_pool_core::api::HourlyUsageTotalPoint>> {
+        ) -> anyhow::Result<Vec<HourlyUsageTotalPoint>> {
             Ok(Vec::new())
         }
 
@@ -1281,7 +1282,7 @@ mod models_probe_tests {
             _limit: u32,
             _tenant_id: Option<Uuid>,
             _api_key_id: Option<Uuid>,
-        ) -> anyhow::Result<Vec<codex_pool_core::api::HourlyTenantUsageTotalPoint>> {
+        ) -> anyhow::Result<Vec<HourlyTenantUsageTotalPoint>> {
             Ok(Vec::new())
         }
 
@@ -1292,8 +1293,8 @@ mod models_probe_tests {
             _tenant_id: Option<Uuid>,
             _account_id: Option<Uuid>,
             _api_key_id: Option<Uuid>,
-        ) -> anyhow::Result<codex_pool_core::api::UsageSummaryQueryResponse> {
-            Ok(codex_pool_core::api::UsageSummaryQueryResponse {
+        ) -> anyhow::Result<UsageSummaryQueryResponse> {
+            Ok(UsageSummaryQueryResponse {
                 start_ts,
                 end_ts,
                 account_total_requests: 0,
@@ -1311,7 +1312,7 @@ mod models_probe_tests {
             _end_ts: i64,
             _limit: u32,
             _tenant_id: Option<Uuid>,
-        ) -> anyhow::Result<Vec<codex_pool_core::api::TenantUsageLeaderboardItem>> {
+        ) -> anyhow::Result<Vec<TenantUsageLeaderboardItem>> {
             Ok(Vec::new())
         }
 
@@ -1321,7 +1322,7 @@ mod models_probe_tests {
             _end_ts: i64,
             _limit: u32,
             _account_id: Option<Uuid>,
-        ) -> anyhow::Result<Vec<codex_pool_core::api::AccountUsageLeaderboardItem>> {
+        ) -> anyhow::Result<Vec<AccountUsageLeaderboardItem>> {
             Ok(Vec::new())
         }
 
@@ -1332,7 +1333,7 @@ mod models_probe_tests {
             _limit: u32,
             _tenant_id: Option<Uuid>,
             _api_key_id: Option<Uuid>,
-        ) -> anyhow::Result<Vec<codex_pool_core::api::ApiKeyUsageLeaderboardItem>> {
+        ) -> anyhow::Result<Vec<ApiKeyUsageLeaderboardItem>> {
             Ok(Vec::new())
         }
 

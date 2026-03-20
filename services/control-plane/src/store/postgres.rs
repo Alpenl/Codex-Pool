@@ -2,17 +2,8 @@ use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use codex_pool_core::api::{
-    CreateApiKeyRequest, CreateApiKeyResponse, CreateOutboundProxyNodeRequest, CreateTenantRequest,
-    CreateUpstreamAccountRequest, DataPlaneSnapshot, DataPlaneSnapshotEvent,
-    DataPlaneSnapshotEventType, DataPlaneSnapshotEventsResponse, ImportOAuthRefreshTokenRequest,
-    OAuthAccountStatusResponse, OAuthFamilyActionResponse, OAuthRateLimitRefreshErrorSummary,
-    OAuthRateLimitRefreshJobStatus, OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot,
-    OAuthRefreshStatus, SessionCredentialKind, UpdateAiErrorLearningSettingsRequest,
-    UpdateModelRoutingSettingsRequest, UpdateOutboundProxyNodeRequest,
-    UpdateOutboundProxyPoolSettingsRequest, UpsertModelRoutingPolicyRequest,
-    UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest, UpsertRoutingProfileRequest,
-    UpsertStreamRetryPolicyRequest, ValidateOAuthRefreshTokenRequest,
-    ValidateOAuthRefreshTokenResponse,
+    DataPlaneSnapshot, DataPlaneSnapshotEvent, DataPlaneSnapshotEventType,
+    DataPlaneSnapshotEventsResponse,
 };
 use codex_pool_core::model::{
     AccountRoutingTraits, AiErrorLearningSettings, ApiKey, BuiltinErrorTemplateKind,
@@ -31,8 +22,20 @@ use sqlx_postgres::{PgPool, PgPoolOptions, Postgres};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+use crate::contracts::{
+    CreateApiKeyRequest, CreateApiKeyResponse, CreateOutboundProxyNodeRequest,
+    CreateTenantRequest, CreateUpstreamAccountRequest, ImportOAuthRefreshTokenRequest,
+    OAuthAccountStatusResponse, OAuthFamilyActionResponse, OAuthRateLimitRefreshErrorSummary,
+    OAuthRateLimitRefreshJobStatus, OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot,
+    OAuthRefreshStatus, SessionCredentialKind, UpdateAiErrorLearningSettingsRequest,
+    UpdateModelRoutingSettingsRequest, UpdateOutboundProxyNodeRequest,
+    UpdateOutboundProxyPoolSettingsRequest, UpsertModelRoutingPolicyRequest,
+    UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest, UpsertRoutingProfileRequest,
+    UpsertStreamRetryPolicyRequest, ValidateOAuthRefreshTokenRequest,
+    ValidateOAuthRefreshTokenResponse,
+};
 use super::{SessionProfileRecord, UpsertOneTimeSessionAccountRequest};
-use super::{ControlPlaneStore, OAuthUpsertResult, ValidatedPrincipal};
+use super::{ControlPlaneStore, OAuthUpsertResult, RuntimeStorePorts, ValidatedPrincipal};
 use crate::crypto::CredentialCipher;
 use crate::oauth::{OAuthTokenClient, OAuthTokenInfo, OpenAiOAuthClient};
 
@@ -244,6 +247,16 @@ pub struct PostgresStore {
     credential_cipher: Option<CredentialCipher>,
 }
 
+pub fn build_postgres_store_ports(store: std::sync::Arc<PostgresStore>) -> RuntimeStorePorts {
+    RuntimeStorePorts {
+        control_plane: store.clone(),
+        snapshot_policy: store.clone(),
+        tenant_catalog: store.clone(),
+        oauth_runtime: store.clone(),
+        edition_migration: store,
+    }
+}
+
 include!("postgres/impl_crud.rs");
 include!("postgres/impl_oauth_snapshot.rs");
 include!("postgres/helpers_trait.rs");
@@ -258,9 +271,9 @@ mod postgres_env_tests {
     };
     use crate::test_support::{set_env, ENV_LOCK};
     use chrono::{Duration, Utc};
-    use codex_pool_core::api::OAuthRefreshStatus;
-    use codex_pool_core::api::SessionCredentialKind;
     use codex_pool_core::model::UpstreamAuthProvider;
+
+    use crate::contracts::{OAuthRefreshStatus, SessionCredentialKind};
 
     #[test]
     fn postgres_max_connections_uses_safe_default() {

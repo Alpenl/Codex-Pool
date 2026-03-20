@@ -3,14 +3,17 @@ use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use base64::Engine;
-use codex_pool_core::api::{
-    CreateApiKeyRequest, CreateApiKeyResponse, CreateTenantRequest, CreateUpstreamAccountRequest,
-    DataPlaneSnapshot, OAuthAccountStatusResponse, OAuthRateLimitRefreshJobStatus,
-    OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot, OAuthRateLimitWindow,
-};
+use codex_pool_core::api::DataPlaneSnapshot;
 use codex_pool_core::model::{ApiKey, Tenant, UpstreamAccount, UpstreamAuthProvider};
 use control_plane::app::{
     build_app as cp_build_app, build_app_with_store as cp_build_app_with_store,
+};
+use control_plane::contracts::{
+    CreateApiKeyRequest, CreateApiKeyResponse, CreateTenantRequest,
+    CreateUpstreamAccountRequest, ImportOAuthRefreshTokenRequest,
+    OAuthAccountStatusResponse, OAuthRateLimitRefreshJobStatus,
+    OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot, OAuthRateLimitWindow,
+    OAuthRefreshStatus, SessionCredentialKind,
 };
 use control_plane::crypto::CredentialCipher;
 use control_plane::oauth::{
@@ -264,7 +267,7 @@ fn sample_cached_oauth_status(account_id: Uuid) -> OAuthAccountStatusResponse {
     OAuthAccountStatusResponse {
         account_id,
         auth_provider: UpstreamAuthProvider::OAuthRefreshToken,
-        credential_kind: Some(codex_pool_core::api::SessionCredentialKind::RefreshRotatable),
+        credential_kind: Some(SessionCredentialKind::RefreshRotatable),
         email: Some("cached@example.com".to_string()),
         oauth_subject: None,
         oauth_identity_provider: None,
@@ -284,7 +287,7 @@ fn sample_cached_oauth_status(account_id: Uuid) -> OAuthAccountStatusResponse {
         token_version: Some(2),
         token_expires_at: Some(now + chrono::Duration::minutes(30)),
         last_refresh_at: Some(now - chrono::Duration::minutes(1)),
-        last_refresh_status: codex_pool_core::api::OAuthRefreshStatus::Ok,
+        last_refresh_status: OAuthRefreshStatus::Ok,
         refresh_reused_detected: false,
         last_refresh_error_code: None,
         last_refresh_error: None,

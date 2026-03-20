@@ -3,13 +3,14 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 
 use chrono::{DateTime, Timelike, Utc};
-use codex_pool_core::api::{
+use codex_pool_core::events::RequestLogEvent;
+use uuid::Uuid;
+
+use crate::contracts::{
     AccountUsageLeaderboardItem, ApiKeyUsageLeaderboardItem, HourlyAccountUsagePoint,
     HourlyTenantApiKeyUsagePoint, HourlyTenantUsageTotalPoint, HourlyUsageTotalPoint,
     TenantUsageLeaderboardItem, UsageSummaryQueryResponse,
 };
-use codex_pool_core::events::RequestLogEvent;
-use uuid::Uuid;
 
 #[cfg(feature = "clickhouse-backend")]
 pub mod clickhouse_repo;
@@ -18,7 +19,9 @@ pub mod clickhouse_repo {
     pub use super::UsageQueryRepository;
 }
 pub mod migration;
+#[cfg(feature = "postgres-backend")]
 pub mod postgres_repo;
+#[cfg(feature = "redis-backend")]
 pub mod redis_reader;
 pub mod sqlite_repo;
 pub mod worker;

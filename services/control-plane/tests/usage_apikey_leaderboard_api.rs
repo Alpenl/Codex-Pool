@@ -4,7 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use codex_pool_core::api::{
+use control_plane::contracts::{
     AccountUsageLeaderboardItem, ApiKeyUsageLeaderboardItem, ApiKeyUsageLeaderboardResponse,
     HourlyAccountUsagePoint, HourlyTenantApiKeyUsagePoint, HourlyTenantUsageTotalPoint,
     HourlyUsageTotalPoint, TenantUsageLeaderboardItem, UsageSummaryQueryResponse,

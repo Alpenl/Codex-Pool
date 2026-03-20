@@ -253,7 +253,8 @@ mod tests {
     use axum::http::Request;
     use axum::http::{header, StatusCode};
     use axum::Router;
-    use codex_pool_core::api::{CreateUpstreamAccountRequest, UsageSummary};
+    use crate::contracts::CreateUpstreamAccountRequest;
+    use codex_pool_core::api::UsageSummary;
     use codex_pool_core::model::{UpstreamAuthProvider, UpstreamMode};
     use tower::util::ServiceExt;
 

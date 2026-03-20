@@ -1,3 +1,8 @@
+#![cfg_attr(
+    not(feature = "postgres-backend"),
+    allow(dead_code, unused_imports)
+)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -6,23 +11,24 @@ use async_trait::async_trait;
 use base64::Engine;
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
-use codex_pool_core::api::{
-    ImportOAuthRefreshTokenRequest, OAuthImportErrorSummary, OAuthImportItemStatus,
-    OAuthImportJobActionResponse, OAuthImportJobItem, OAuthImportJobItemsResponse,
-    OAuthImportJobStatus, OAuthImportJobSummary,
-};
 use codex_pool_core::model::UpstreamMode;
 use futures_util::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;
-use sqlx_postgres::PgPool;
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::{sleep, Duration};
 use uuid::Uuid;
 
 use crate::store::ControlPlaneStore;
 use crate::store::UpsertOneTimeSessionAccountRequest;
+#[cfg(feature = "postgres-backend")]
+use crate::store::PgPool;
+use crate::contracts::{
+    ImportOAuthRefreshTokenRequest, OAuthImportErrorSummary, OAuthImportItemStatus,
+    OAuthImportJobActionResponse, OAuthImportJobItem, OAuthImportJobItemsResponse,
+    OAuthImportJobStatus, OAuthImportJobSummary,
+};
 
 const DEFAULT_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const DB_STATUS_QUEUED: &str = "queued";
@@ -572,11 +578,13 @@ impl OAuthImportJobStore for InMemoryOAuthImportJobStore {
     }
 }
 
+#[cfg(feature = "postgres-backend")]
 #[derive(Clone)]
 pub struct PostgresOAuthImportJobStore {
     pool: PgPool,
 }
 
+#[cfg(feature = "postgres-backend")]
 impl PostgresOAuthImportJobStore {
     pub async fn new(pool: PgPool) -> Result<Self> {
         let this = Self { pool };
@@ -772,5 +780,6 @@ impl PostgresOAuthImportJobStore {
     }
 }
 
+#[cfg(feature = "postgres-backend")]
 include!("import_jobs/store_impl.rs");
 include!("import_jobs/manager_impl.rs");

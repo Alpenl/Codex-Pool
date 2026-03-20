@@ -4,7 +4,7 @@ use base64::Engine;
 use std::sync::Arc;
 use std::sync::{LazyLock, Mutex, Once};
 
-use codex_pool_core::api::{
+use control_plane::contracts::{
     AccountUsageLeaderboardItem, ApiKeyUsageLeaderboardItem, HourlyAccountUsagePoint,
     HourlyTenantApiKeyUsagePoint, HourlyTenantUsageTotalPoint, HourlyUsageTotalPoint,
     TenantUsageLeaderboardItem, UsageSummaryQueryResponse,

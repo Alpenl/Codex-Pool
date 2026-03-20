@@ -137,7 +137,7 @@ mod tests {
     };
     use bytes::Bytes;
     use chrono::Utc;
-    use codex_pool_core::api::{
+    use crate::contracts::{
         ImportOAuthRefreshTokenRequest, OAuthImportItemStatus, OAuthImportJobItem,
         OAuthImportJobStatus, OAuthImportJobSummary,
     };

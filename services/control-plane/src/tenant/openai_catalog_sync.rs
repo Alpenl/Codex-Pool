@@ -266,6 +266,7 @@ pub(crate) async fn fetch_openai_model_catalog_items(
     fetch_openai_model_catalog_items_with_client(client).await
 }
 
+#[cfg(feature = "postgres-backend")]
 impl TenantAuthService {
     async fn apply_openai_model_catalog_items(
         &self,

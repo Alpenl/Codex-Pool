@@ -1,15 +1,16 @@
 use base64::Engine;
 use chrono::{Duration, Utc};
-use codex_pool_core::api::{
-    CreateApiKeyRequest, CreateTenantRequest, CreateUpstreamAccountRequest,
-    DataPlaneSnapshotEventType, ImportOAuthRefreshTokenRequest, OAuthImportItemStatus,
-    OAuthImportJobItem, OAuthImportJobStatus, OAuthImportJobSummary, OAuthRateLimitSnapshot,
-    OAuthRateLimitWindow, OAuthRefreshStatus, UpdateAiErrorLearningSettingsRequest,
-    UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest, UpsertStreamRetryPolicyRequest,
-};
+use codex_pool_core::api::DataPlaneSnapshotEventType;
 use codex_pool_core::model::{
     LocalizedErrorTemplates, RoutingStrategy, UpstreamErrorAction, UpstreamErrorRetryScope,
     UpstreamErrorTemplateRecord, UpstreamErrorTemplateStatus, UpstreamMode,
+};
+use control_plane::contracts::{
+    CreateApiKeyRequest, CreateTenantRequest, CreateUpstreamAccountRequest,
+    ImportOAuthRefreshTokenRequest, OAuthImportItemStatus, OAuthImportJobItem,
+    OAuthImportJobStatus, OAuthImportJobSummary, OAuthRateLimitSnapshot,
+    OAuthRateLimitWindow, OAuthRefreshStatus, UpdateAiErrorLearningSettingsRequest,
+    UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest, UpsertStreamRetryPolicyRequest,
 };
 use control_plane::crypto::CredentialCipher;
 use control_plane::import_jobs::{
@@ -464,7 +465,7 @@ impl OAuthTokenClient for RecordingOAuthClient {
 }
 
 async fn expire_rate_limit_snapshot(repo: &PostgresStore, account_id: Uuid) {
-    let pool = repo.postgres_pool().expect("postgres pool");
+    let pool = repo.clone_pool();
     query(
         r#"
         UPDATE upstream_account_rate_limit_snapshots

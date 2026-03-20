@@ -8,7 +8,11 @@ autotests = false
 
 [features]
 default = []
+sqlite-backend = []
+postgres-backend = ["dep:sqlx-postgres"]
+redis-backend = ["dep:redis"]
 clickhouse-backend = ["dep:clickhouse"]
+smtp-backend = ["dep:lettre"]
 
 [[test]]
 name = "integration"
@@ -18,23 +22,39 @@ path = "tests/integration.rs"
 name = "dependency_boundaries"
 path = "tests/dependency_boundaries.rs"
 
+[[test]]
+name = "contracts_surface"
+path = "tests/contracts_surface.rs"
+
 [[bin]]
 name = "codex-pool-personal"
 path = "src/bin/codex-pool-personal.rs"
+required-features = ["sqlite-backend"]
 
 [[bin]]
 name = "codex-pool-team"
 path = "src/bin/codex-pool-team.rs"
+required-features = ["postgres-backend"]
 
 [[bin]]
 name = "codex-pool-business"
 path = "src/main.rs"
-required-features = ["clickhouse-backend"]
+required-features = ["postgres-backend", "redis-backend", "clickhouse-backend", "smtp-backend"]
 
 [[bin]]
 name = "usage-worker"
 path = "src/bin/usage-worker.rs"
-required-features = ["clickhouse-backend"]
+required-features = ["redis-backend", "clickhouse-backend"]
+
+[[bin]]
+name = "edition-migrate"
+path = "src/bin/edition-migrate.rs"
+required-features = ["postgres-backend"]
+
+[[bin]]
+name = "migrate-api-key-hashes"
+path = "src/bin/migrate-api-key-hashes.rs"
+required-features = ["postgres-backend"]
 
 [dependencies]
 anyhow.workspace = true
@@ -47,12 +67,12 @@ data-plane = { path = "../data-plane" }
 reqwest.workspace = true
 regex.workspace = true
 include_dir = "0.7"
-sqlx-core = { version = "=0.8.6", default-features = false, features = ["_rt-tokio", "_tls-rustls-aws-lc-rs", "chrono", "uuid"] }
-sqlx-postgres = { version = "=0.8.6", default-features = false, features = ["chrono", "uuid"] }
-sqlx-sqlite = { version = "=0.8.6", default-features = false, features = ["chrono", "uuid", "bundled"] }
+sqlx-core = { version = "=0.8.6", default-features = false, features = ["_rt-tokio", "_tls-rustls-aws-lc-rs", "chrono", "json", "uuid"] }
+sqlx-postgres = { version = "=0.8.6", default-features = false, optional = true, features = ["chrono", "json", "uuid"] }
+sqlx-sqlite = { version = "=0.8.6", default-features = false, features = ["bundled", "chrono", "json", "uuid"] }
 serde.workspace = true
 serde_json.workspace = true
-redis = { workspace = true, features = ["streams"] }
+redis = { workspace = true, optional = true, features = ["streams"] }
 rand = "0.10"
 aes-gcm = "0.10"
 base64 = "0.22"
@@ -71,7 +91,7 @@ jsonwebtoken.workspace = true
 bcrypt.workspace = true
 bytes.workspace = true
 futures-util.workspace = true
-lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls", "webpki-roots", "aws-lc-rs"] }
+lettre = { version = "0.11", default-features = false, optional = true, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls", "webpki-roots", "aws-lc-rs"] }
 
 [dev-dependencies]
 assert-json-diff.workspace = true

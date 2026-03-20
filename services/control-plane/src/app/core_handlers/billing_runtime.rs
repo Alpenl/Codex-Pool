@@ -386,7 +386,7 @@ fn mask_proxy_url(raw: &str) -> String {
 
 fn outbound_proxy_node_to_view(
     node: codex_pool_core::model::OutboundProxyNode,
-) -> codex_pool_core::api::AdminOutboundProxyNodeView {
+) -> AdminOutboundProxyNodeView {
     let parsed = reqwest::Url::parse(&node.proxy_url).ok();
     let scheme = parsed
         .as_ref()
@@ -396,7 +396,7 @@ fn outbound_proxy_node_to_view(
         !url.username().is_empty() || url.password().is_some()
     });
 
-    codex_pool_core::api::AdminOutboundProxyNodeView {
+    AdminOutboundProxyNodeView {
         id: node.id,
         label: node.label,
         proxy_url_masked: mask_proxy_url(&node.proxy_url),
@@ -428,7 +428,7 @@ fn validate_outbound_proxy_mutation(
 async fn list_admin_proxies(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<codex_pool_core::api::AdminOutboundProxyPoolResponse>, (StatusCode, Json<ErrorEnvelope>)>
+) -> Result<Json<AdminOutboundProxyPoolResponse>, (StatusCode, Json<ErrorEnvelope>)>
 {
     let _principal = require_admin_principal(&state, &headers)?;
     let settings = state
@@ -444,7 +444,7 @@ async fn list_admin_proxies(
         .into_iter()
         .map(outbound_proxy_node_to_view)
         .collect();
-    Ok(Json(codex_pool_core::api::AdminOutboundProxyPoolResponse {
+    Ok(Json(AdminOutboundProxyPoolResponse {
         settings,
         nodes,
     }))
@@ -453,8 +453,8 @@ async fn list_admin_proxies(
 async fn create_admin_outbound_proxy_node(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(mut req): Json<codex_pool_core::api::CreateOutboundProxyNodeRequest>,
-) -> Result<Json<codex_pool_core::api::AdminOutboundProxyNodeMutationResponse>, (StatusCode, Json<ErrorEnvelope>)>
+    Json(mut req): Json<CreateOutboundProxyNodeRequest>,
+) -> Result<Json<AdminOutboundProxyNodeMutationResponse>, (StatusCode, Json<ErrorEnvelope>)>
 {
     let _principal = require_admin_principal(&state, &headers)?;
     validate_outbound_proxy_mutation(&req.label, req.weight)?;
@@ -471,7 +471,7 @@ async fn create_admin_outbound_proxy_node(
         format!("created outbound proxy node {}", node.id),
     );
     Ok(Json(
-        codex_pool_core::api::AdminOutboundProxyNodeMutationResponse {
+        AdminOutboundProxyNodeMutationResponse {
             node: outbound_proxy_node_to_view(node),
         },
     ))
@@ -480,8 +480,8 @@ async fn create_admin_outbound_proxy_node(
 async fn update_admin_outbound_proxy_settings(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(req): Json<codex_pool_core::api::UpdateOutboundProxyPoolSettingsRequest>,
-) -> Result<Json<codex_pool_core::api::AdminOutboundProxyPoolSettingsResponse>, (StatusCode, Json<ErrorEnvelope>)>
+    Json(req): Json<UpdateOutboundProxyPoolSettingsRequest>,
+) -> Result<Json<AdminOutboundProxyPoolSettingsResponse>, (StatusCode, Json<ErrorEnvelope>)>
 {
     let _principal = require_admin_principal(&state, &headers)?;
     let settings = state
@@ -496,7 +496,7 @@ async fn update_admin_outbound_proxy_settings(
         format!("updated outbound proxy settings enabled={}", settings.enabled),
     );
     Ok(Json(
-        codex_pool_core::api::AdminOutboundProxyPoolSettingsResponse { settings },
+        AdminOutboundProxyPoolSettingsResponse { settings },
     ))
 }
 
@@ -504,8 +504,8 @@ async fn update_admin_outbound_proxy_node(
     Path(proxy_id): Path<Uuid>,
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(mut req): Json<codex_pool_core::api::UpdateOutboundProxyNodeRequest>,
-) -> Result<Json<codex_pool_core::api::AdminOutboundProxyNodeMutationResponse>, (StatusCode, Json<ErrorEnvelope>)>
+    Json(mut req): Json<UpdateOutboundProxyNodeRequest>,
+) -> Result<Json<AdminOutboundProxyNodeMutationResponse>, (StatusCode, Json<ErrorEnvelope>)>
 {
     let _principal = require_admin_principal(&state, &headers)?;
     if let Some(label) = req.label.as_ref() {
@@ -528,7 +528,7 @@ async fn update_admin_outbound_proxy_node(
         format!("updated outbound proxy node {}", node.id),
     );
     Ok(Json(
-        codex_pool_core::api::AdminOutboundProxyNodeMutationResponse {
+        AdminOutboundProxyNodeMutationResponse {
             node: outbound_proxy_node_to_view(node),
         },
     ))
@@ -620,7 +620,7 @@ async fn test_admin_proxies(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(query): Query<AdminProxyTestRequest>,
-) -> Result<Json<codex_pool_core::api::AdminOutboundProxyTestResponse>, (StatusCode, Json<ErrorEnvelope>)>
+) -> Result<Json<AdminOutboundProxyTestResponse>, (StatusCode, Json<ErrorEnvelope>)>
 {
     let _principal = require_admin_principal(&state, &headers)?;
     let requested_id = query
@@ -667,7 +667,7 @@ async fn test_admin_proxies(
         format!("tested {tested} outbound proxy nodes"),
     );
 
-    Ok(Json(codex_pool_core::api::AdminOutboundProxyTestResponse {
+    Ok(Json(AdminOutboundProxyTestResponse {
         tested,
         results,
     }))
@@ -690,7 +690,7 @@ async fn create_admin_api_key(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(req): Json<AdminKeyCreateRequest>,
-) -> Result<Json<codex_pool_core::api::CreateApiKeyResponse>, (StatusCode, Json<ErrorEnvelope>)> {
+) -> Result<Json<CreateApiKeyResponse>, (StatusCode, Json<ErrorEnvelope>)> {
     let _principal = require_admin_principal(&state, &headers)?;
     let tenant_id = if let Some(tenant_id) = req.tenant_id {
         tenant_id

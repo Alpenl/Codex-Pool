@@ -1,17 +1,17 @@
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Timelike, Utc};
-use codex_pool_core::api::{
-    AccountUsageLeaderboardItem, ApiKeyUsageLeaderboardItem, HourlyAccountUsagePoint,
-    HourlyTenantApiKeyUsagePoint, HourlyTenantUsageTotalPoint, HourlyUsageTotalPoint,
-    TenantUsageLeaderboardItem, UsageDashboardMetrics, UsageDashboardModelDistributionItem,
-    UsageDashboardTokenBreakdown, UsageDashboardTokenTrendPoint, UsageSummaryQueryResponse,
-};
 use codex_pool_core::events::RequestLogEvent;
 use sqlx_core::query_builder::QueryBuilder;
 use sqlx_postgres::{PgPool, Postgres};
 use uuid::Uuid;
 
+use crate::contracts::{
+    AccountUsageLeaderboardItem, ApiKeyUsageLeaderboardItem, HourlyAccountUsagePoint,
+    HourlyTenantApiKeyUsagePoint, HourlyTenantUsageTotalPoint, HourlyUsageTotalPoint,
+    TenantUsageLeaderboardItem, UsageDashboardMetrics, UsageDashboardModelDistributionItem,
+    UsageDashboardTokenBreakdown, UsageDashboardTokenTrendPoint, UsageSummaryQueryResponse,
+};
 use crate::cost::{calculate_estimated_cost_microusd, TokenPriceMicrousd};
 use crate::Row;
 

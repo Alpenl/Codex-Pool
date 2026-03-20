@@ -1,3 +1,8 @@
+#![cfg_attr(
+    not(feature = "postgres-backend"),
+    allow(dead_code, unreachable_code, unused_imports)
+)]
+
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context, Result};
@@ -6,10 +11,11 @@ use chrono::Utc;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use sqlx_postgres::PgPool;
 use uuid::Uuid;
 
-use codex_pool_core::api::{AdminLoginRequest, AdminLoginResponse, AdminMeResponse};
+use crate::contracts::{AdminLoginRequest, AdminLoginResponse, AdminMeResponse};
+#[cfg(feature = "postgres-backend")]
+use crate::store::PgPool;
 
 const DEFAULT_TOKEN_TTL_SEC: u64 = 8 * 60 * 60;
 
@@ -26,6 +32,7 @@ enum AdminCredentialBackend {
         username: String,
         password_hash: String,
     },
+    #[cfg(feature = "postgres-backend")]
     Postgres {
         pool: PgPool,
     },
@@ -67,6 +74,7 @@ impl AdminAuthService {
         })
     }
 
+    #[cfg(feature = "postgres-backend")]
     pub fn from_env_with_postgres(pool: PgPool) -> Result<Self> {
         let settings = load_admin_settings_from_env()?;
         Ok(Self {
@@ -80,16 +88,25 @@ impl AdminAuthService {
     }
 
     pub async fn ensure_bootstrap_admin_user(&self) -> Result<()> {
+        #[cfg(not(feature = "postgres-backend"))]
+        {
+            return Ok(());
+        }
+
+        #[cfg(feature = "postgres-backend")]
         let AdminCredentialBackend::Postgres { pool } = &self.credential_backend else {
             return Ok(());
         };
+        #[cfg(feature = "postgres-backend")]
         let Some(username) = self.bootstrap_username.as_deref() else {
             return Ok(());
         };
+        #[cfg(feature = "postgres-backend")]
         let Some(password_hash) = self.bootstrap_password_hash.as_deref() else {
             return Ok(());
         };
 
+        #[cfg(feature = "postgres-backend")]
         sqlx::query(
             r#"
             INSERT INTO admin_users (id, username, password_hash, enabled, created_at, updated_at)
@@ -155,6 +172,7 @@ impl AdminAuthService {
                     username: target_username.clone(),
                 }))
             }
+            #[cfg(feature = "postgres-backend")]
             AdminCredentialBackend::Postgres { pool } => {
                 let row = sqlx::query(
                     r#"

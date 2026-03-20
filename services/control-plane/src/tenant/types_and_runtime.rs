@@ -8,25 +8,33 @@ use anyhow::{anyhow, Context, Result};
 use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::{DateTime, NaiveDate, Utc};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+#[cfg(feature = "smtp-backend")]
 use lettre::message::Mailbox;
+#[cfg(feature = "smtp-backend")]
 use lettre::transport::smtp::authentication::Credentials;
+#[cfg(feature = "smtp-backend")]
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
+#[cfg(feature = "smtp-backend")]
 use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{Row, Transaction};
-use sqlx_postgres::{PgPool, Postgres};
+#[cfg(feature = "postgres-backend")]
+use sqlx_postgres::Postgres;
 use uuid::Uuid;
 
-use codex_pool_core::api::CreateApiKeyResponse;
 use codex_pool_core::model::ApiKey;
+use crate::contracts::CreateApiKeyResponse;
+use crate::store::PgPool;
 
 const DEFAULT_TENANT_JWT_TTL_SEC: u64 = 8 * 60 * 60;
 const DEFAULT_TENANT_SESSION_COOKIE_NAME: &str = "cp_tenant_session";
 const DEFAULT_LOGIN_RATE_LIMIT_WINDOW_SEC: u64 = 300;
 const DEFAULT_LOGIN_RATE_LIMIT_MAX_ATTEMPTS: usize = 20;
+#[cfg(feature = "smtp-backend")]
 const CODE_PURPOSE_EMAIL_VERIFY: &str = "email_verify";
+#[cfg(feature = "smtp-backend")]
 const CODE_PURPOSE_PASSWORD_RESET: &str = "password_reset";
 const CHECKIN_REWARD_MIN: i64 = 50_000_000;
 const CHECKIN_REWARD_MAX: i64 = 150_000_000;
@@ -34,6 +42,7 @@ const DEFAULT_BILLING_AUTHORIZATION_TTL_SEC: u64 = 15 * 60;
 const MIN_BILLING_AUTHORIZATION_TTL_SEC: u64 = 30;
 const MAX_BILLING_AUTHORIZATION_TTL_SEC: u64 = 6 * 60 * 60;
 
+#[cfg(feature = "smtp-backend")]
 struct InsertCodeParams<'a> {
     tenant_id: Uuid,
     tenant_user_id: Uuid,
@@ -71,14 +80,6 @@ struct BillingAuthorizationRecord {
 }
 
 #[derive(Debug, Clone)]
-struct BillingPricingResolved {
-    input_price_microcredits: i64,
-    cached_input_price_microcredits: i64,
-    output_price_microcredits: i64,
-    source: String,
-}
-
-#[derive(Debug, Clone)]
 struct ApiKeyGroupRecord {
     id: Uuid,
     name: String,
@@ -111,107 +112,6 @@ struct ApiKeyGroupModelPolicyRecord {
 }
 
 #[derive(Debug, Clone)]
-struct ApiKeyGroupResolvedPricing {
-    formula: BillingPricingResolved,
-    final_pricing: BillingPricingResolved,
-    uses_absolute_pricing: bool,
-}
-
-const BILLING_MULTIPLIER_PPM_ONE: i64 = 1_000_000;
-const DEFAULT_BILLING_SESSION_TTL_SEC: u64 = 24 * 60 * 60;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BillingRequestKind {
-    Any,
-    Response,
-    Compact,
-    Chat,
-    Unknown,
-}
-
-impl BillingRequestKind {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Any => "any",
-            Self::Response => "response",
-            Self::Compact => "compact",
-            Self::Chat => "chat",
-            Self::Unknown => "unknown",
-        }
-    }
-
-    fn from_optional(raw: Option<&str>) -> Self {
-        match raw.unwrap_or("unknown").trim().to_ascii_lowercase().as_str() {
-            "any" => Self::Any,
-            "response" => Self::Response,
-            "compact" => Self::Compact,
-            "chat" => Self::Chat,
-            _ => Self::Unknown,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BillingPricingRuleScope {
-    Request,
-    Session,
-}
-
-impl BillingPricingRuleScope {
-    #[cfg(test)]
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Request => "request",
-            Self::Session => "session",
-        }
-    }
-
-    fn from_str(raw: &str) -> Self {
-        match raw.trim().to_ascii_lowercase().as_str() {
-            "session" => Self::Session,
-            _ => Self::Request,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BillingPricingBand {
-    Base,
-    LongContext,
-}
-
-impl BillingPricingBand {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Base => "base",
-            Self::LongContext => "long_context",
-        }
-    }
-
-    fn from_optional(raw: Option<&str>) -> Self {
-        match raw.unwrap_or("base").trim().to_ascii_lowercase().as_str() {
-            "long_context" => Self::LongContext,
-            _ => Self::Base,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BillingResolutionPhase {
-    Authorize,
-    Capture,
-}
-
-struct BillingPricingRequestContext<'a> {
-    service_tier: Option<&'a str>,
-    api_key_id: Option<Uuid>,
-    request_kind: BillingRequestKind,
-    persisted_band: Option<BillingPricingBand>,
-    actual_input_tokens: Option<i64>,
-    phase: BillingResolutionPhase,
-}
-
-#[derive(Debug, Clone)]
 struct BillingPricingRuleRecord {
     id: Uuid,
     model_pattern: String,
@@ -226,13 +126,6 @@ struct BillingPricingRuleRecord {
 #[derive(Debug, Clone)]
 struct BillingSessionRecord {
     pricing_band: String,
-}
-
-#[derive(Debug, Clone)]
-struct BillingPricingDecision {
-    pricing: BillingPricingResolved,
-    band: BillingPricingBand,
-    matched_rule_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone)]
@@ -1029,6 +922,7 @@ pub struct TenantAuthService {
     decoding_key: DecodingKey,
     session_cookie_name: String,
     session_cookie_secure: bool,
+    #[cfg(feature = "smtp-backend")]
     expose_debug_code: bool,
     login_rate_limit_window: StdDuration,
     login_rate_limit_max_attempts: usize,

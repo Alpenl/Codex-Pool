@@ -1,5 +1,4 @@
 use std::net::SocketAddr;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,9 +11,15 @@ use control_plane::app::{
 };
 use control_plane::config::ControlPlaneConfig;
 use control_plane::crypto::CredentialCipher;
-use control_plane::import_jobs::{InMemoryOAuthImportJobStore, PostgresOAuthImportJobStore};
+use control_plane::import_jobs::InMemoryOAuthImportJobStore;
+#[cfg(feature = "postgres-backend")]
+use control_plane::import_jobs::PostgresOAuthImportJobStore;
 use control_plane::oauth::OpenAiOAuthClient;
 use control_plane::outbound_proxy_runtime::OutboundProxyRuntime;
+use control_plane::runtime_profile::{
+    resolve_backend_profile, BackendProfile, StoreBackendFamily, UsageIngestBackendFamily,
+    UsageQueryBackendFamily,
+};
 use control_plane::single_binary::{
     apply_single_binary_runtime_env_defaults, merge_personal_single_binary_app,
     merge_single_binary_app,
@@ -22,6 +27,7 @@ use control_plane::single_binary::{
 use control_plane::store::{
     normalize_sqlite_database_url, ControlPlaneStore, InMemoryStore, SqliteBackedStore,
 };
+#[cfg(feature = "postgres-backend")]
 use control_plane::store::postgres::PostgresStore;
 #[cfg(feature = "clickhouse-backend")]
 use control_plane::tenant::BillingReconcileFactRequest;
@@ -33,6 +39,7 @@ use control_plane::tenant::{
 };
 #[cfg(feature = "clickhouse-backend")]
 use control_plane::usage::clickhouse_repo::ClickHouseUsageRepo;
+#[cfg(feature = "postgres-backend")]
 use control_plane::usage::postgres_repo::PostgresUsageRepo;
 use control_plane::usage::sqlite_repo::SqliteUsageRepo;
 use control_plane::usage::{UsageIngestRepository, UsageQueryRepository};
@@ -95,12 +102,177 @@ const DEFAULT_BILLING_RECONCILE_FULL_SWEEP_INTERVAL_SEC: u64 = 60 * 60;
 const MIN_BILLING_RECONCILE_FULL_SWEEP_INTERVAL_SEC: u64 = 60;
 const MAX_BILLING_RECONCILE_FULL_SWEEP_INTERVAL_SEC: u64 = 24 * 60 * 60;
 
-type RuntimeStoreBundle = (
-    Arc<dyn ControlPlaneStore>,
-    Arc<dyn control_plane::import_jobs::OAuthImportJobStore>,
-    AdminAuthService,
-    Option<Arc<SqliteBackedStore>>,
-);
+struct RuntimeStoreBundle {
+    store: Arc<dyn ControlPlaneStore>,
+    import_job_store: Arc<dyn control_plane::import_jobs::OAuthImportJobStore>,
+    admin_auth: AdminAuthService,
+    tenant_auth_service: Option<Arc<TenantAuthService>>,
+    personal_runtime_store: Option<Arc<SqliteBackedStore>>,
+    #[cfg(feature = "postgres-backend")]
+    postgres_store: Option<Arc<PostgresStore>>,
+}
+
+struct RuntimeUsageBundle {
+    usage_repo: Option<Arc<dyn UsageQueryRepository>>,
+    usage_ingest_repo: Option<Arc<dyn UsageIngestRepository>>,
+    personal_sqlite_usage_repo: Option<Arc<SqliteUsageRepo>>,
+}
+
+async fn build_store_bundle(
+    profile: BackendProfile,
+    database_url: Option<&str>,
+    outbound_proxy_runtime: Arc<OutboundProxyRuntime>,
+) -> anyhow::Result<RuntimeStoreBundle> {
+    match (profile.store_backend, database_url) {
+        (StoreBackendFamily::Sqlite, raw_database_url) => {
+            let database_url = personal_sqlite_database_url(raw_database_url)?;
+            let sqlite_store = Arc::new(
+                SqliteBackedStore::connect_with_oauth(
+                    &database_url,
+                    Arc::new(OpenAiOAuthClient::from_env_with_outbound_proxy_runtime(
+                        outbound_proxy_runtime,
+                    )),
+                    CredentialCipher::from_env().unwrap_or(None),
+                )
+                .await?,
+            );
+            Ok(RuntimeStoreBundle {
+                store: sqlite_store.clone(),
+                import_job_store: Arc::new(InMemoryOAuthImportJobStore::default()),
+                admin_auth: AdminAuthService::from_env()?,
+                tenant_auth_service: None,
+                personal_runtime_store: Some(sqlite_store),
+                #[cfg(feature = "postgres-backend")]
+                postgres_store: None,
+            })
+        }
+        #[cfg(feature = "postgres-backend")]
+        (StoreBackendFamily::Postgres, Some(database_url)) => {
+            let postgres_store = Arc::new(PostgresStore::connect_with_oauth(
+                database_url,
+                Arc::new(OpenAiOAuthClient::from_env_with_outbound_proxy_runtime(
+                    outbound_proxy_runtime,
+                )),
+                CredentialCipher::from_env().unwrap_or(None),
+            )
+            .await?);
+            let import_store = PostgresOAuthImportJobStore::new(postgres_store.clone_pool()).await?;
+            let tenant_auth_service = Arc::new(
+                TenantAuthService::from_pool(postgres_store.clone_pool())
+                    .expect("TENANT_JWT_SECRET (or ADMIN_JWT_SECRET fallback) must be set"),
+            );
+            let admin_auth = AdminAuthService::from_env_with_postgres(postgres_store.clone_pool())?;
+            admin_auth.ensure_bootstrap_admin_user().await?;
+            Ok(RuntimeStoreBundle {
+                store: postgres_store.clone(),
+                import_job_store: Arc::new(import_store),
+                admin_auth,
+                tenant_auth_service: Some(tenant_auth_service),
+                personal_runtime_store: None,
+                postgres_store: Some(postgres_store),
+            })
+        }
+        #[cfg(not(feature = "postgres-backend"))]
+        (StoreBackendFamily::Postgres, Some(_database_url)) => Err(anyhow!(
+            "database-backed team/business edition requires the postgres-backend cargo feature"
+        )),
+        (StoreBackendFamily::Postgres, None) | (StoreBackendFamily::InMemory, _) => {
+            let in_memory_store: Arc<dyn ControlPlaneStore> =
+                Arc::new(InMemoryStore::new_with_oauth(
+                    Arc::new(OpenAiOAuthClient::from_env_with_outbound_proxy_runtime(
+                        outbound_proxy_runtime,
+                    )),
+                    CredentialCipher::from_env().unwrap_or(None),
+                ));
+            Ok(RuntimeStoreBundle {
+                store: in_memory_store,
+                import_job_store: Arc::new(InMemoryOAuthImportJobStore::default()),
+                admin_auth: AdminAuthService::from_env()?,
+                tenant_auth_service: None,
+                personal_runtime_store: None,
+                #[cfg(feature = "postgres-backend")]
+                postgres_store: None,
+            })
+        }
+    }
+}
+
+async fn build_usage_bundle(
+    profile: BackendProfile,
+    _config: &ControlPlaneConfig,
+    personal_runtime_store: Option<&Arc<SqliteBackedStore>>,
+    #[cfg(feature = "postgres-backend")] postgres_store: Option<&Arc<PostgresStore>>,
+) -> anyhow::Result<RuntimeUsageBundle> {
+    let personal_sqlite_usage_repo = if matches!(profile.store_backend, StoreBackendFamily::Sqlite)
+    {
+        match personal_runtime_store {
+            Some(store) => Some(Arc::new(SqliteUsageRepo::new(store.clone_pool()).await?)),
+            None => None,
+        }
+    } else {
+        None
+    };
+
+    let usage_repo: Option<Arc<dyn UsageQueryRepository>> = match profile.usage_query_backend {
+        UsageQueryBackendFamily::None => None,
+        UsageQueryBackendFamily::Sqlite => personal_sqlite_usage_repo
+            .clone()
+            .map(|repo| repo as Arc<dyn UsageQueryRepository>),
+        UsageQueryBackendFamily::Postgres => {
+            #[cfg(feature = "postgres-backend")]
+            {
+                postgres_store.map(|store| {
+                    Arc::new(PostgresUsageRepo::new(store.clone_pool()))
+                        as Arc<dyn UsageQueryRepository>
+                })
+            }
+            #[cfg(not(feature = "postgres-backend"))]
+            {
+                None
+            }
+        }
+        UsageQueryBackendFamily::ClickHouse => {
+            #[cfg(feature = "clickhouse-backend")]
+            {
+                _config.clickhouse_url.as_ref().map(|clickhouse_url| {
+                    Arc::new(build_clickhouse_usage_repo(_config, clickhouse_url))
+                        as Arc<dyn UsageQueryRepository>
+                })
+            }
+            #[cfg(not(feature = "clickhouse-backend"))]
+            {
+                None
+            }
+        }
+    };
+
+    let usage_ingest_repo: Option<Arc<dyn UsageIngestRepository>> = match profile.usage_ingest_backend
+    {
+        UsageIngestBackendFamily::None => None,
+        UsageIngestBackendFamily::Sqlite => personal_sqlite_usage_repo
+            .clone()
+            .map(|repo| repo as Arc<dyn UsageIngestRepository>),
+        UsageIngestBackendFamily::Postgres => {
+            #[cfg(feature = "postgres-backend")]
+            {
+                postgres_store.map(|store| {
+                    Arc::new(PostgresUsageRepo::new(store.clone_pool()))
+                        as Arc<dyn UsageIngestRepository>
+                })
+            }
+            #[cfg(not(feature = "postgres-backend"))]
+            {
+                None
+            }
+        }
+    };
+
+    Ok(RuntimeUsageBundle {
+        usage_repo,
+        usage_ingest_repo,
+        personal_sqlite_usage_repo,
+    })
+}
 
 fn snapshot_revision_flush_ms_from_env() -> u64 {
     std::env::var(SNAPSHOT_REVISION_FLUSH_MS_ENV)
@@ -208,10 +380,6 @@ fn billing_reconcile_enabled_from_env() -> bool {
             }
         })
         .unwrap_or(DEFAULT_BILLING_RECONCILE_ENABLED)
-}
-
-fn billing_reconcile_allowed_for_edition(edition: ProductEdition) -> bool {
-    matches!(edition, ProductEdition::Business)
 }
 
 fn billing_reconcile_interval_sec_from_env() -> u64 {
@@ -329,27 +497,11 @@ fn build_clickhouse_usage_repo(
     )
 }
 
-fn infer_edition_from_executable_name(executable_name: Option<&str>) -> Option<ProductEdition> {
-    let file_name = executable_name
-        .map(Path::new)
-        .and_then(Path::file_name)
-        .and_then(|value| value.to_str())?;
-    match file_name {
-        "codex-pool-personal" => Some(ProductEdition::Personal),
-        "codex-pool-team" => Some(ProductEdition::Team),
-        "codex-pool-business" => Some(ProductEdition::Business),
-        _ => None,
-    }
-}
-
 fn resolve_runtime_edition(
     env_value: Option<&str>,
     executable_name: Option<&str>,
 ) -> ProductEdition {
-    if env_value.is_some() {
-        return ProductEdition::from_env_value(env_value);
-    }
-    infer_edition_from_executable_name(executable_name).unwrap_or(ProductEdition::Business)
+    ProductEdition::resolve_runtime_edition(env_value, executable_name)
 }
 
 fn runtime_edition() -> ProductEdition {
@@ -368,13 +520,27 @@ async fn main() -> anyhow::Result<()> {
     config.apply_runtime_env_defaults();
     control_plane::security::ensure_api_key_hasher_configured()?;
     let edition = runtime_edition();
+    let backend_profile = resolve_backend_profile(
+        edition,
+        config.database_url.is_some(),
+        config.clickhouse_url.is_some(),
+    );
+    #[cfg(not(feature = "postgres-backend"))]
+    if matches!(backend_profile.store_backend, StoreBackendFamily::Postgres) {
+        return Err(anyhow!(
+            "team/business edition requires the postgres-backend cargo feature"
+        ));
+    }
     #[cfg(not(feature = "clickhouse-backend"))]
-    if matches!(edition, ProductEdition::Business) {
+    if matches!(
+        backend_profile.usage_query_backend,
+        UsageQueryBackendFamily::ClickHouse
+    ) {
         return Err(anyhow!(
             "business edition requires the clickhouse-backend cargo feature"
         ));
     }
-    if matches!(edition, ProductEdition::Personal | ProductEdition::Team) {
+    if backend_profile.uses_single_binary_merge() {
         let defaults = apply_single_binary_runtime_env_defaults(config.listen_addr);
         tracing::info!(
             listen_addr = defaults.control_plane_listen,
@@ -388,65 +554,22 @@ async fn main() -> anyhow::Result<()> {
 
     let outbound_proxy_runtime = Arc::new(OutboundProxyRuntime::new());
 
-    let (store, import_job_store, admin_auth, personal_runtime_store): RuntimeStoreBundle =
-        match (edition, config.database_url.as_deref()) {
-            (ProductEdition::Personal, raw_database_url) => {
-                let database_url = personal_sqlite_database_url(raw_database_url)?;
-                let sqlite_store = Arc::new(
-                    SqliteBackedStore::connect_with_oauth(
-                        &database_url,
-                        Arc::new(OpenAiOAuthClient::from_env_with_outbound_proxy_runtime(
-                            outbound_proxy_runtime.clone(),
-                        )),
-                        CredentialCipher::from_env().unwrap_or(None),
-                    )
-                    .await?,
-                );
-                let admin_auth = AdminAuthService::from_env()?;
-                (
-                    sqlite_store.clone(),
-                    Arc::new(InMemoryOAuthImportJobStore::default()),
-                    admin_auth,
-                    Some(sqlite_store),
-                )
-            }
-            (_, Some(database_url)) => {
-                let postgres_store = PostgresStore::connect_with_oauth(
-                    database_url,
-                    Arc::new(OpenAiOAuthClient::from_env_with_outbound_proxy_runtime(
-                        outbound_proxy_runtime.clone(),
-                    )),
-                    CredentialCipher::from_env().unwrap_or(None),
-                )
-                .await?;
-                let import_store =
-                    PostgresOAuthImportJobStore::new(postgres_store.clone_pool()).await?;
-                let admin_auth =
-                    AdminAuthService::from_env_with_postgres(postgres_store.clone_pool())?;
-                admin_auth.ensure_bootstrap_admin_user().await?;
-                (
-                    Arc::new(postgres_store),
-                    Arc::new(import_store),
-                    admin_auth,
-                    None,
-                )
-            }
-            (_, None) => {
-                let in_memory_store: Arc<dyn ControlPlaneStore> =
-                    Arc::new(InMemoryStore::new_with_oauth(
-                        Arc::new(OpenAiOAuthClient::from_env_with_outbound_proxy_runtime(
-                            outbound_proxy_runtime.clone(),
-                        )),
-                        CredentialCipher::from_env().unwrap_or(None),
-                    ));
-                (
-                    in_memory_store,
-                    Arc::new(InMemoryOAuthImportJobStore::default()),
-                    AdminAuthService::from_env()?,
-                    None,
-                )
-            }
-        };
+    let runtime_store_bundle = build_store_bundle(
+        backend_profile,
+        config.database_url.as_deref(),
+        outbound_proxy_runtime.clone(),
+    )
+    .await?;
+
+    let RuntimeStoreBundle {
+        store,
+        import_job_store,
+        admin_auth,
+        tenant_auth_service,
+        personal_runtime_store,
+        #[cfg(feature = "postgres-backend")]
+        postgres_store,
+    } = runtime_store_bundle;
 
     outbound_proxy_runtime.attach_store(store.clone());
 
@@ -583,8 +706,8 @@ async fn main() -> anyhow::Result<()> {
         "data-plane outbox cleanup loop started"
     );
 
-    if billing_reconcile_allowed_for_edition(edition) && billing_reconcile_enabled_from_env() {
-        if let Some(pool) = store.postgres_pool() {
+    if backend_profile.billing_reconcile_enabled() && billing_reconcile_enabled_from_env() {
+        if let Some(tenant_auth) = tenant_auth_service.clone() {
             let interval_sec = billing_reconcile_interval_sec_from_env();
             let batch = billing_reconcile_batch_from_env();
             let stale_sec = billing_reconcile_stale_sec_from_env();
@@ -599,9 +722,7 @@ async fn main() -> anyhow::Result<()> {
             let request_log_reconcile_enabled = request_log_reconcile_repo.is_some();
             #[cfg(not(feature = "clickhouse-backend"))]
             let request_log_reconcile_enabled = false;
-            match TenantAuthService::from_pool(pool) {
-                Ok(tenant_auth) => {
-                    tokio::spawn(async move {
+            tokio::spawn(async move {
                         let mut ticker = tokio::time::interval(Duration::from_secs(interval_sec));
                         ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
                         #[cfg(feature = "clickhouse-backend")]
@@ -771,27 +892,19 @@ async fn main() -> anyhow::Result<()> {
                             }
                         }
                     });
-                    tracing::info!(
-                        interval_sec,
-                        batch,
-                        stale_sec,
-                        lookback_sec,
-                        full_sweep_interval_sec,
-                        request_log_reconcile_enabled,
-                        "billing reconcile loop started"
-                    );
-                }
-                Err(err) => {
-                    tracing::warn!(
-                        error = %err,
-                        "billing reconcile loop disabled: failed to initialize tenant auth service"
-                    );
-                }
-            }
+            tracing::info!(
+                interval_sec,
+                batch,
+                stale_sec,
+                lookback_sec,
+                full_sweep_interval_sec,
+                request_log_reconcile_enabled,
+                "billing reconcile loop started"
+            );
         } else {
-            tracing::info!("billing reconcile loop skipped: postgres store unavailable");
+            tracing::info!("billing reconcile loop skipped: tenant auth runtime unavailable");
         }
-    } else if !billing_reconcile_allowed_for_edition(edition) {
+    } else if !backend_profile.billing_reconcile_enabled() {
         tracing::info!(
             edition = ?edition,
             "billing reconcile loop disabled outside business edition"
@@ -799,48 +912,18 @@ async fn main() -> anyhow::Result<()> {
     } else {
         tracing::info!("billing reconcile loop disabled by config");
     }
-    let team_postgres_usage_repo = if matches!(edition, ProductEdition::Team) {
-        store
-            .postgres_pool()
-            .map(|pool| Arc::new(PostgresUsageRepo::new(pool)))
-    } else {
-        None
-    };
-    let personal_sqlite_usage_repo = if matches!(edition, ProductEdition::Personal) {
-        let sqlite_url = personal_sqlite_database_url(config.database_url.as_deref())?;
-        Some(Arc::new(
-            SqliteUsageRepo::new(SqliteBackedStore::connect(&sqlite_url).await?.clone_pool())
-                .await?,
-        ))
-    } else {
-        None
-    };
-
-    let usage_repo: Option<Arc<dyn UsageQueryRepository>> = match edition {
-        #[cfg(feature = "clickhouse-backend")]
-        ProductEdition::Business => config.clickhouse_url.clone().map(|clickhouse_url| {
-            Arc::new(build_clickhouse_usage_repo(&config, &clickhouse_url))
-                as Arc<dyn UsageQueryRepository>
-        }),
-        #[cfg(not(feature = "clickhouse-backend"))]
-        ProductEdition::Business => None,
-        ProductEdition::Team => team_postgres_usage_repo
-            .clone()
-            .map(|repo| repo as Arc<dyn UsageQueryRepository>),
-        ProductEdition::Personal => personal_sqlite_usage_repo
-            .clone()
-            .map(|repo| repo as Arc<dyn UsageQueryRepository>),
-    };
-
-    let usage_ingest_repo: Option<Arc<dyn UsageIngestRepository>> = match edition {
-        ProductEdition::Team => team_postgres_usage_repo
-            .clone()
-            .map(|repo| repo as Arc<dyn UsageIngestRepository>),
-        ProductEdition::Personal => personal_sqlite_usage_repo
-            .clone()
-            .map(|repo| repo as Arc<dyn UsageIngestRepository>),
-        ProductEdition::Business => None,
-    };
+    let RuntimeUsageBundle {
+        usage_repo,
+        usage_ingest_repo,
+        personal_sqlite_usage_repo,
+    } = build_usage_bundle(
+        backend_profile,
+        &config,
+        personal_runtime_store.as_ref(),
+        #[cfg(feature = "postgres-backend")]
+        postgres_store.as_ref(),
+    )
+    .await?;
 
     let app = build_app_with_store_and_services(
         store,
@@ -850,6 +933,8 @@ async fn main() -> anyhow::Result<()> {
             usage_ingest_repo,
             import_job_store,
             admin_auth,
+            system_capabilities: backend_profile.system_capabilities(),
+            tenant_auth_service: tenant_auth_service.clone(),
             sqlite_usage_repo: personal_sqlite_usage_repo.clone(),
             outbound_proxy_runtime: outbound_proxy_runtime.clone(),
         },
@@ -911,18 +996,21 @@ async fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{billing_reconcile_allowed_for_edition, resolve_runtime_edition};
+    use super::resolve_runtime_edition;
     use codex_pool_core::api::ProductEdition;
+    use control_plane::runtime_profile::{
+        resolve_backend_profile, BillingRuntimeMode, DeploymentShape, StoreBackendFamily,
+        UsageIngestBackendFamily, UsageQueryBackendFamily,
+    };
 
     #[test]
     fn billing_reconcile_runs_only_for_business_edition() {
-        assert!(!billing_reconcile_allowed_for_edition(
-            ProductEdition::Personal
-        ));
-        assert!(!billing_reconcile_allowed_for_edition(ProductEdition::Team));
-        assert!(billing_reconcile_allowed_for_edition(
-            ProductEdition::Business
-        ));
+        assert!(!resolve_backend_profile(ProductEdition::Personal, true, false)
+            .billing_reconcile_enabled());
+        assert!(!resolve_backend_profile(ProductEdition::Team, true, false)
+            .billing_reconcile_enabled());
+        assert!(resolve_backend_profile(ProductEdition::Business, true, true)
+            .billing_reconcile_enabled());
     }
 
     #[test]
@@ -955,5 +1043,47 @@ mod tests {
             resolve_runtime_edition(None, Some("control-plane")),
             ProductEdition::Business
         );
+    }
+
+    #[test]
+    fn backend_profile_maps_personal_to_sqlite_single_binary() {
+        let profile = resolve_backend_profile(ProductEdition::Personal, true, false);
+        assert_eq!(profile.deployment_shape, DeploymentShape::SingleBinary);
+        assert_eq!(profile.store_backend, StoreBackendFamily::Sqlite);
+        assert_eq!(profile.usage_query_backend, UsageQueryBackendFamily::Sqlite);
+        assert_eq!(
+            profile.usage_ingest_backend,
+            UsageIngestBackendFamily::Sqlite
+        );
+        assert_eq!(profile.billing_mode, BillingRuntimeMode::CostReportOnly);
+        assert!(!profile.allows_tenant_self_service());
+    }
+
+    #[test]
+    fn backend_profile_maps_team_to_postgres_single_binary() {
+        let profile = resolve_backend_profile(ProductEdition::Team, true, false);
+        assert_eq!(profile.deployment_shape, DeploymentShape::SingleBinary);
+        assert_eq!(profile.store_backend, StoreBackendFamily::Postgres);
+        assert_eq!(profile.usage_query_backend, UsageQueryBackendFamily::Postgres);
+        assert_eq!(
+            profile.usage_ingest_backend,
+            UsageIngestBackendFamily::Postgres
+        );
+        assert_eq!(profile.billing_mode, BillingRuntimeMode::CostReportOnly);
+        assert!(!profile.allows_tenant_self_service());
+    }
+
+    #[test]
+    fn backend_profile_maps_business_to_full_stack_runtime() {
+        let profile = resolve_backend_profile(ProductEdition::Business, true, true);
+        assert_eq!(profile.deployment_shape, DeploymentShape::MultiService);
+        assert_eq!(profile.store_backend, StoreBackendFamily::Postgres);
+        assert_eq!(
+            profile.usage_query_backend,
+            UsageQueryBackendFamily::ClickHouse
+        );
+        assert_eq!(profile.usage_ingest_backend, UsageIngestBackendFamily::None);
+        assert_eq!(profile.billing_mode, BillingRuntimeMode::CreditEnforced);
+        assert!(profile.allows_tenant_self_service());
     }
 }
