@@ -25,6 +25,7 @@ const CONTROL_PLANE_LISTEN_ENV: &str = "CONTROL_PLANE_LISTEN";
 const CODEX_OAUTH_CALLBACK_LISTEN_ENV: &str = "CODEX_OAUTH_CALLBACK_LISTEN";
 const CODEX_OAUTH_CALLBACK_LISTEN_MODE_ENV: &str = "CODEX_OAUTH_CALLBACK_LISTEN_MODE";
 const CONTROL_PLANE_BASE_URL_ENV: &str = "CONTROL_PLANE_BASE_URL";
+const DATA_PLANE_BASE_URL_ENV: &str = "DATA_PLANE_BASE_URL";
 const AUTH_VALIDATE_URL_ENV: &str = "AUTH_VALIDATE_URL";
 const AUTH_VALIDATE_PATH: &str = "/internal/v1/auth/validate";
 
@@ -48,6 +49,7 @@ pub struct SingleBinaryRuntimeEnvDefaults {
     pub control_plane_listen: String,
     pub codex_oauth_callback_listen: String,
     pub control_plane_base_url: String,
+    pub data_plane_base_url: String,
     pub auth_validate_url: String,
 }
 
@@ -62,6 +64,7 @@ pub fn apply_single_binary_runtime_env_defaults(
     );
     std::env::set_var(CODEX_OAUTH_CALLBACK_LISTEN_MODE_ENV, "always");
     std::env::set_var(CONTROL_PLANE_BASE_URL_ENV, &defaults.control_plane_base_url);
+    std::env::set_var(DATA_PLANE_BASE_URL_ENV, &defaults.data_plane_base_url);
     std::env::set_var(AUTH_VALIDATE_URL_ENV, &defaults.auth_validate_url);
     defaults
 }
@@ -131,6 +134,7 @@ fn single_binary_runtime_env_defaults(listen_addr: SocketAddr) -> SingleBinaryRu
         control_plane_listen: listen.clone(),
         codex_oauth_callback_listen: listen,
         control_plane_base_url: origin.clone(),
+        data_plane_base_url: origin.clone(),
         auth_validate_url: format!("{origin}{AUTH_VALIDATE_PATH}"),
     }
 }
@@ -268,10 +272,26 @@ mod tests {
         assert_eq!(defaults.control_plane_listen, "0.0.0.0:8090");
         assert_eq!(defaults.codex_oauth_callback_listen, "0.0.0.0:8090");
         assert_eq!(defaults.control_plane_base_url, "http://127.0.0.1:8090");
+        assert_eq!(defaults.data_plane_base_url, "http://127.0.0.1:8090");
         assert_eq!(
             defaults.auth_validate_url,
             "http://127.0.0.1:8090/internal/v1/auth/validate"
         );
+    }
+
+    #[tokio::test]
+    async fn apply_single_binary_runtime_env_defaults_sets_data_plane_base_url() {
+        let _guard = crate::test_support::ENV_LOCK.lock().await;
+        let old_data_plane_base_url = crate::test_support::set_env("DATA_PLANE_BASE_URL", None);
+
+        apply_single_binary_runtime_env_defaults("0.0.0.0:8090".parse().unwrap());
+
+        assert_eq!(
+            std::env::var("DATA_PLANE_BASE_URL").as_deref(),
+            Ok("http://127.0.0.1:8090")
+        );
+
+        crate::test_support::set_env("DATA_PLANE_BASE_URL", old_data_plane_base_url.as_deref());
     }
 
     #[test]
@@ -325,6 +345,7 @@ mod tests {
             crate::test_support::set_env("CODEX_OAUTH_CALLBACK_LISTEN_MODE", None);
         let old_control_plane_base_url =
             crate::test_support::set_env("CONTROL_PLANE_BASE_URL", None);
+        let old_data_plane_base_url = crate::test_support::set_env("DATA_PLANE_BASE_URL", None);
         let old_auth_validate_url = crate::test_support::set_env("AUTH_VALIDATE_URL", None);
         let db_path = std::env::temp_dir().join(format!(
             "codex-pool-personal-runtime-{}.sqlite3",
@@ -404,6 +425,7 @@ mod tests {
             "CONTROL_PLANE_BASE_URL",
             old_control_plane_base_url.as_deref(),
         );
+        crate::test_support::set_env("DATA_PLANE_BASE_URL", old_data_plane_base_url.as_deref());
         crate::test_support::set_env("AUTH_VALIDATE_URL", old_auth_validate_url.as_deref());
         crate::test_support::set_env("CONTROL_PLANE_DATABASE_URL", old_database_url.as_deref());
         crate::test_support::set_env("CODEX_POOL_CONFIG_FILE", old_config_file.as_deref());
@@ -434,6 +456,7 @@ mod tests {
             crate::test_support::set_env("CODEX_OAUTH_CALLBACK_LISTEN_MODE", None);
         let old_control_plane_base_url =
             crate::test_support::set_env("CONTROL_PLANE_BASE_URL", None);
+        let old_data_plane_base_url = crate::test_support::set_env("DATA_PLANE_BASE_URL", None);
         let old_auth_validate_url = crate::test_support::set_env("AUTH_VALIDATE_URL", None);
         let old_config_file = crate::test_support::set_env(
             "CODEX_POOL_CONFIG_FILE",
@@ -510,6 +533,7 @@ mod tests {
             "CONTROL_PLANE_BASE_URL",
             old_control_plane_base_url.as_deref(),
         );
+        crate::test_support::set_env("DATA_PLANE_BASE_URL", old_data_plane_base_url.as_deref());
         crate::test_support::set_env("AUTH_VALIDATE_URL", old_auth_validate_url.as_deref());
         crate::test_support::set_env("CODEX_POOL_CONFIG_FILE", old_config_file.as_deref());
         crate::test_support::set_env(
