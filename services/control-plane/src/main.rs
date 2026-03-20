@@ -19,10 +19,10 @@ use control_plane::single_binary::{
     apply_single_binary_runtime_env_defaults, merge_personal_single_binary_app,
     merge_single_binary_app,
 };
-use control_plane::store::postgres::PostgresStore;
 use control_plane::store::{
     normalize_sqlite_database_url, ControlPlaneStore, InMemoryStore, SqliteBackedStore,
 };
+use control_plane::store::postgres::PostgresStore;
 #[cfg(feature = "clickhouse-backend")]
 use control_plane::tenant::BillingReconcileFactRequest;
 #[cfg(feature = "clickhouse-backend")]
@@ -799,7 +799,6 @@ async fn main() -> anyhow::Result<()> {
     } else {
         tracing::info!("billing reconcile loop disabled by config");
     }
-
     let team_postgres_usage_repo = if matches!(edition, ProductEdition::Team) {
         store
             .postgres_pool()

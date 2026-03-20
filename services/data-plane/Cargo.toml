@@ -37,11 +37,15 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
 uuid.workspace = true
-redis.workspace = true
+redis = { workspace = true, optional = true, features = ["streams"] }
 toml.workspace = true
 zstd.workspace = true
 regex.workspace = true
 rustls-native-certs = "0.8"
+
+[features]
+default = []
+redis-backend = ["dep:redis"]
 
 [dev-dependencies]
 assert-json-diff.workspace = true

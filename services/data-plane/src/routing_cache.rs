@@ -3,9 +3,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
-use anyhow::Context;
 use async_trait::async_trait;
 use uuid::Uuid;
+
+#[cfg(feature = "redis-backend")]
+use anyhow::Context;
 
 const DEFAULT_LOCAL_STICKY_REHYDRATE_TTL: Duration = Duration::from_secs(30 * 60);
 const DEFAULT_LOCAL_UNHEALTHY_REHYDRATE_TTL: Duration = Duration::from_secs(30);
@@ -137,12 +139,14 @@ impl RoutingCache for InMemoryRoutingCache {
     }
 }
 
+#[cfg(feature = "redis-backend")]
 #[derive(Debug, Clone)]
 pub struct RedisRoutingCache {
     redis_url: String,
     key_prefix: String,
 }
 
+#[cfg(feature = "redis-backend")]
 impl RedisRoutingCache {
     pub fn new(redis_url: impl Into<String>, key_prefix: impl Into<String>) -> Self {
         Self {
@@ -170,6 +174,7 @@ impl RedisRoutingCache {
     }
 }
 
+#[cfg(feature = "redis-backend")]
 #[async_trait]
 impl RoutingCache for RedisRoutingCache {
     async fn get_sticky_account_id(&self, sticky_key: &str) -> anyhow::Result<Option<Uuid>> {
@@ -254,6 +259,7 @@ impl RoutingCache for RedisRoutingCache {
 #[derive(Clone)]
 pub struct HybridRoutingCache {
     local: Arc<InMemoryRoutingCache>,
+    #[cfg(feature = "redis-backend")]
     shared: Option<Arc<RedisRoutingCache>>,
     local_sticky_hit_total: Arc<AtomicU64>,
     local_sticky_miss_total: Arc<AtomicU64>,
@@ -272,6 +278,7 @@ impl HybridRoutingCache {
     pub fn local_only(local: Arc<InMemoryRoutingCache>) -> Self {
         Self {
             local,
+            #[cfg(feature = "redis-backend")]
             shared: None,
             local_sticky_hit_total: Arc::new(AtomicU64::new(0)),
             local_sticky_miss_total: Arc::new(AtomicU64::new(0)),
@@ -287,6 +294,7 @@ impl HybridRoutingCache {
         }
     }
 
+    #[cfg(feature = "redis-backend")]
     pub fn with_shared(local: Arc<InMemoryRoutingCache>, shared: Arc<RedisRoutingCache>) -> Self {
         Self {
             local,
@@ -314,32 +322,39 @@ impl RoutingCache for HybridRoutingCache {
             return Ok(Some(account_id));
         }
         self.local_sticky_miss_total.fetch_add(1, Ordering::Relaxed);
-        let Some(shared) = self.shared.as_ref() else {
+        #[cfg(not(feature = "redis-backend"))]
+        {
             return Ok(None);
-        };
-        let shared_hit = shared.get_sticky_account_id(sticky_key).await;
-        match shared_hit {
-            Ok(Some(account_id)) => {
-                self.shared_sticky_hit_total.fetch_add(1, Ordering::Relaxed);
-                let _ = self
-                    .local
-                    .set_sticky_account_id(
-                        sticky_key,
-                        account_id,
-                        DEFAULT_LOCAL_STICKY_REHYDRATE_TTL,
-                    )
-                    .await;
-                Ok(Some(account_id))
-            }
-            Ok(None) => {
-                self.shared_sticky_miss_total
-                    .fetch_add(1, Ordering::Relaxed);
-                Ok(None)
-            }
-            Err(_) => {
-                self.shared_sticky_error_total
-                    .fetch_add(1, Ordering::Relaxed);
-                Ok(None)
+        }
+        #[cfg(feature = "redis-backend")]
+        {
+            let Some(shared) = self.shared.as_ref() else {
+                return Ok(None);
+            };
+            let shared_hit = shared.get_sticky_account_id(sticky_key).await;
+            match shared_hit {
+                Ok(Some(account_id)) => {
+                    self.shared_sticky_hit_total.fetch_add(1, Ordering::Relaxed);
+                    let _ = self
+                        .local
+                        .set_sticky_account_id(
+                            sticky_key,
+                            account_id,
+                            DEFAULT_LOCAL_STICKY_REHYDRATE_TTL,
+                        )
+                        .await;
+                    Ok(Some(account_id))
+                }
+                Ok(None) => {
+                    self.shared_sticky_miss_total
+                        .fetch_add(1, Ordering::Relaxed);
+                    Ok(None)
+                }
+                Err(_) => {
+                    self.shared_sticky_error_total
+                        .fetch_add(1, Ordering::Relaxed);
+                    Ok(None)
+                }
             }
         }
     }
@@ -353,6 +368,7 @@ impl RoutingCache for HybridRoutingCache {
         self.local
             .set_sticky_account_id(sticky_key, account_id, ttl)
             .await?;
+        #[cfg(feature = "redis-backend")]
         if let Some(shared) = self.shared.as_ref() {
             if shared
                 .set_sticky_account_id(sticky_key, account_id, ttl)
@@ -368,6 +384,7 @@ impl RoutingCache for HybridRoutingCache {
 
     async fn delete_sticky_account_id(&self, sticky_key: &str) -> anyhow::Result<()> {
         self.local.delete_sticky_account_id(sticky_key).await?;
+        #[cfg(feature = "redis-backend")]
         if let Some(shared) = self.shared.as_ref() {
             if shared.delete_sticky_account_id(sticky_key).await.is_err() {
                 self.shared_write_error_total
@@ -379,6 +396,7 @@ impl RoutingCache for HybridRoutingCache {
 
     async fn set_unhealthy(&self, account_id: Uuid, ttl: Duration) -> anyhow::Result<()> {
         self.local.set_unhealthy(account_id, ttl).await?;
+        #[cfg(feature = "redis-backend")]
         if let Some(shared) = self.shared.as_ref() {
             if shared.set_unhealthy(account_id, ttl).await.is_err() {
                 self.shared_write_error_total
@@ -396,35 +414,43 @@ impl RoutingCache for HybridRoutingCache {
         }
         self.local_unhealthy_miss_total
             .fetch_add(1, Ordering::Relaxed);
-        let Some(shared) = self.shared.as_ref() else {
+        #[cfg(not(feature = "redis-backend"))]
+        {
             return Ok(false);
-        };
-        let shared_hit = shared.is_unhealthy(account_id).await;
-        match shared_hit {
-            Ok(true) => {
-                self.shared_unhealthy_hit_total
-                    .fetch_add(1, Ordering::Relaxed);
-                let _ = self
-                    .local
-                    .set_unhealthy(account_id, DEFAULT_LOCAL_UNHEALTHY_REHYDRATE_TTL)
-                    .await;
-                Ok(true)
-            }
-            Ok(false) => {
-                self.shared_unhealthy_miss_total
-                    .fetch_add(1, Ordering::Relaxed);
-                Ok(false)
-            }
-            Err(_) => {
-                self.shared_unhealthy_error_total
-                    .fetch_add(1, Ordering::Relaxed);
-                Ok(false)
+        }
+        #[cfg(feature = "redis-backend")]
+        {
+            let Some(shared) = self.shared.as_ref() else {
+                return Ok(false);
+            };
+            let shared_hit = shared.is_unhealthy(account_id).await;
+            match shared_hit {
+                Ok(true) => {
+                    self.shared_unhealthy_hit_total
+                        .fetch_add(1, Ordering::Relaxed);
+                    let _ = self
+                        .local
+                        .set_unhealthy(account_id, DEFAULT_LOCAL_UNHEALTHY_REHYDRATE_TTL)
+                        .await;
+                    Ok(true)
+                }
+                Ok(false) => {
+                    self.shared_unhealthy_miss_total
+                        .fetch_add(1, Ordering::Relaxed);
+                    Ok(false)
+                }
+                Err(_) => {
+                    self.shared_unhealthy_error_total
+                        .fetch_add(1, Ordering::Relaxed);
+                    Ok(false)
+                }
             }
         }
     }
 
     async fn clear_unhealthy(&self, account_id: Uuid) -> anyhow::Result<()> {
         self.local.clear_unhealthy(account_id).await?;
+        #[cfg(feature = "redis-backend")]
         if let Some(shared) = self.shared.as_ref() {
             if shared.clear_unhealthy(account_id).await.is_err() {
                 self.shared_write_error_total

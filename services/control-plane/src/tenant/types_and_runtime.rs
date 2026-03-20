@@ -1021,6 +1021,7 @@ fn default_billing_rule_scope_request() -> String {
     "request".to_string()
 }
 
+#[derive(Debug, Clone)]
 pub struct TenantAuthService {
     pool: PgPool,
     token_ttl_sec: u64,

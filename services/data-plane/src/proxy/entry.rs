@@ -2747,15 +2747,29 @@ async fn pick_account_from_alive_ring(
     excluded_account_ids: &HashSet<Uuid>,
     model: Option<&str>,
 ) -> Option<UpstreamAccount> {
-    let alive_ring = state.alive_ring_router.as_ref()?;
-    let candidate_ids = match alive_ring.next_candidate_ids().await {
-        Ok(ids) => ids,
-        Err(err) => {
-            warn!(error = %err, "failed to fetch alive ring candidates");
-            return None;
-        }
-    };
-    pick_alive_ring_candidate_from_ids(state, &candidate_ids, excluded_account_ids, model)
+    #[cfg(feature = "redis-backend")]
+    {
+        let alive_ring = state.alive_ring_router.as_ref()?;
+        let candidate_ids = match alive_ring.next_candidate_ids().await {
+            Ok(ids) => ids,
+            Err(err) => {
+                warn!(error = %err, "failed to fetch alive ring candidates");
+                return None;
+            }
+        };
+        return pick_alive_ring_candidate_from_ids(
+            state,
+            &candidate_ids,
+            excluded_account_ids,
+            model,
+        );
+    }
+
+    #[cfg(not(feature = "redis-backend"))]
+    {
+        let _ = (state, excluded_account_ids, model);
+        None
+    }
 }
 
 fn pick_alive_ring_candidate_from_ids(
@@ -2950,6 +2964,7 @@ mod entry_route_selection_tests {
             billing_pricing_cache: std::sync::RwLock::new(HashMap::new()),
             models_cache: std::sync::RwLock::new(std::collections::HashMap::new()),
             routing_cache: Arc::new(InMemoryRoutingCache::new()),
+            #[cfg(feature = "redis-backend")]
             alive_ring_router: None,
             seen_ok_reporter,
             event_sink,

@@ -691,6 +691,7 @@ mod ai_error_learning_tests {
             billing_pricing_cache: std::sync::RwLock::new(HashMap::new()),
             models_cache: std::sync::RwLock::new(std::collections::HashMap::new()),
             routing_cache: Arc::new(InMemoryRoutingCache::new()),
+            #[cfg(feature = "redis-backend")]
             alive_ring_router: None,
             seen_ok_reporter: None,
             event_sink: Arc::new(NoopEventSink),

@@ -28,17 +28,24 @@ use crate::auth::validator::{AuthCacheLookupResult, AuthCacheStatsSnapshot, Auth
 use crate::auth::{require_api_key, require_internal_service_token, ApiPrincipal};
 use crate::config::DataPlaneConfig;
 use crate::event::http_sink::ControlPlaneHttpEventSink;
+#[cfg(feature = "redis-backend")]
 use crate::event::redis_sink::RedisStreamEventSink;
 use crate::event::{EventSink, NoopEventSink};
 use crate::outbound_proxy_runtime::OutboundProxyRuntime;
 use crate::proxy::{proxy_handler, proxy_websocket_handler};
 use crate::router::RoundRobinRouter;
-use crate::routing_cache::{
-    HybridRoutingCache, InMemoryRoutingCache, RedisRoutingCache, RoutingCache,
-};
+#[cfg(feature = "redis-backend")]
+use crate::routing_cache::HybridRoutingCache;
+use crate::routing_cache::{InMemoryRoutingCache, RoutingCache};
+#[cfg(feature = "redis-backend")]
+use crate::routing_cache::RedisRoutingCache;
 use crate::upstream_health::{
-    alive_ring_config_from_env, seen_ok_report_config_from_env, AliveRingRouter, SeenOkReporter,
+    seen_ok_report_config_from_env, SeenOkReporter,
 };
+#[cfg(feature = "redis-backend")]
+use crate::upstream_health::alive_ring_config_from_env;
+#[cfg(feature = "redis-backend")]
+use crate::upstream_health::AliveRingRouter;
 
 #[path = "../snapshot.rs"]
 mod snapshot;
@@ -117,6 +124,7 @@ pub struct AppState {
     pub billing_pricing_cache: RwLock<HashMap<String, CachedBillingPricing>>,
     pub models_cache: RwLock<HashMap<String, CachedModelsResponse>>,
     pub routing_cache: Arc<dyn RoutingCache>,
+    #[cfg(feature = "redis-backend")]
     pub alive_ring_router: Option<Arc<AliveRingRouter>>,
     pub seen_ok_reporter: Option<Arc<SeenOkReporter>>,
     pub event_sink: Arc<dyn EventSink>,
@@ -200,10 +208,11 @@ pub enum SnapshotPollerMode {
 
 fn select_event_sink_kind(
     edition: ProductEdition,
-    redis_url: Option<&str>,
+    _redis_url: Option<&str>,
     control_plane_base_url: Option<&str>,
 ) -> EventSinkKind {
-    if redis_url.is_some() {
+    #[cfg(feature = "redis-backend")]
+    if _redis_url.is_some() {
         return EventSinkKind::Redis;
     }
 
@@ -226,6 +235,7 @@ fn build_default_event_sink(config: &DataPlaneConfig) -> anyhow::Result<Arc<dyn 
         config.redis_url.as_deref(),
         control_plane_base_url.as_deref(),
     ) {
+        #[cfg(feature = "redis-backend")]
         EventSinkKind::Redis => {
             let Some(redis_url) = config.redis_url.as_deref() else {
                 return Err(anyhow!("redis event sink selected without redis_url"));
@@ -235,6 +245,8 @@ fn build_default_event_sink(config: &DataPlaneConfig) -> anyhow::Result<Arc<dyn 
                 config.request_log_stream(),
             ))
         }
+        #[cfg(not(feature = "redis-backend"))]
+        EventSinkKind::Redis => Arc::new(NoopEventSink),
         EventSinkKind::ControlPlaneHttp => {
             let Some(base_url) = control_plane_base_url.as_deref() else {
                 return Err(anyhow!(
@@ -406,21 +418,32 @@ async fn build_app_with_options(
         )
     });
     let local_routing_cache = Arc::new(InMemoryRoutingCache::new());
-    let routing_cache: Arc<dyn RoutingCache> = if config.shared_routing_cache_enabled {
-        match config.redis_url.as_deref() {
-            Some(redis_url) => Arc::new(HybridRoutingCache::with_shared(
-                local_routing_cache.clone(),
-                Arc::new(RedisRoutingCache::new(
-                    redis_url,
-                    DEFAULT_ROUTING_CACHE_REDIS_PREFIX,
-                )),
-            )),
-            None => Arc::new(HybridRoutingCache::local_only(local_routing_cache.clone())),
+    let routing_cache: Arc<dyn RoutingCache> = {
+        #[cfg(feature = "redis-backend")]
+        {
+            if config.shared_routing_cache_enabled {
+                match config.redis_url.as_deref() {
+                    Some(redis_url) => Arc::new(HybridRoutingCache::with_shared(
+                        local_routing_cache.clone(),
+                        Arc::new(RedisRoutingCache::new(
+                            redis_url,
+                            DEFAULT_ROUTING_CACHE_REDIS_PREFIX,
+                        )),
+                    )),
+                    None => Arc::new(HybridRoutingCache::local_only(local_routing_cache.clone())),
+                }
+            } else {
+                local_routing_cache
+            }
         }
-    } else {
-        local_routing_cache
+        #[cfg(not(feature = "redis-backend"))]
+        {
+            local_routing_cache
+        }
     };
+    #[cfg(feature = "redis-backend")]
     let alive_ring_config = alive_ring_config_from_env();
+    #[cfg(feature = "redis-backend")]
     let alive_ring_router = if alive_ring_config.enabled {
         config.redis_url.as_deref().and_then(|redis_url| {
             AliveRingRouter::new(
@@ -436,6 +459,8 @@ async fn build_app_with_options(
     } else {
         None
     };
+    #[cfg(not(feature = "redis-backend"))]
+    let _alive_ring_router: Option<()> = None;
     let seen_ok_config = seen_ok_report_config_from_env();
     let seen_ok_reporter = if seen_ok_config.enabled {
         control_plane_base_url.as_ref().and_then(|base_url| {
@@ -504,6 +529,7 @@ async fn build_app_with_options(
         billing_pricing_cache: RwLock::new(HashMap::new()),
         models_cache: RwLock::new(HashMap::new()),
         routing_cache,
+        #[cfg(feature = "redis-backend")]
         alive_ring_router,
         seen_ok_reporter,
         event_sink,

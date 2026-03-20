@@ -14,6 +14,10 @@ clickhouse-backend = ["dep:clickhouse"]
 name = "integration"
 path = "tests/integration.rs"
 
+[[test]]
+name = "dependency_boundaries"
+path = "tests/dependency_boundaries.rs"
+
 [[bin]]
 name = "codex-pool-personal"
 path = "src/bin/codex-pool-personal.rs"

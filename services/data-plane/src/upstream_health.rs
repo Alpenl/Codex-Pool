@@ -34,6 +34,7 @@ struct AliveRingCacheState {
     fetched_at: Option<Instant>,
 }
 
+#[cfg(feature = "redis-backend")]
 #[derive(Clone)]
 pub struct AliveRingRouter {
     client: redis::Client,
@@ -44,6 +45,7 @@ pub struct AliveRingRouter {
     cache_state: Arc<RwLock<AliveRingCacheState>>,
 }
 
+#[cfg(feature = "redis-backend")]
 impl AliveRingRouter {
     pub fn new(
         redis_url: &str,
