@@ -15,9 +15,9 @@
 `control-plane` crate 现在额外提供三个产品名二进制：
 
 ```bash
-cargo build --release -p control-plane --bin codex-pool-personal
-cargo build --release -p control-plane --bin codex-pool-team
-cargo build --release -p control-plane --bin codex-pool-business
+cargo build --release -p control-plane --no-default-features --features sqlite-backend --bin codex-pool-personal
+cargo build --release -p control-plane --no-default-features --features postgres-backend --bin codex-pool-team
+cargo build --release -p control-plane --no-default-features --features postgres-backend,redis-backend,clickhouse-backend,smtp-backend --bin codex-pool-business
 ```
 
 约定：
@@ -25,6 +25,24 @@ cargo build --release -p control-plane --bin codex-pool-business
 - 当 `CODEX_POOL_EDITION` 未显式设置时，这三个二进制会分别默认推断为 `personal`、`team`、`business`。
 - 如果你显式设置了 `CODEX_POOL_EDITION`，环境变量优先级更高。
 - `codex-pool-personal` 和 `codex-pool-team` 适合单机/单容器直接启动；`business` 仍建议使用 Compose 或编排平台管理多服务。
+
+## Cargo 后端家族矩阵
+
+Cargo feature 只表达 backend family，不再表达 edition。推荐的构建/检查命令如下：
+
+| 路径 | 命令 |
+| --- | --- |
+| `personal` | `cargo check -p control-plane --no-default-features --features sqlite-backend --bin codex-pool-personal` |
+| `team` | `cargo check -p control-plane --no-default-features --features postgres-backend --bin codex-pool-team` |
+| `business` | `cargo check -p control-plane --no-default-features --features postgres-backend,redis-backend,clickhouse-backend,smtp-backend --bin codex-pool-business --bin usage-worker --bin edition-migrate` |
+| `data-plane personal/team` | `cargo check -p data-plane --no-default-features` |
+| `data-plane business` | `cargo check -p data-plane --no-default-features --features redis-backend` |
+
+接受准则：
+
+- `personal` 构建树不包含 PostgreSQL / Redis / ClickHouse / SMTP。
+- `team` 构建树不包含 Redis / ClickHouse / SMTP。
+- `business` 才携带 Redis、ClickHouse、SMTP 以及 `usage-worker`。
 
 ## edition-migrate 命令
 

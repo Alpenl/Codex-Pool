@@ -216,6 +216,22 @@ docker compose --env-file docker/.env.team -f docker-compose.team.yml up -d --bu
 | `team` | `docker-compose.team.yml` | `app + postgres` |
 | `business` | `docker-compose.yml` | `control-plane + data-plane + usage-worker + frontend + postgres + pgbouncer + redis + clickhouse` |
 
+### Cargo 后端家族构建矩阵
+
+Cargo feature 现在只表达 backend family，不表达 edition。本仓库的推荐构建命令如下：
+
+| 交付形态 | control-plane / worker 构建命令 |
+| --- | --- |
+| `personal` | `cargo build -p control-plane --no-default-features --features sqlite-backend --bin codex-pool-personal` |
+| `team` | `cargo build -p control-plane --no-default-features --features postgres-backend --bin codex-pool-team` |
+| `business` | `cargo build -p control-plane --no-default-features --features postgres-backend,redis-backend,clickhouse-backend,smtp-backend --bin codex-pool-business --bin usage-worker --bin edition-migrate` |
+
+补充说明：
+
+- `data-plane` 的默认轻依赖路径使用 `cargo check -p data-plane --no-default-features`。
+- 只有 `business` 路径才需要 `cargo check -p data-plane --no-default-features --features redis-backend`。
+- `edition-migrate` 依赖 PostgreSQL family，因此至少需要 `postgres-backend`。
+
 ## 版本与迁移
 
 - 运维指南：[`docs/editions-and-migration.md`](./docs/editions-and-migration.md)
@@ -275,7 +291,10 @@ docker compose --env-file docker/.env.team -f docker-compose.team.yml up -d --bu
 - `CI`（`.github/workflows/ci.yml`）
   - `gitleaks` secrets 扫描
   - Rust `check`：`cargo check --workspace --all-targets --locked`
-  - Rust `business feature check`：`cargo check -p control-plane --features clickhouse-backend --bin codex-pool-business --bin usage-worker --locked`
+  - Rust `edition/backend matrix check`：
+    - `cargo check -p control-plane --no-default-features --features sqlite-backend --bin codex-pool-personal --locked`
+    - `cargo check -p control-plane --no-default-features --features postgres-backend --bin codex-pool-team --locked`
+    - `cargo check -p control-plane --no-default-features --features postgres-backend,redis-backend,clickhouse-backend,smtp-backend --bin codex-pool-business --bin usage-worker --bin edition-migrate --locked`
   - Rust `fast tests`：`cargo test --workspace --lib --bins --locked`
   - Rust `integration tests`：`cargo test -p <control-plane|data-plane> --test integration --locked`
   - Rust `full clippy`：`cargo clippy --workspace --all-targets --locked`

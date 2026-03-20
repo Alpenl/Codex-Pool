@@ -1,12 +1,12 @@
 # Platform Core / Edition Architecture Refactor Implementation Plan
 
-> **For Codex:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. The primary integration owner must keep one dedicated integration worktree, accept every worker branch, and run the final acceptance suite before merge.
+> **For Codex:** 本计划改为由当前会话的主 agent 直接按顺序实施，不再依赖额外 subagents、worker 分支或 integration worktree。所有跨模块集成、验证和计划回填都在当前工作区串行完成。
 
 **Goal:** 把 `personal / team / business` 从“同一坨代码里的运行时裁剪”重构成“共享领域骨架 + 显式 capability matrix + backend family 装配”，同时保持 `personal/team` 的单部署体验、现有升级路径和运行时契约不变。
 
 **Architecture:** 以现有 `codex-pool-core` 为唯一平台 core，收口 edition/capability/error/snapshot/runtime contracts；`control-plane` 与 `data-plane` 各自保留自己的 backend adapters 与组合根；Cargo feature 只表达 backend family，不表达 edition；edition 只负责 capability 和装配，不再负责隐藏依赖树。
 
-**Tech Stack:** Rust workspace（Axum / Tokio / SQLx）、React + Vite、SQLite / PostgreSQL / Redis / ClickHouse、Cargo features、git worktrees、subagents。
+**Tech Stack:** Rust workspace（Axum / Tokio / SQLx）、React + Vite、SQLite / PostgreSQL / Redis / ClickHouse、Cargo features、edition capability matrix。
 
 ---
 
@@ -85,90 +85,18 @@
 - `CONTROL_PLANE_INTERNAL_AUTH_TOKEN` 继续是 control-plane / data-plane / usage-worker 的内部鉴权核心契约。
 - `/health`、`/livez`、`/readyz`、日志流命名、request correlation 行为保持兼容。
 
-## Collaboration Model
+## Execution Model
 
 ### Baseline Rule
 
-- 先在 `main` 落并提交本计划文档。
-- 之后所有实现工作都从本计划提交点重新开新 worktree。
-- 主工作区不做实现，只保留：
-  - 计划文档
-  - 最终集成验收
-  - 冲突消解
+- 本计划由我在当前工作区直接执行，不再新开实现 worktree，也不再拆给 subagents。
+- 默认一次只推进一个主 workstream；如果相邻 workstream 强耦合，可以在同一阶段内连续完成，但仍按既定顺序收口。
+- `Cargo.toml`、共享测试基建、公共 re-export、跨 crate import 与 feature gate 都由我自己在当前阶段直接整合，不再依赖后续 cherry-pick。
+- 每完成一个阶段都要先回填计划中的完成记录和最小验证结果，再进入下一阶段。
 
-### Worktree Layout
+### Sequential Execution Order
 
-主集成人保留一个集成 worktree，其他 worker 各自只改自己拥有的文件集。
-
-| Worktree | Branch | Owner | Ownership |
-| --- | --- | --- | --- |
-| `.worktrees/refactor-integration` | `refactor/edition-architecture-integration` | 主 agent | 统一集成、共享 manifest、冲突解决、最终验收 |
-| `.worktrees/refactor-core-foundation` | `refactor/core-foundation` | `worker` | `crates/codex-pool-core/**` |
-| `.worktrees/refactor-control-entry` | `refactor/control-plane-entry` | `worker` | `services/control-plane/src/main.rs`、`src/bin/**`、`src/config.rs`、`src/single_binary.rs` |
-| `.worktrees/refactor-control-store` | `refactor/control-plane-store` | `worker` | `services/control-plane/src/store/**` |
-| `.worktrees/refactor-control-usage` | `refactor/control-plane-usage` | `worker` | `services/control-plane/src/usage/**`、`src/bin/usage-worker.rs` |
-| `.worktrees/refactor-control-tenant-session` | `refactor/control-plane-tenant-session` | `worker` | `services/control-plane/src/tenant/auth_session.rs`、`src/tenant/admin_ops.rs`、`src/tenant/api_keys_credits.rs` 中 session/self-service 相关部分 |
-| `.worktrees/refactor-control-billing` | `refactor/control-plane-billing` | `worker` | `services/control-plane/src/cost.rs`、`src/tenant/billing_reconcile.rs`、`src/tenant/types_and_runtime.rs` 中 billing 相关部分 |
-| `.worktrees/refactor-data-runtime` | `refactor/data-plane-runtime` | `worker` | `services/data-plane/src/app/**`、`src/event/**`、`src/routing_cache.rs`、`src/upstream_health.rs`、`src/outbound_proxy_runtime.rs` |
-| `.worktrees/refactor-contracts-docs` | `refactor/contracts-docs` | `worker` | `services/*/tests/dependency_boundaries.rs`、edition smoke tests、`README.md`、`docs/editions-and-migration.md`、必要的 frontend capability 契约测试 |
-
-### Subagent Layout
-
-- `worker` 使用 `gpt-5.4` + `xhigh`。
-- `explore_worker` 使用默认配置，仅做只读调研与审计。
-- 实施阶段固定启用 `11` 个 subagents：
-  - `worker` x8：对应上表 8 个实现 worktrees
-  - `explore_worker` x3：
-    - edition/capability 契约审计
-    - 运行运维契约审计
-    - migration / archive / shrink 契约审计
-
-### Ownership Rules
-
-- Worker 只能改自己拥有的目录；跨目录改动一律交给主集成人在 integration worktree 合并。
-- `Cargo.toml`、共享测试基建、公共 re-export、跨 crate import 清理由主集成人负责最终合并，避免多个 worker 冲突。
-- 每个 worker 交付时必须附带：
-  - 变更摘要
-  - 完整 changed files 列表
-  - 已运行命令
-  - 未解决风险
-- 每个 worker 的实现必须原子提交，提交信息遵循仓库提交规范。
-
-### Validation Budget
-
-这轮重构先遵守“验证预算”而不是“谁改完谁全跑”：
-
-- `L0`：只读调研
-  - 仅限 `explore_worker`
-  - 禁止任何 `cargo check` / `cargo test` / `npm build`
-- `L1`：worker 最小验证
-  - 仅限实现 worker
-  - 每个 worker 在单次交付前最多只允许运行 1 个 Rust 验证命令，且必须是最窄的那个
-  - 允许的形式只有两类：
-    - 一个精确测试目标
-    - 一个精确 `cargo check`
-  - 明确禁止：
-    - `cargo test --workspace`
-    - `cargo check --workspace`
-    - 单个 worker 连跑多 edition build matrix
-    - 与自身写入范围无关的集成测试
-- `L2`：integration worktree 包级验证
-  - 只由主集成人执行
-  - 在每个合并阶段末尾串行跑相关包级验证
-- `L3`：最终验收矩阵
-  - 只由主集成人执行
-  - 只在阶段完成或最终验收时运行
-  - 必须串行，禁止与其他 worker 的编译/测试并发
-
-实施约束：
-
-- 任何 worker 如果发现自己需要第二个 Rust 验证命令，必须先停止并把原因汇报给主集成人，由主集成人决定是否提升到 `L2`。
-- `frontend` 相关验证只允许 `contracts-docs` worker 运行，而且默认只跑最小相关测试，不跑全量前端构建；全量 `frontend build` 留到 `L3`。
-- 重编译成本最高的命令统一收归 integration worktree；worker 负责“把改动做对”，主集成人负责“把矩阵跑全”。
-
-### Merge Order
-
-必须按以下顺序集成，不能并行乱合：
+必须按以下顺序推进，不能跳过依赖顺序：
 
 1. `core-foundation`
 2. `data-plane-runtime`
@@ -186,6 +114,47 @@
 - `tenant-session` 和 `billing` 都依赖新的 store/usage 边界。
 - `control-plane-entry` 必须最后吃入前面所有装配变化。
 - `contracts-docs` 需要在结构稳定后补最终护栏和文档。
+
+### Ownership Rules
+
+- 同一时刻只改一个主 workstream 的核心文件集；如果必须跨目录调整，以“为当前 workstream 解锁”为边界一次性收口，不把半成品留给后续阶段。
+- `Cargo.toml`、共享测试基建、公共 re-export、跨 crate import 清理由我在当前阶段直接完成。
+- 每个 workstream 完成后都要回填：
+  - 变更摘要
+  - 完整 changed files 列表
+  - 已运行命令
+  - 未解决风险
+- 如需提交，提交必须保持原子，并遵循仓库提交规范。
+
+### Validation Budget
+
+这轮重构继续遵守“验证预算”而不是“每一步都全量跑”：
+
+- `L0`：只读调研
+  - 只允许代码阅读、契约盘点和计划更新
+  - 禁止任何 `cargo check` / `cargo test` / `npm build`
+- `L1`：当前 workstream 最小验证
+  - 每个 workstream 在单次收尾前最多只运行 1 个 Rust 验证命令，且必须是最窄的那个
+  - 允许的形式只有两类：
+    - 一个精确测试目标
+    - 一个精确 `cargo check`
+  - 明确禁止：
+    - `cargo test --workspace`
+    - `cargo check --workspace`
+    - 在同一 workstream 收尾时连续跑多 edition build matrix
+    - 与当前写入范围无关的集成测试
+- `L2`：阶段检查
+  - 由我在完成一组强耦合 workstreams 后串行执行相关包级验证
+  - 用于吸收跨 crate / 跨 manifest 的真实集成成本
+- `L3`：最终验收矩阵
+  - 只在阶段完成或最终验收时运行
+  - 必须串行，避免与其他重编译任务叠加
+
+实施约束：
+
+- 如果当前 workstream 需要第二个 Rust 验证命令，先暂停并判断是否应把剩余验证推迟到 `L2` 阶段检查。
+- `frontend` 相关验证默认只在 `contracts-docs` 阶段跑最小相关测试，不跑全量前端构建；全量 `frontend build` 留到 `L3`。
+- 重编译成本最高的命令统一收归阶段检查与最终验收；平时优先验证“当前改动是否成立”。
 
 ## Target Architecture
 
@@ -254,9 +223,6 @@
 
 ### Workstream 1: Core Capability Foundation
 
-**Worktree:** `.worktrees/refactor-core-foundation`  
-**Branch:** `refactor/core-foundation`
-
 **Files:**
 - Modify: `crates/codex-pool-core/src/lib.rs`
 - Modify: `crates/codex-pool-core/src/api.rs`
@@ -283,14 +249,24 @@
 - `cargo check -p control-plane --bin codex-pool-personal`
 - `cargo check -p data-plane --no-default-features`
 
-**Handoff Requirements:**
-- 给主集成人一份“已拆出模块 / 待迁出 DTO”清单。
+**Completion Notes:**
+- 阶段进展（2026-03-20）：
+  - 已新增 `edition.rs`、`error.rs`、`snapshot.rs`、`runtime_contract.rs`
+  - 已新增 `ProductEdition::resolve_runtime_edition`，把 env 优先于二进制名的解析契约沉到 core
+  - `codex-pool-core` 根模块已兼容 re-export edition/error/snapshot/runtime contract，便于后续服务逐步迁移导入路径
+  - `api.rs` 已改为对上述核心契约做兼容 re-export，未直接改动 `services/**`
+  - `api.rs` 中剩余 control-plane 专用 DTO 已按 `to_move` 分组标注：
+    - `control-plane-admin`
+    - `control-plane-routing`
+    - `control-plane-usage`
+    - `control-plane-import`
+  - 已通过 `edition::tests::product_edition_infers_from_binary_name`
+  - 已通过 `edition::tests::product_edition_resolves_env_before_binary_name`
+  - 已通过 `tests::root_re_exports_core_contracts`
+- 在计划回填中记录一份“已拆出模块 / 待迁出 DTO”清单。
 - 不直接改 `services/**`。
 
 ### Workstream 2: Data-Plane Runtime And Adapter Boundaries
-
-**Worktree:** `.worktrees/refactor-data-runtime`  
-**Branch:** `refactor/data-plane-runtime`
 
 **Files:**
 - Modify: `services/data-plane/Cargo.toml`
@@ -320,14 +296,33 @@
 - `cargo test -p data-plane compatibility -- --nocapture`
 - `cargo test -p data-plane compatibility_ws -- --nocapture`
 
-**Handoff Requirements:**
-- 说明新增 runtime profile helper 的输入输出。
+**Completion Notes:**
+- 阶段进展（2026-03-20）：
+  - 已在 `bootstrap.rs` 新增 `RoutingCacheKind` 与 `select_routing_cache_kind(...)`
+  - 已把 routing cache 的默认选择逻辑收口到显式 helper
+  - 已进一步新增 `resolve_runtime_adapter_profile(...)`，统一输出 `event_sink_kind + routing_cache_kind`
+  - 已把 `EventSinkKind::Redis`、`RoutingCacheKind::SharedRedis`、alive-ring 相关 helper/常量收紧到 `redis-backend` feature 边界内，避免默认构建残留死分支
+  - 已修正默认无 `redis-backend` 时的测试边界：
+    - `tests/event_sink.rs` 改为仅在 `redis-backend` 下编译
+    - `bootstrap` 中 Redis 专属断言改为按 feature 分流
+    - `tests/snapshot_sync.rs` 中 `alive_ring_router` 改为条件编译字段
+    - `proxy/entry.rs` 中 alive-ring 专属测试与 test helper 改为按 feature 编译
+  - 已通过 `app::bootstrap_tests::select_routing_cache_kind_stays_local_without_shared_redis`
+  - 已通过 `app::bootstrap_tests::resolve_runtime_adapter_profile_uses_control_plane_http_and_local_cache_without_redis`
+  - 已通过 `app::bootstrap_tests::resolve_runtime_adapter_profile_prefers_redis_backends_when_available`
+  - 已通过 `env RUSTFLAGS=-Dwarnings cargo check -p data-plane --no-default-features`
+- `resolve_runtime_adapter_profile(...)` 输入：
+  - `ProductEdition`
+  - `control_plane_base_url`
+  - `shared_routing_cache_enabled`
+  - `redis_url`
+- `resolve_runtime_adapter_profile(...)` 输出：
+  - `event_sink_kind`
+  - `routing_cache_kind`
+- 已通过 `env RUSTFLAGS=-Dwarnings cargo test -p data-plane --no-default-features --lib resolve_runtime_adapter_profile -- --nocapture`
 - 标注所有 `#[cfg(feature = "redis-backend")]` 变更点。
 
 ### Workstream 3: Control-Plane Store Boundary Split
-
-**Worktree:** `.worktrees/refactor-control-store`  
-**Branch:** `refactor/control-plane-store`
 
 **Files:**
 - Modify: `services/control-plane/src/store.rs`
@@ -349,7 +344,7 @@
   - `EditionMigrationStore`
 - 允许先保留一个过渡 facade，但 facade 不再暴露 `PgPool`。
 - SQLite 与 Postgres 都要对齐到同一组 ports；不接受“SQLite 继续特殊一层”。
-- 为后续 worker 提供明确 constructor：
+- 为后续阶段提供明确 constructor：
   - `build_sqlite_store_ports(...)`
   - `build_postgres_store_ports(...)`
 
@@ -358,14 +353,26 @@
 - `cargo test -p control-plane postgres_repo -- --nocapture`
 - `cargo test -p control-plane integration -- --nocapture`
 
-**Handoff Requirements:**
-- 输出 ports 列表与对应实现映射表。
-- 明确哪些旧 facade 方法已经被清空，哪些仍在过渡保留。
+**Completion Notes:**
+- 已在 `store/defs.rs` 新增过渡 ports：
+  - `SnapshotPolicyStore`
+  - `TenantCatalogStore`
+  - `OAuthRuntimeStore`
+  - `EditionMigrationStore`
+  - `RuntimeStorePorts`
+- 已为 `InMemoryStore` / `SqliteBackedStore` / `PostgresStore` 对齐到同一组 ports，并新增：
+  - `build_sqlite_store_ports(...)`
+  - `build_postgres_store_ports(...)`
+- 已移除 facade 对 `PgPool` 的直接暴露，`PostgresStore` 改为只保留 `clone_pool()`；相关测试已同步改造。
+- 已修正 `sqlite_backed.rs` 与 `store/migration.rs` 在新增 blanket impl 后出现的方法歧义，显式回到 `ControlPlaneStore` 分派。
+- Ports 到实现的当前映射：
+  - `SnapshotPolicyStore` -> `InMemoryStore` / `SqliteBackedStore` / `PostgresStore`
+  - `TenantCatalogStore` -> `InMemoryStore` / `SqliteBackedStore` / `PostgresStore`
+  - `OAuthRuntimeStore` -> `InMemoryStore` / `SqliteBackedStore` / `PostgresStore`
+  - `EditionMigrationStore` -> `InMemoryStore` / `SqliteBackedStore` / `PostgresStore`
+- 旧 `ControlPlaneStore` 仍作为过渡 facade 保留，用于组合根和既有调用点平滑迁移，但 backend-specific primitive 已从 public surface 收口。
 
 ### Workstream 4: Control-Plane Usage Backend Split
-
-**Worktree:** `.worktrees/refactor-control-usage`  
-**Branch:** `refactor/control-plane-usage`
 
 **Files:**
 - Modify: `services/control-plane/src/usage/mod.rs`
@@ -397,14 +404,21 @@
 - `cargo check -p control-plane --no-default-features --features postgres-backend --bin codex-pool-team`
 - `cargo check -p control-plane --no-default-features --features postgres-backend,redis-backend,clickhouse-backend,smtp-backend --bin codex-pool-business --bin usage-worker`
 
-**Handoff Requirements:**
-- 给出三档 edition 的 usage backend 选择表。
-- 说明哪些测试仍需要主集成人在 integration worktree 补线。
+**Completion Notes:**
+- 已把 usage topology 固化为 runtime/backend family 选择，而不是 edition feature 混用：
+  - `personal` = SQLite store + SQLite usage query/ingest
+  - `team` = Postgres store + Postgres usage query/ingest
+  - `business` = Postgres store + ClickHouse usage query + Redis stream ingestion + `usage-worker`
+- `usage/mod.rs` 与 `usage/migration.rs` 已按 feature gate 收口：
+  - `clickhouse-backend` 才编译 ClickHouse query path
+  - `redis-backend` 才编译 Redis ingestion/worker path
+- `Cargo.toml` 已把 `usage-worker` 限制到 `redis-backend,clickhouse-backend` 路径。
+- `services/control-plane/tests/dependency_boundaries.rs` 已覆盖：
+  - `personal` tree 不含 `sqlx-postgres` / `redis` / `clickhouse` / `lettre`
+  - `team` tree 不含 `redis` / `clickhouse` / `lettre`
+- 本 workstream 最终以阶段检查与最终验收矩阵收尾，不再单独保留 integration worktree 的额外补线任务。
 
 ### Workstream 5: Tenant Session Core And Self-Service Adapter
-
-**Worktree:** `.worktrees/refactor-control-tenant-session`  
-**Branch:** `refactor/control-plane-tenant-session`
 
 **Files:**
 - Modify: `services/control-plane/src/tenant.rs`
@@ -427,14 +441,25 @@
 - `cargo check -p control-plane --no-default-features --features postgres-backend --bin codex-pool-team`
 - `cargo check -p control-plane --no-default-features --features sqlite-backend --bin codex-pool-personal`
 
-**Handoff Requirements:**
-- 给出 session core 与 self-service 的新边界说明。
-- 标注所有需要 `smtp-backend` gate 的入口。
+**Completion Notes:**
+- 已将 tenant 认证实现拆分为：
+  - `session_core.rs`：JWT、cookie、principal、impersonation、登录校验
+  - `self_service.rs`：注册、邮箱验证、找回密码、重置密码、SMTP 发送
+- `tenant.rs` 已按 backend family gate 收口：
+  - `postgres-backend` 才编译 auth/session/admin/billing audit 相关模块
+  - 非 `postgres-backend` 统一走 `tenant/no_postgres.rs`
+- 所有 self-service 入口都已显式要求 `smtp-backend`：
+  - `register`
+  - `verify_email`
+  - `forgot_password`
+  - `reset_password`
+- 在无 `smtp-backend` 时，上述入口统一返回稳定错误：`tenant self-service requires the smtp-backend cargo feature`。
+- 验证结果表明：
+  - `team` 保留 tenant portal 登录
+  - `team` 继续隐藏 self-service / credit 路径
+  - `personal` 通过 capability shell routing 回落到 admin shell，不暴露 tenant portal 首屏
 
 ### Workstream 6: Billing Core Extraction
-
-**Worktree:** `.worktrees/refactor-control-billing`  
-**Branch:** `refactor/control-plane-billing`
 
 **Files:**
 - Modify: `services/control-plane/src/cost.rs`
@@ -455,14 +480,17 @@
 - `cargo check -p control-plane --no-default-features --features postgres-backend --bin codex-pool-team`
 - `cargo check -p control-plane --no-default-features --features postgres-backend,redis-backend,clickhouse-backend,smtp-backend --bin codex-pool-business`
 
-**Handoff Requirements:**
-- 提供 `cost_report_only` 与 `credit_enforced` 的最终行为表。
-- 标注仍依赖 Postgres 的 billing 数据入口。
+**Completion Notes:**
+- 已新增 `tenant/billing_core.rs`，把 pricing/authorize/capture/release 相关纯策略从 `types_and_runtime.rs` 与 `audit_and_utils.rs` 抽离。
+- `personal/team` 与 `business` 的最终 billing 行为表：
+  - `personal` -> `cost_report_only`
+  - `team` -> `cost_report_only`
+  - `business` -> `credit_enforced`
+- route handler 与后台 reconcile runtime 已共享同一套 billing policy helper，不再各自埋逻辑。
+- 仍依赖 Postgres 的 billing 数据入口保留在 tenant runtime / reconcile 持久化路径中；纯 pricing policy 已 backend-neutral。
+- `billing_reconcile_enabled` 现在由 runtime profile 的 `BillingMode` 决定，只在 `business` 路径开启。
 
 ### Workstream 7: Control-Plane Composition Root Refactor
-
-**Worktree:** `.worktrees/refactor-control-entry`  
-**Branch:** `refactor/control-plane-entry`
 
 **Files:**
 - Modify: `services/control-plane/Cargo.toml`
@@ -495,14 +523,34 @@
 - `cargo test -p control-plane single_binary::tests -- --nocapture`
 - `cargo test -p control-plane --lib --bins`
 
-**Handoff Requirements:**
-- 输出 runtime profile 类型定义与 edition/backend/profile 对照表。
-- 标出仍由主集成人解决的 manifest 冲突。
+**Completion Notes:**
+- 已新增 `runtime_profile.rs`，引入：
+  - `DeploymentShape`
+  - `StoreBackendFamily`
+  - `UsageQueryBackendFamily`
+  - `UsageIngestBackendFamily`
+  - `BackendProfile`
+  - `resolve_backend_profile(...)`
+- edition/backend/profile 对照表：
+  - `personal` -> `SingleBinary + Sqlite + Sqlite query/ingest + CostReportOnly`
+  - `team` -> `SingleBinary + Postgres(or InMemory fallback) + Postgres query/ingest + CostReportOnly`
+  - `business` -> `MultiService + Postgres(or InMemory fallback) + ClickHouse query + Redis ingestion + CreditEnforced`
+- `main.rs` 已按组合根 helper 收口：
+  - `resolve_runtime_edition`
+  - `resolve_backend_profile`
+  - `build_store_bundle`
+  - `build_usage_bundle`
+  - `build_app_with_store_and_services`
+  - 后台任务注册沿 runtime profile 和 capability 决策执行
+- `Cargo.toml` 已固化 backend family features：
+  - `sqlite-backend`
+  - `postgres-backend`
+  - `redis-backend`
+  - `clickhouse-backend`
+  - `smtp-backend`
+- 当前阶段没有残留 manifest 冲突；三档 control-plane build matrix 与 `usage-worker` / `edition-migrate` 都已通过最终验收命令。
 
 ### Workstream 8: Contracts, Guardrails, Docs
-
-**Worktree:** `.worktrees/refactor-contracts-docs`  
-**Branch:** `refactor/contracts-docs`
 
 **Files:**
 - Modify: `services/control-plane/tests/dependency_boundaries.rs`
@@ -528,21 +576,40 @@
 - `cd frontend && npm test -- edition-shell-routing`
 - `cd frontend && npm run build`
 
-**Handoff Requirements:**
-- 输出最终 acceptance matrix 表格。
-- 标出所有外部契约验证点。
+**Completion Notes:**
+- 最终 acceptance matrix（2026-03-20）：
+  - `cargo test -p codex-pool-core`
+  - `cargo test -p control-plane --test dependency_boundaries -- --nocapture`
+  - `cargo test -p data-plane --test dependency_boundaries -- --nocapture`
+  - `env RUSTFLAGS=-Dwarnings cargo check -p control-plane --no-default-features --features sqlite-backend --bin codex-pool-personal`
+  - `env RUSTFLAGS=-Dwarnings cargo check -p control-plane --no-default-features --features postgres-backend --bin codex-pool-team`
+  - `env RUSTFLAGS=-Dwarnings cargo check -p control-plane --no-default-features --features postgres-backend,redis-backend,clickhouse-backend,smtp-backend --bin codex-pool-business --bin usage-worker --bin edition-migrate`
+  - `env RUSTFLAGS=-Dwarnings cargo check -p data-plane --no-default-features`
+  - `env RUSTFLAGS=-Dwarnings cargo check -p data-plane --no-default-features --features redis-backend`
+  - `cargo test -p control-plane single_binary::tests -- --nocapture`
+  - `cargo test -p control-plane --lib --no-default-features --features postgres-backend,redis-backend,clickhouse-backend,smtp-backend -- --nocapture`
+  - `cargo test -p data-plane compatibility -- --nocapture`
+  - `cargo test -p data-plane compatibility_ws -- --nocapture`
+  - `cd frontend && node --experimental-strip-types --test src/lib/edition-shell-routing.test.ts`
+  - `cd frontend && npm run build`
+- 外部契约验证点：
+  - core edition/capability/error/snapshot/runtime contract re-export 兼容
+  - control-plane dependency tree 对 personal/team 的重依赖裁剪
+  - data-plane HTTP / WebSocket compatibility 契约
+  - frontend shell routing capability gating
+  - single-binary merge 行为
+- 剩余债务：
+  - `crates/codex-pool-core/src/api.rs` 中标记为 `to_move(...)` 的 control-plane 专用 DTO 仍为过渡保留，后续可继续从 core 迁出，但不阻塞本轮架构重构验收。
 
-## Integration Worktree Duties
+## Cross-Cutting Integration Duties
 
-集成 worktree 只由主 agent 维护，职责固定：
+所有跨 workstream 的统一收口都由我在当前工作区直接完成，职责固定：
 
-- 创建分支：`refactor/edition-architecture-integration`
-- 依次 cherry-pick 各 worker 的原子提交
 - 统一解决：
   - `Cargo.toml`
   - shared import/re-export
   - crate public API 对齐
-  - 跨 worktree 测试修线
+  - 跨阶段测试修线
 - 统一补最后一层“只能在全局看清”的改动：
   - 共享 helper 的最终归属
   - 跨 crate feature gate
@@ -550,14 +617,14 @@
 
 ## Acceptance Plan
 
-### Fast Checks Per Worker
+### Fast Checks Per Workstream
 
-- Worker 只跑自己 workstream 的最小验证集合。
-- 不允许在 worker 阶段默认跑整仓全量。
+- 当前 workstream 只跑自己的最小验证集合。
+- 不允许在早期阶段默认跑整仓全量。
 
-### Final Acceptance In Integration Worktree
+### Final Acceptance In Current Workspace
 
-主 agent 在 integration worktree 必跑以下命令：
+在当前工作区完成阶段收尾或最终验收时，必须串行跑以下命令：
 
 ```bash
 cargo test -p codex-pool-core
@@ -571,6 +638,7 @@ cargo check -p data-plane --no-default-features --features redis-backend
 cargo test -p control-plane single_binary::tests -- --nocapture
 cargo test -p data-plane compatibility -- --nocapture
 cargo test -p data-plane compatibility_ws -- --nocapture
+cd frontend && node --experimental-strip-types --test src/lib/edition-shell-routing.test.ts
 cd frontend && npm run build
 ```
 
@@ -622,20 +690,19 @@ cd frontend && npm run build
 - `team` 不编译 SMTP/self-service 路径。
 - `personal` 不暴露 tenant portal，不编译 Postgres / Redis / ClickHouse / SMTP 路径。
 - `business` 继续保留 ClickHouse、Redis、SMTP 和完整 credit billing。
-- 如果某个 control-plane DTO 目前同时被两边引用，但本轮来不及安全迁出，可先在 `codex-pool-core` 过渡保留并加 `to_move` 分组，必须在 integration worktree 记录剩余债务。
+- 如果某个 control-plane DTO 目前同时被两边引用，但本轮来不及安全迁出，可先在 `codex-pool-core` 过渡保留并加 `to_move` 分组，必须在本计划回填中记录剩余债务。
 
 ## Todo
 
-- [ ] 在 `main` 提交本计划文档，作为所有新 worktree 的统一基线
-- [ ] 创建 integration worktree 与 8 个 worker worktrees
-- [ ] 创建 8 个 `worker(gpt-5.4/xhigh)` 与 3 个 `explore_worker`
-- [ ] 完成 `codex-pool-core` 模块净化与 capability single source of truth 固化
-- [ ] 为 `data-plane` 补齐 dependency boundary tests 并收口 runtime adapter 选择
-- [ ] 拆出 `control-plane` store ports，移除 facade 对 `PgPool` 的暴露
-- [ ] 收口 `control-plane` usage 三层 backend topology
-- [ ] 拆出 tenant session core 与 self-service adapter
-- [ ] 提取 billing core，并把 `personal/team` 固化为 `cost_report_only`
-- [ ] 重构 `control-plane` 组合根与 backend family feature 装配
-- [ ] 补齐 contracts/docs workstream，包括 frontend capability 护栏
-- [ ] 在 integration worktree 完成按顺序 cherry-pick、冲突消解和全量验收
-- [ ] 回填本计划的完成状态、验证命令和剩余债务
+- [x] 把本计划改写为“当前会话主 agent 顺序执行”的实施版本
+- [x] 在当前工作区按顺序推进 8 个 workstreams，并持续回填阶段记录
+- [x] 完成 `codex-pool-core` 模块净化与 capability single source of truth 固化
+- [x] 为 `data-plane` 补齐 dependency boundary tests 并收口 runtime adapter 选择
+- [x] 拆出 `control-plane` store ports，移除 facade 对 `PgPool` 的暴露
+- [x] 收口 `control-plane` usage 三层 backend topology
+- [x] 拆出 tenant session core 与 self-service adapter
+- [x] 提取 billing core，并把 `personal/team` 固化为 `cost_report_only`
+- [x] 重构 `control-plane` 组合根与 backend family feature 装配
+- [x] 补齐 contracts/docs workstream，包括 frontend capability 护栏
+- [x] 在当前工作区完成跨 workstream 收口、阶段检查和最终验收矩阵
+- [x] 回填本计划的完成状态、验证命令和剩余债务
