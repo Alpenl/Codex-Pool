@@ -62,7 +62,10 @@ fn apply_normalized_private_rate_limit_headers(
     target_headers: &mut HeaderMap,
     source_headers: &HeaderMap,
 ) {
-    let Some(snapshot) = observed_rate_limits_from_headers(source_headers).into_iter().next() else {
+    let Some(snapshot) = observed_rate_limits_from_headers(source_headers)
+        .into_iter()
+        .next()
+    else {
         return;
     };
 
@@ -133,7 +136,11 @@ fn apply_normalized_private_rate_limit_headers(
     }
 }
 
-fn insert_private_rate_limit_header(target_headers: &mut HeaderMap, name: &'static str, value: &str) {
+fn insert_private_rate_limit_header(
+    target_headers: &mut HeaderMap,
+    name: &'static str,
+    value: &str,
+) {
     if let Ok(parsed) = HeaderValue::from_str(value) {
         target_headers.insert(HeaderName::from_static(name), parsed);
     }
@@ -496,18 +503,14 @@ impl WsLogicalResponseTracker {
 
         let request_id = extract_ws_request_id(value);
         if let Some(request_id) = request_id.as_deref() {
-            if let Some(tracked) = self
-                .active_by_response_id
-                .values()
-                .find(|tracked| tracked.seed.request_id.as_deref() == Some(request_id) && !tracked.response_started)
-            {
+            if let Some(tracked) = self.active_by_response_id.values().find(|tracked| {
+                tracked.seed.request_id.as_deref() == Some(request_id) && !tracked.response_started
+            }) {
                 return Some(tracked.clone());
             }
-            if let Some(tracked) = self
-                .pending_requests
-                .iter()
-                .find(|tracked| tracked.seed.request_id.as_deref() == Some(request_id) && !tracked.response_started)
-            {
+            if let Some(tracked) = self.pending_requests.iter().find(|tracked| {
+                tracked.seed.request_id.as_deref() == Some(request_id) && !tracked.response_started
+            }) {
                 return Some(tracked.clone());
             }
         }
@@ -529,21 +532,20 @@ impl WsLogicalResponseTracker {
 
         let request_id = extract_ws_request_id(value);
         if let Some(request_id) = request_id.as_deref() {
-            if let Some(active_response_id) = self
-                .active_by_response_id
-                .iter()
-                .find_map(|(response_id, tracked)| {
-                    (tracked.seed.request_id.as_deref() == Some(request_id) && !tracked.response_started)
-                        .then(|| response_id.clone())
-                })
+            if let Some(active_response_id) =
+                self.active_by_response_id
+                    .iter()
+                    .find_map(|(response_id, tracked)| {
+                        (tracked.seed.request_id.as_deref() == Some(request_id)
+                            && !tracked.response_started)
+                            .then(|| response_id.clone())
+                    })
             {
                 return self.active_by_response_id.remove(&active_response_id);
             }
-            if let Some(index) = self
-                .pending_requests
-                .iter()
-                .position(|tracked| tracked.seed.request_id.as_deref() == Some(request_id) && !tracked.response_started)
-            {
+            if let Some(index) = self.pending_requests.iter().position(|tracked| {
+                tracked.seed.request_id.as_deref() == Some(request_id) && !tracked.response_started
+            }) {
                 return self.pending_requests.remove(index);
             }
         }
@@ -631,7 +633,11 @@ impl std::fmt::Display for ProxyWebSocketStreamError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UpstreamClosed(close) => {
-                write!(f, "upstream websocket closed code={} reason={}", close.code, close.reason)
+                write!(
+                    f,
+                    "upstream websocket closed code={} reason={}",
+                    close.code, close.reason
+                )
             }
         }
     }
@@ -861,6 +867,7 @@ async fn proxy_websocket_streams(
                                             &ws_usage_context,
                                             next_account_id,
                                             &original_tracked,
+                                            error_context,
                                         )
                                         .await
                                     {
@@ -1084,9 +1091,12 @@ async fn build_retried_ws_tracked_request(
     ws_usage_context: &WsLogicalUsageConnectionContext,
     next_account_id: Uuid,
     tracked: &WsTrackedResponse,
+    error_context: &UpstreamErrorContext,
 ) -> Option<WsTrackedResponse> {
     let original_request_text = tracked.replay_request_texts.last()?.clone();
-    let value = parse_ws_json_text(&original_request_text)?;
+    let retried_request_text =
+        rewrite_ws_retry_request_text(&original_request_text, error_context)?;
+    let value = parse_ws_json_text(&retried_request_text)?;
     let parsed_policy_context =
         parse_ws_request_policy_context(&ws_usage_context.request_headers, &value);
     let pending_billing_session = match build_pending_billing_session(
@@ -1123,6 +1133,9 @@ async fn build_retried_ws_tracked_request(
     };
 
     let mut retried = tracked.clone();
+    if let Some(last_request_text) = retried.replay_request_texts.last_mut() {
+        *last_request_text = retried_request_text;
+    }
     retried.billing_session = billing_session;
     retried.response_started = false;
     Some(retried)
@@ -1130,6 +1143,28 @@ async fn build_retried_ws_tracked_request(
 
 fn parse_ws_json_text(text: &str) -> Option<Value> {
     serde_json::from_str::<Value>(text).ok()
+}
+
+fn rewrite_ws_retry_request_text(
+    original_request_text: &str,
+    error_context: &UpstreamErrorContext,
+) -> Option<String> {
+    if !matches!(
+        error_context.error_code.as_deref(),
+        Some("previous_response_not_found")
+    ) {
+        return Some(original_request_text.to_string());
+    }
+
+    let mut value = parse_ws_json_text(original_request_text)?;
+    if value
+        .get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|item| item == "response.create")
+    {
+        value.as_object_mut()?.remove("previous_response_id");
+    }
+    serde_json::to_string(&value).ok()
 }
 
 fn extract_observed_rate_limits_from_ws_message(
@@ -1217,7 +1252,10 @@ fn build_rewritten_ws_rate_limit_event(value: &Value) -> Option<Value> {
     );
 
     let mut event = serde_json::Map::new();
-    event.insert("type".to_string(), Value::String("codex.rate_limits".to_string()));
+    event.insert(
+        "type".to_string(),
+        Value::String("codex.rate_limits".to_string()),
+    );
     if let Some(plan_type) = snapshot.plan_type.as_ref() {
         event.insert("plan_type".to_string(), Value::String(plan_type.clone()));
     }
@@ -1234,7 +1272,9 @@ fn build_rewritten_ws_rate_limit_event(value: &Value) -> Option<Value> {
     Some(Value::Object(event))
 }
 
-fn observed_rate_limit_window_from_ws_value(value: Option<&Value>) -> Option<ObservedRateLimitWindow> {
+fn observed_rate_limit_window_from_ws_value(
+    value: Option<&Value>,
+) -> Option<ObservedRateLimitWindow> {
     let value = value?;
     Some(ObservedRateLimitWindow {
         used_percent: value.get("used_percent")?.as_f64()?,
@@ -1262,7 +1302,10 @@ fn observed_credits_from_ws_value(value: Option<&Value>) -> Option<ObservedCredi
 
 fn serialize_ws_rate_limit_window(window: &ObservedRateLimitWindow) -> Value {
     let mut value = serde_json::Map::new();
-    value.insert("used_percent".to_string(), serde_json::json!(window.used_percent));
+    value.insert(
+        "used_percent".to_string(),
+        serde_json::json!(window.used_percent),
+    );
     value.insert(
         "window_minutes".to_string(),
         window
@@ -1357,8 +1400,10 @@ async fn connect_same_account_upstream_for_ws_session(
         ws_usage_context.requested_subprotocol.is_some(),
     )
     .ok()?;
-    let Ok((_selected_route, upstream_socket, _)) =
-        state.outbound_proxy_runtime.connect_websocket(upstream_request).await
+    let Ok((_selected_route, upstream_socket, _)) = state
+        .outbound_proxy_runtime
+        .connect_websocket(upstream_request)
+        .await
     else {
         return None;
     };
@@ -1432,7 +1477,10 @@ async fn connect_failover_upstream_for_ws_session(
             }
         };
 
-        let connect_result = state.outbound_proxy_runtime.connect_websocket(upstream_request).await;
+        let connect_result = state
+            .outbound_proxy_runtime
+            .connect_websocket(upstream_request)
+            .await;
         match connect_result {
             Ok((_selected_route, upstream_socket, _)) => {
                 if let Some(sticky_key) = ws_usage_context.sticky_key.as_deref() {
@@ -1548,9 +1596,7 @@ fn ws_billing_phase_for_release_reason(release_reason: &str) -> &'static str {
         WS_RELEASE_REASON_MISSING_USAGE => WS_BILLING_RELEASED_MISSING_USAGE_PHASE,
         WS_RELEASE_REASON_RESPONSE_INCOMPLETE
         | WS_RELEASE_REASON_RESPONSE_FAILED
-        | WS_RELEASE_REASON_UPSTREAM_ERROR => {
-            WS_BILLING_RELEASED_INCOMPLETE_PHASE
-        }
+        | WS_RELEASE_REASON_UPSTREAM_ERROR => WS_BILLING_RELEASED_INCOMPLETE_PHASE,
         _ => WS_BILLING_RELEASED_INTERRUPTED_PHASE,
     }
 }
@@ -1563,10 +1609,9 @@ async fn ws_error_message_from_response(error_response: Response) -> AxumWsMessa
     let error = serde_json::from_slice::<Value>(&body_bytes)
         .ok()
         .and_then(|value| value.get("error").cloned())
-        .unwrap_or_else(|| serde_json::json!(ErrorEnvelope::new(
-            "internal_error",
-            "request failed",
-        )));
+        .unwrap_or_else(|| {
+            serde_json::json!(ErrorEnvelope::new("internal_error", "request failed",))
+        });
     AxumWsMessage::Text(
         serde_json::json!({
             "type": "error",
@@ -1693,7 +1738,10 @@ fn ws_string_at_path<'a>(value: &'a Value, path: &[&str]) -> Option<&'a str> {
     for key in path {
         current = current.get(*key)?;
     }
-    current.as_str().map(str::trim).filter(|item| !item.is_empty())
+    current
+        .as_str()
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
 }
 
 fn extract_ws_event_type(value: &Value) -> Option<&str> {
@@ -1739,7 +1787,10 @@ fn is_ws_response_created_event(value: &Value) -> bool {
 }
 
 fn is_ws_response_completed_event(value: &Value) -> bool {
-    matches!(extract_ws_event_type(value), Some("response.completed" | "response.done"))
+    matches!(
+        extract_ws_event_type(value),
+        Some("response.completed" | "response.done")
+    )
 }
 
 fn is_ws_response_incomplete_event(value: &Value) -> bool {
@@ -1835,12 +1886,11 @@ mod tests {
         build_upstream_url, build_upstream_ws_url, compose_upstream_path, ejection_ttl_for_status,
         ensure_client_version_query, extract_observed_rate_limits_from_ws_message,
         extract_upstream_error_code, is_body_too_large_error, is_compatibility_passthrough_header,
-        is_websocket_passthrough_header, maybe_rewrite_upstream_ws_rate_limit_message,
-        maybe_adapt_ws_downstream_message_for_codex_profile, parse_request_policy_context,
-        recovery_action_for_upstream_error_code,
-        sticky_session_key_from_headers, WsLogicalResponseTracker,
-        AxumWsMessage, WsLogicalUsageConnectionContext,
-        ProxyRecoveryAction,
+        is_websocket_passthrough_header, maybe_adapt_ws_downstream_message_for_codex_profile,
+        maybe_rewrite_upstream_ws_rate_limit_message, parse_request_policy_context,
+        recovery_action_for_upstream_error_code, rewrite_ws_retry_request_text,
+        sticky_session_key_from_headers, AxumWsMessage, ProxyRecoveryAction,
+        WsLogicalResponseTracker, WsLogicalUsageConnectionContext,
     };
     use uuid::Uuid;
 
@@ -2138,7 +2188,10 @@ mod tests {
         assert_eq!(events[0].model.as_deref(), Some("gpt-5.4"));
         assert_eq!(events[0].input_tokens, Some(11));
         assert_eq!(events[0].output_tokens, Some(7));
-        assert_eq!(events[0].billing_phase.as_deref(), Some("ws_response_completed"));
+        assert_eq!(
+            events[0].billing_phase.as_deref(),
+            Some("ws_response_completed")
+        );
     }
 
     #[test]
@@ -2281,6 +2334,27 @@ mod tests {
     }
 
     #[test]
+    fn ws_retry_request_rewriter_drops_stale_previous_response_id() {
+        let headers = HeaderMap::new();
+        let error_context = super::build_upstream_error_context(
+            StatusCode::BAD_REQUEST,
+            &headers,
+            br#"{"type":"error","error":{"code":"previous_response_not_found","message":"previous response was not found"}}"#,
+        )
+        .expect("ws error payload should build context");
+
+        let rewritten = rewrite_ws_retry_request_text(
+            r#"{"type":"response.create","request_id":"req-1","previous_response_id":"resp-prev-1","response":{"model":"gpt-5.4"}}"#,
+            &error_context,
+        )
+        .expect("retry request should rewrite");
+        let rewritten_value = serde_json::from_str::<Value>(&rewritten).unwrap();
+
+        assert!(rewritten_value.get("previous_response_id").is_none());
+        assert_eq!(rewritten_value["response"]["model"], "gpt-5.4");
+    }
+
+    #[test]
     fn ws_codex_profile_adapts_fast_service_tier_to_priority() {
         let adapted = maybe_adapt_ws_downstream_message_for_codex_profile(
             AxumWsMessage::Text(
@@ -2335,7 +2409,13 @@ mod tests {
         assert_eq!(snapshots.len(), 1);
         assert_eq!(snapshots[0].limit_id.as_deref(), Some("codex"));
         assert_eq!(snapshots[0].plan_type.as_deref(), Some("plus"));
-        assert_eq!(snapshots[0].primary.as_ref().map(|window| window.used_percent), Some(42.0));
+        assert_eq!(
+            snapshots[0]
+                .primary
+                .as_ref()
+                .map(|window| window.used_percent),
+            Some(42.0)
+        );
         assert_eq!(
             snapshots[0]
                 .secondary
@@ -2344,7 +2424,10 @@ mod tests {
             Some(10_080)
         );
         assert_eq!(
-            snapshots[0].credits.as_ref().and_then(|credits| credits.balance.as_deref()),
+            snapshots[0]
+                .credits
+                .as_ref()
+                .and_then(|credits| credits.balance.as_deref()),
             Some("123")
         );
     }
@@ -2423,6 +2506,9 @@ mod tests {
         assert_eq!(value["plan_type"], "plus");
         assert_eq!(value["rate_limits"]["primary"]["used_percent"], 42.0);
         assert_eq!(value["credits"]["balance"], "123");
-        assert!(value.get("promo").is_none(), "rewritten event should drop raw promo payload");
+        assert!(
+            value.get("promo").is_none(),
+            "rewritten event should drop raw promo payload"
+        );
     }
 }
