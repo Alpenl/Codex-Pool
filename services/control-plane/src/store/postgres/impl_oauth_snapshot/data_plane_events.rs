@@ -96,7 +96,9 @@ impl PostgresStore {
                 a.priority,
                 a.created_at,
                 c.access_token_enc,
+                c.fallback_access_token_enc,
                 c.token_expires_at,
+                c.fallback_token_expires_at,
                 c.last_refresh_status,
                 c.refresh_reused_detected,
                 c.last_refresh_error_code,
@@ -134,6 +136,11 @@ impl PostgresStore {
             .try_get::<Option<bool>, _>("refresh_reused_detected")?
             .unwrap_or(false);
         let last_refresh_error_code = row.try_get::<Option<String>, _>("last_refresh_error_code")?;
+        let has_access_token_fallback = row
+            .try_get::<Option<String>, _>("fallback_access_token_enc")?
+            .is_some();
+        let fallback_token_expires_at =
+            row.try_get::<Option<DateTime<Utc>>, _>("fallback_token_expires_at")?;
         let rate_limits_expires_at = row.try_get::<Option<DateTime<Utc>>, _>("rate_limits_expires_at")?;
         let rate_limits_last_error_code =
             row.try_get::<Option<String>, _>("rate_limits_last_error_code")?;
@@ -152,6 +159,8 @@ impl PostgresStore {
             &auth_provider,
             credential_kind.as_ref(),
             token_expires_at,
+            has_access_token_fallback,
+            fallback_token_expires_at,
             &last_refresh_status,
             refresh_reused_detected,
             last_refresh_error_code.as_deref(),
@@ -163,14 +172,63 @@ impl PostgresStore {
         let mut bearer_token = row.try_get::<String, _>("bearer_token")?;
         if auth_provider == UpstreamAuthProvider::OAuthRefreshToken {
             if enabled {
+                let fallback_usable = has_usable_access_token_fallback(
+                    has_access_token_fallback,
+                    fallback_token_expires_at,
+                    now,
+                );
+                let prefer_fallback = should_use_access_token_fallback_for_runtime(
+                    token_expires_at,
+                    has_access_token_fallback,
+                    fallback_token_expires_at,
+                    &last_refresh_status,
+                    refresh_reused_detected,
+                    last_refresh_error_code.as_deref(),
+                    now,
+                );
                 let access_token_enc = row.try_get::<Option<String>, _>("access_token_enc")?;
-                if let (Some(access_token_enc), Some(cipher)) = (access_token_enc, self.credential_cipher.as_ref()) {
-                    match cipher.decrypt(&access_token_enc) {
-                        Ok(access_token) => bearer_token = access_token,
-                        Err(_) => {
-                            enabled = false;
-                            bearer_token.clear();
+                let fallback_access_token_enc =
+                    row.try_get::<Option<String>, _>("fallback_access_token_enc")?;
+                if let Some(cipher) = self.credential_cipher.as_ref() {
+                    let decrypt_fallback = || {
+                        fallback_access_token_enc
+                            .as_deref()
+                            .and_then(|token| cipher.decrypt(token).ok())
+                    };
+                    if prefer_fallback {
+                        match decrypt_fallback() {
+                            Some(access_token) => bearer_token = access_token,
+                            None => {
+                                enabled = false;
+                                bearer_token.clear();
+                            }
                         }
+                    } else if let Some(access_token_enc) = access_token_enc {
+                        match cipher.decrypt(&access_token_enc) {
+                            Ok(access_token) => bearer_token = access_token,
+                            Err(_) if fallback_usable => match decrypt_fallback() {
+                                Some(access_token) => bearer_token = access_token,
+                                None => {
+                                    enabled = false;
+                                    bearer_token.clear();
+                                }
+                            },
+                            Err(_) => {
+                                enabled = false;
+                                bearer_token.clear();
+                            }
+                        }
+                    } else if fallback_usable {
+                        match decrypt_fallback() {
+                            Some(access_token) => bearer_token = access_token,
+                            None => {
+                                enabled = false;
+                                bearer_token.clear();
+                            }
+                        }
+                    } else {
+                        enabled = false;
+                        bearer_token.clear();
                     }
                 } else {
                     enabled = false;

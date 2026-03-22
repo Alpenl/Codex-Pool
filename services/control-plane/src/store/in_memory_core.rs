@@ -535,6 +535,10 @@ impl InMemoryStore {
             &provider,
             credential_kind.as_ref(),
             token_expires_at,
+            credential
+                .map(|item| item.has_access_token_fallback())
+                .unwrap_or(false),
+            credential.and_then(|item| item.fallback_token_expires_at),
             &last_refresh_status,
             credential
                 .map(|item| item.refresh_reused_detected)

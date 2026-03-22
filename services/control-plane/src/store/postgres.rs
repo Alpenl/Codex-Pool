@@ -34,7 +34,10 @@ use crate::contracts::{
     UpsertStreamRetryPolicyRequest, ValidateOAuthRefreshTokenRequest,
     ValidateOAuthRefreshTokenResponse,
 };
-use super::{SessionProfileRecord, UpsertOneTimeSessionAccountRequest};
+use super::{
+    has_refresh_credential, normalize_upstream_account_base_url, refresh_credential_state,
+    SessionProfileRecord, UpsertOneTimeSessionAccountRequest,
+};
 use super::{ControlPlaneStore, OAuthUpsertResult, RuntimeStorePorts, ValidatedPrincipal};
 use crate::crypto::CredentialCipher;
 use crate::oauth::{OAuthTokenClient, OAuthTokenInfo, OpenAiOAuthClient};
@@ -405,6 +408,8 @@ mod postgres_env_tests {
             &UpstreamAuthProvider::OAuthRefreshToken,
             Some(&SessionCredentialKind::RefreshRotatable),
             Some(now + Duration::minutes(30)),
+            false,
+            None,
             &OAuthRefreshStatus::Ok,
             false,
             None,
@@ -424,6 +429,8 @@ mod postgres_env_tests {
             &UpstreamAuthProvider::OAuthRefreshToken,
             Some(&SessionCredentialKind::RefreshRotatable),
             Some(now + Duration::minutes(30)),
+            false,
+            None,
             &OAuthRefreshStatus::Ok,
             true,
             None,
@@ -443,6 +450,8 @@ mod postgres_env_tests {
             &UpstreamAuthProvider::OAuthRefreshToken,
             Some(&SessionCredentialKind::RefreshRotatable),
             Some(now + Duration::minutes(30)),
+            false,
+            None,
             &OAuthRefreshStatus::Failed,
             false,
             Some("invalid_refresh_token"),
@@ -452,5 +461,26 @@ mod postgres_env_tests {
             now,
         );
         assert!(!enabled);
+    }
+
+    #[test]
+    fn oauth_effective_enabled_keeps_terminal_refresh_failure_active_with_usable_fallback() {
+        let now = Utc::now();
+        let enabled = oauth_effective_enabled(
+            true,
+            &UpstreamAuthProvider::OAuthRefreshToken,
+            Some(&SessionCredentialKind::RefreshRotatable),
+            Some(now - Duration::minutes(1)),
+            true,
+            Some(now + Duration::minutes(30)),
+            &OAuthRefreshStatus::Failed,
+            false,
+            Some("invalid_refresh_token"),
+            None,
+            None,
+            None,
+            now,
+        );
+        assert!(enabled);
     }
 }

@@ -861,6 +861,22 @@ impl InMemoryStore {
             .cloned();
 
         let now = Utc::now();
+        if refresh_credential_is_terminal_invalid(
+            &oauth_credential.last_refresh_status,
+            oauth_credential.refresh_reused_detected,
+            oauth_credential.last_refresh_error_code.as_deref(),
+        ) && has_usable_access_token_fallback(
+            oauth_credential.has_access_token_fallback(),
+            oauth_credential.fallback_token_expires_at,
+            now,
+        ) {
+            return Ok(self.oauth_status_from(
+                &account,
+                UpstreamAuthProvider::OAuthRefreshToken,
+                Some(&oauth_credential),
+                session_profile.as_ref(),
+            ));
+        }
         let should_refresh = force
             || oauth_credential.token_expires_at
                 <= now + Duration::seconds(OAUTH_REFRESH_WINDOW_SEC);

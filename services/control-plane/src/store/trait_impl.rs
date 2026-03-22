@@ -1354,6 +1354,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn in_memory_snapshot_uses_access_fallback_when_refresh_token_is_terminally_invalid() {
+        let key = base64::engine::general_purpose::STANDARD.encode([18_u8; 32]);
+        let cipher = CredentialCipher::from_base64_key(&key).unwrap();
+        let store = InMemoryStore::new_with_oauth(Arc::new(StaticOAuthTokenClient), Some(cipher));
+
+        let account = store
+            .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "oauth-fallback-runtime".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-fallback-runtime".to_string(),
+                fallback_access_token: Some("ak-runtime".to_string()),
+                fallback_token_expires_at: Some(Utc::now() + Duration::hours(2)),
+                chatgpt_account_id: None,
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: None,
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .unwrap();
+
+        {
+            let mut credentials = store.oauth_credentials.write().unwrap();
+            let credential = credentials
+                .get_mut(&account.id)
+                .expect("oauth credential exists");
+            credential.token_expires_at = Utc::now() - Duration::minutes(5);
+            credential.last_refresh_status = crate::contracts::OAuthRefreshStatus::Failed;
+            credential.last_refresh_error_code = Some("invalid_refresh_token".to_string());
+            credential.last_refresh_error = Some("refresh token invalid".to_string());
+        }
+
+        let snapshot = store.snapshot().await.unwrap();
+        let account = snapshot
+            .accounts
+            .into_iter()
+            .find(|item| item.id == account.id)
+            .expect("snapshot account exists");
+
+        assert!(account.enabled);
+        assert_eq!(account.bearer_token, "ak-runtime");
+    }
+
+    #[tokio::test]
     async fn in_memory_one_time_status_reports_access_only_capabilities() {
         let store = InMemoryStore::default();
 

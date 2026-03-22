@@ -146,6 +146,7 @@ impl PostgresStore {
                 c.token_family_id,
                 c.token_version,
                 c.token_expires_at,
+                c.fallback_token_expires_at,
                 c.last_refresh_at,
                 c.last_refresh_status,
                 c.refresh_reused_detected,
@@ -214,6 +215,11 @@ impl PostgresStore {
         let rate_limits_last_error_code =
             row.try_get::<Option<String>, _>("rate_limits_last_error_code")?;
         let rate_limits_last_error = row.try_get::<Option<String>, _>("rate_limits_last_error")?;
+        let has_access_token_fallback = row
+            .try_get::<Option<String>, _>("fallback_access_token_enc")?
+            .is_some();
+        let fallback_token_expires_at =
+            row.try_get::<Option<DateTime<Utc>>, _>("fallback_token_expires_at")?;
         let supported_models = parse_json_string_array(
             row.try_get::<Option<String>, _>("supported_models_json_text")?,
         );
@@ -224,6 +230,8 @@ impl PostgresStore {
             &auth_provider,
             credential_kind.as_ref(),
             token_expires_at,
+            has_access_token_fallback,
+            fallback_token_expires_at,
             &last_refresh_status,
             refresh_reused_detected,
             last_refresh_error_code.as_deref(),
@@ -245,9 +253,6 @@ impl PostgresStore {
             }
             _ => None,
         };
-        let has_access_token_fallback = row
-            .try_get::<Option<String>, _>("fallback_access_token_enc")?
-            .is_some();
 
         let workspace_name = self
             .maybe_backfill_workspace_name_for_status(
@@ -349,6 +354,7 @@ impl PostgresStore {
                 c.token_family_id,
                 c.token_version,
                 c.token_expires_at,
+                c.fallback_token_expires_at,
                 c.last_refresh_at,
                 c.last_refresh_status,
                 c.refresh_reused_detected,
@@ -470,6 +476,9 @@ impl PostgresStore {
                 &auth_provider,
                 credential_kind.as_ref(),
                 token_expires_at,
+                row.try_get::<Option<String>, _>("fallback_access_token_enc")?
+                    .is_some(),
+                row.try_get::<Option<DateTime<Utc>>, _>("fallback_token_expires_at")?,
                 &last_refresh_status,
                 refresh_reused_detected,
                 last_refresh_error_code.as_deref(),
@@ -540,6 +549,13 @@ impl PostgresStore {
 
         let mut status_by_id = std::collections::HashMap::with_capacity(pending.len());
         for mut item in pending {
+            let has_refresh_credential_flag = has_refresh_credential(&item.auth_provider);
+            let refresh_credential_state_value = refresh_credential_state(
+                &item.auth_provider,
+                &item.last_refresh_status,
+                item.refresh_reused_detected,
+                item.last_refresh_error_code.as_deref(),
+            );
             item.workspace_name = self
                 .maybe_backfill_workspace_name_for_status(
                     item.account_id,
@@ -556,14 +572,9 @@ impl PostgresStore {
                     account_id: item.account_id,
                     auth_provider: item.auth_provider,
                     credential_kind: item.credential_kind,
-                    has_refresh_credential: has_refresh_credential(&item.auth_provider),
+                    has_refresh_credential: has_refresh_credential_flag,
                     has_access_token_fallback: item.has_access_token_fallback,
-                    refresh_credential_state: refresh_credential_state(
-                        &item.auth_provider,
-                        &item.last_refresh_status,
-                        item.refresh_reused_detected,
-                        item.last_refresh_error_code.as_deref(),
-                    ),
+                    refresh_credential_state: refresh_credential_state_value,
                     email: item.email,
                     oauth_subject: item.oauth_subject,
                     oauth_identity_provider: item.oauth_identity_provider,

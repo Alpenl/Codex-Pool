@@ -363,12 +363,57 @@ fn should_refresh_rate_limit_cache_on_seen_ok(
     true
 }
 
+fn has_usable_access_token_fallback(
+    has_access_token_fallback: bool,
+    fallback_token_expires_at: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> bool {
+    has_access_token_fallback
+        && fallback_token_expires_at
+            .map(|expires_at| expires_at > now + Duration::seconds(OAUTH_MIN_VALID_SEC))
+            .unwrap_or(true)
+}
+
+fn refresh_credential_is_terminal_invalid(
+    last_refresh_status: &OAuthRefreshStatus,
+    refresh_reused_detected: bool,
+    last_refresh_error_code: Option<&str>,
+) -> bool {
+    refresh_reused_detected
+        || (matches!(last_refresh_status, OAuthRefreshStatus::Failed)
+            && is_fatal_refresh_error_code(last_refresh_error_code))
+}
+
+fn should_use_access_token_fallback_for_runtime(
+    token_expires_at: Option<DateTime<Utc>>,
+    has_access_token_fallback: bool,
+    fallback_token_expires_at: Option<DateTime<Utc>>,
+    last_refresh_status: &OAuthRefreshStatus,
+    refresh_reused_detected: bool,
+    last_refresh_error_code: Option<&str>,
+    now: DateTime<Utc>,
+) -> bool {
+    has_usable_access_token_fallback(
+        has_access_token_fallback,
+        fallback_token_expires_at,
+        now,
+    ) && refresh_credential_is_terminal_invalid(
+        last_refresh_status,
+        refresh_reused_detected,
+        last_refresh_error_code,
+    ) && !token_expires_at.is_some_and(|expires_at| {
+        expires_at > now + Duration::seconds(OAUTH_MIN_VALID_SEC)
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn oauth_effective_enabled(
     enabled: bool,
     auth_provider: &UpstreamAuthProvider,
     credential_kind: Option<&SessionCredentialKind>,
     token_expires_at: Option<DateTime<Utc>>,
+    has_access_token_fallback: bool,
+    fallback_token_expires_at: Option<DateTime<Utc>>,
     last_refresh_status: &OAuthRefreshStatus,
     refresh_reused_detected: bool,
     last_refresh_error_code: Option<&str>,
@@ -377,12 +422,17 @@ fn oauth_effective_enabled(
     rate_limits_last_error: Option<&str>,
     now: DateTime<Utc>,
 ) -> bool {
+    let fallback_usable = has_usable_access_token_fallback(
+        has_access_token_fallback,
+        fallback_token_expires_at,
+        now,
+    );
     let base_enabled = match (auth_provider, credential_kind) {
         (UpstreamAuthProvider::OAuthRefreshToken, _) => {
             enabled
-                && token_expires_at.is_some_and(|expires_at| {
+                && (token_expires_at.is_some_and(|expires_at| {
                     expires_at > now + Duration::seconds(OAUTH_MIN_VALID_SEC)
-                })
+                }) || fallback_usable)
         }
         (_, Some(SessionCredentialKind::OneTimeAccessToken)) => {
             enabled
@@ -397,11 +447,11 @@ fn oauth_effective_enabled(
     }
 
     if matches!(auth_provider, UpstreamAuthProvider::OAuthRefreshToken) {
-        if refresh_reused_detected {
-            return false;
-        }
-        if matches!(last_refresh_status, OAuthRefreshStatus::Failed)
-            && is_fatal_refresh_error_code(last_refresh_error_code)
+        if refresh_credential_is_terminal_invalid(
+            last_refresh_status,
+            refresh_reused_detected,
+            last_refresh_error_code,
+        ) && !fallback_usable
         {
             return false;
         }

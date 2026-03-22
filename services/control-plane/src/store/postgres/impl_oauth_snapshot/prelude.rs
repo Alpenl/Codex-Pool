@@ -76,7 +76,9 @@ impl PostgresStore {
                 a.auth_provider,
                 c.access_token_enc,
                 c.refresh_token_enc,
+                c.fallback_access_token_enc,
                 c.token_expires_at,
+                c.fallback_token_expires_at,
                 c.last_refresh_at,
                 c.last_refresh_status,
                 c.last_refresh_error,
@@ -110,6 +112,29 @@ impl PostgresStore {
             row.try_get::<Option<DateTime<Utc>>, _>("refresh_inflight_until")?;
         let next_refresh_at = row.try_get::<Option<DateTime<Utc>>, _>("next_refresh_at")?;
         let now = Utc::now();
+        let has_access_token_fallback = row
+            .try_get::<Option<String>, _>("fallback_access_token_enc")?
+            .is_some();
+        let fallback_token_expires_at =
+            row.try_get::<Option<DateTime<Utc>>, _>("fallback_token_expires_at")?;
+
+        if refresh_credential_is_terminal_invalid(
+            &parse_oauth_refresh_status(
+                row.try_get::<Option<String>, _>("last_refresh_status")?
+                    .unwrap_or_else(|| "never".to_string())
+                    .as_str(),
+            )?,
+            row.try_get::<Option<bool>, _>("refresh_reused_detected")?
+                .unwrap_or(false),
+            row.try_get::<Option<String>, _>("last_refresh_error_code")?
+                .as_deref(),
+        ) && has_usable_access_token_fallback(
+            has_access_token_fallback,
+            fallback_token_expires_at,
+            now,
+        ) {
+            return self.fetch_oauth_account_status(account_id).await;
+        }
 
         let should_refresh = force
             || next_refresh_at

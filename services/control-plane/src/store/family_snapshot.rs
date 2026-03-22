@@ -337,6 +337,8 @@ impl InMemoryStore {
                 &provider,
                 credential_kind.as_ref(),
                 Some(credential.token_expires_at),
+                credential.has_access_token_fallback(),
+                credential.fallback_token_expires_at,
                 &credential.last_refresh_status,
                 credential.refresh_reused_detected,
                 credential.last_refresh_error_code.as_deref(),
@@ -347,11 +349,48 @@ impl InMemoryStore {
             );
 
             if let Some(cipher) = &self.credential_cipher {
-                match cipher.decrypt(&credential.access_token_enc) {
-                    Ok(access_token) => account.bearer_token = access_token,
-                    Err(_) => {
-                        account.enabled = false;
-                        account.bearer_token.clear();
+                let fallback_usable = has_usable_access_token_fallback(
+                    credential.has_access_token_fallback(),
+                    credential.fallback_token_expires_at,
+                    now,
+                );
+                let prefer_fallback = should_use_access_token_fallback_for_runtime(
+                    Some(credential.token_expires_at),
+                    credential.has_access_token_fallback(),
+                    credential.fallback_token_expires_at,
+                    &credential.last_refresh_status,
+                    credential.refresh_reused_detected,
+                    credential.last_refresh_error_code.as_deref(),
+                    now,
+                );
+                let decrypt_fallback = || {
+                    credential
+                        .fallback_access_token_enc
+                        .as_deref()
+                        .and_then(|token| cipher.decrypt(token).ok())
+                };
+                if prefer_fallback {
+                    match decrypt_fallback() {
+                        Some(access_token) => account.bearer_token = access_token,
+                        None => {
+                            account.enabled = false;
+                            account.bearer_token.clear();
+                        }
+                    }
+                } else {
+                    match cipher.decrypt(&credential.access_token_enc) {
+                        Ok(access_token) => account.bearer_token = access_token,
+                        Err(_) if fallback_usable => match decrypt_fallback() {
+                            Some(access_token) => account.bearer_token = access_token,
+                            None => {
+                                account.enabled = false;
+                                account.bearer_token.clear();
+                            }
+                        },
+                        Err(_) => {
+                            account.enabled = false;
+                            account.bearer_token.clear();
+                        }
                     }
                 }
             } else {
