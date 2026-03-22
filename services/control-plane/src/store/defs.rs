@@ -1115,10 +1115,14 @@ where
 struct OAuthCredentialRecord {
     access_token_enc: String,
     refresh_token_enc: String,
+    #[serde(default)]
+    fallback_access_token_enc: Option<String>,
     refresh_token_sha256: String,
     token_family_id: String,
     token_version: u64,
     token_expires_at: DateTime<Utc>,
+    #[serde(default)]
+    fallback_token_expires_at: Option<DateTime<Utc>>,
     last_refresh_at: Option<DateTime<Utc>>,
     last_refresh_status: OAuthRefreshStatus,
     refresh_reused_detected: bool,
@@ -1133,10 +1137,12 @@ impl OAuthCredentialRecord {
         Ok(Self {
             access_token_enc: cipher.encrypt(&token_info.access_token)?,
             refresh_token_enc: cipher.encrypt(&token_info.refresh_token)?,
+            fallback_access_token_enc: None,
             refresh_token_sha256: refresh_token_sha256(&token_info.refresh_token),
             token_family_id: Uuid::new_v4().to_string(),
             token_version: 1,
             token_expires_at: token_info.expires_at,
+            fallback_token_expires_at: None,
             last_refresh_at: Some(Utc::now()),
             last_refresh_status: OAuthRefreshStatus::Ok,
             refresh_reused_detected: false,
@@ -1155,6 +1161,31 @@ impl OAuthCredentialRecord {
             3 => Duration::seconds(120),
             _ => Duration::seconds(300),
         }
+    }
+
+    fn has_access_token_fallback(&self) -> bool {
+        self.fallback_access_token_enc.is_some()
+    }
+
+    fn set_fallback_access_token(
+        &mut self,
+        cipher: &CredentialCipher,
+        fallback_access_token: Option<&str>,
+        fallback_token_expires_at: Option<DateTime<Utc>>,
+    ) -> Result<()> {
+        let normalized = fallback_access_token
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        self.fallback_access_token_enc = match normalized {
+            Some(token) => Some(cipher.encrypt(token)?),
+            None => None,
+        };
+        self.fallback_token_expires_at = if normalized.is_some() {
+            fallback_token_expires_at
+        } else {
+            None
+        };
+        Ok(())
     }
 }
 

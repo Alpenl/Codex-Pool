@@ -334,6 +334,8 @@ fn normalize_record(
         .map(str::trim)
         .filter(|token| !token.is_empty())
         .map(ToString::to_string);
+    let fallback_token_expires_at =
+        derive_one_time_expires_at(record.exp, record.expired.as_deref(), access_token.as_deref());
 
     let chatgpt_account_id = record
         .chatgpt_account_id
@@ -404,6 +406,8 @@ fn normalize_record(
                         label: derived_label,
                         base_url: base_url.clone(),
                         refresh_token,
+                        fallback_access_token: access_token.clone(),
+                        fallback_token_expires_at,
                         chatgpt_account_id: chatgpt_account_id.clone(),
                         mode: Some(mode.clone()),
                         enabled: Some(record.enabled.unwrap_or(options.default_enabled)),
@@ -449,6 +453,8 @@ fn normalize_record(
                         label: derived_label,
                         base_url,
                         refresh_token,
+                        fallback_access_token: access_token,
+                        fallback_token_expires_at,
                         chatgpt_account_id,
                         mode: Some(mode),
                         enabled: Some(record.enabled.unwrap_or(options.default_enabled)),

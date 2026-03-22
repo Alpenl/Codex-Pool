@@ -1091,6 +1091,8 @@ mod tests {
                 label: "oauth-a".to_string(),
                 base_url: "https://chatgpt.com/backend-api/codex".to_string(),
                 refresh_token: "rt-1".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
                 chatgpt_account_id: None,
                 mode: None,
                 enabled: Some(true),
@@ -1128,6 +1130,8 @@ mod tests {
                 label: "oauth-bare-base".to_string(),
                 base_url: "https://chatgpt.com".to_string(),
                 refresh_token: "rt-bare-base".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
                 chatgpt_account_id: None,
                 mode: Some(UpstreamMode::CodexOauth),
                 enabled: Some(true),
@@ -1154,6 +1158,8 @@ mod tests {
                 label: "oauth-email".to_string(),
                 base_url: "https://chatgpt.com/backend-api/codex".to_string(),
                 refresh_token: "rt-email".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
                 chatgpt_account_id: None,
                 mode: None,
                 enabled: Some(true),
@@ -1198,6 +1204,8 @@ mod tests {
                 label: "oauth-refresh-state".to_string(),
                 base_url: "https://chatgpt.com/backend-api/codex".to_string(),
                 refresh_token: "rt-refresh-state".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
                 chatgpt_account_id: None,
                 mode: Some(UpstreamMode::CodexOauth),
                 enabled: Some(true),
@@ -1220,6 +1228,129 @@ mod tests {
             status.refresh_credential_state,
             Some(RefreshCredentialState::Healthy)
         );
+    }
+
+    #[tokio::test]
+    async fn in_memory_oauth_status_reports_access_fallback_when_imported_with_refresh() {
+        let key = base64::engine::general_purpose::STANDARD.encode([16_u8; 32]);
+        let cipher = CredentialCipher::from_base64_key(&key).unwrap();
+        let store = InMemoryStore::new_with_oauth(Arc::new(StaticOAuthTokenClient), Some(cipher));
+        let fallback_token_expires_at = Utc::now() + Duration::hours(2);
+
+        let account = store
+            .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "oauth-refresh-with-fallback".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-refresh-with-fallback".to_string(),
+                fallback_access_token: Some("ak-fallback".to_string()),
+                fallback_token_expires_at: Some(fallback_token_expires_at),
+                chatgpt_account_id: None,
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: None,
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .unwrap();
+
+        let status = store.oauth_account_status(account.id).await.unwrap();
+        assert!(status.has_refresh_credential);
+        assert!(status.has_access_token_fallback);
+
+        let stored = store
+            .oauth_credentials
+            .read()
+            .unwrap()
+            .get(&account.id)
+            .cloned()
+            .expect("oauth credential exists");
+        let verifier = CredentialCipher::from_base64_key(&key).unwrap();
+        assert_eq!(
+            verifier
+                .decrypt(
+                    stored
+                        .fallback_access_token_enc
+                        .as_deref()
+                        .expect("fallback access token stored"),
+                )
+                .unwrap(),
+            "ak-fallback"
+        );
+        assert_eq!(
+            stored.fallback_token_expires_at,
+            Some(fallback_token_expires_at)
+        );
+    }
+
+    #[tokio::test]
+    async fn in_memory_oauth_upsert_preserves_existing_access_fallback_when_reimport_omits_it() {
+        let key = base64::engine::general_purpose::STANDARD.encode([17_u8; 32]);
+        let cipher = CredentialCipher::from_base64_key(&key).unwrap();
+        let store = InMemoryStore::new_with_oauth(Arc::new(StaticOAuthTokenClient), Some(cipher));
+
+        let first = store
+            .upsert_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "oauth-fallback-preserve".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-fallback-preserve".to_string(),
+                fallback_access_token: Some("ak-preserve".to_string()),
+                fallback_token_expires_at: Some(Utc::now() + Duration::hours(3)),
+                chatgpt_account_id: None,
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: None,
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .unwrap();
+
+        let second = store
+            .upsert_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "oauth-fallback-preserve-updated".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-fallback-preserve".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
+                chatgpt_account_id: None,
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: None,
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .unwrap();
+
+        assert!(first.created);
+        assert!(!second.created);
+        assert_eq!(first.account.id, second.account.id);
+
+        let stored = store
+            .oauth_credentials
+            .read()
+            .unwrap()
+            .get(&second.account.id)
+            .cloned()
+            .expect("oauth credential exists");
+        let verifier = CredentialCipher::from_base64_key(&key).unwrap();
+        assert_eq!(
+            verifier
+                .decrypt(
+                    stored
+                        .fallback_access_token_enc
+                        .as_deref()
+                        .expect("fallback access token stored"),
+                )
+                .unwrap(),
+            "ak-preserve"
+        );
+        assert!(store
+            .oauth_account_status(second.account.id)
+            .await
+            .unwrap()
+            .has_access_token_fallback);
     }
 
     #[tokio::test]
@@ -1268,6 +1399,8 @@ mod tests {
                 label: "oauth-terminal-refresh-state".to_string(),
                 base_url: "https://chatgpt.com/backend-api/codex".to_string(),
                 refresh_token: "rt-terminal-refresh-state".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
                 chatgpt_account_id: None,
                 mode: Some(UpstreamMode::CodexOauth),
                 enabled: Some(true),
@@ -1353,6 +1486,8 @@ mod tests {
                 label: "oauth-rate-limit".to_string(),
                 base_url: "https://chatgpt.com/backend-api/codex".to_string(),
                 refresh_token: "rt-rate-limit".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
                 chatgpt_account_id: None,
                 mode: None,
                 enabled: Some(true),
@@ -1414,6 +1549,8 @@ mod tests {
                 label: "oauth-team-workspace".to_string(),
                 base_url: "https://chatgpt.com/backend-api/codex".to_string(),
                 refresh_token: "rt-shared-workspace-a".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
                 chatgpt_account_id: None,
                 mode: Some(UpstreamMode::CodexOauth),
                 enabled: Some(true),
@@ -1445,6 +1582,8 @@ mod tests {
                 label: "oauth-team-probe".to_string(),
                 base_url: "https://chatgpt.com/backend-api/codex".to_string(),
                 refresh_token: "rt-team-probe".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
                 chatgpt_account_id: None,
                 mode: Some(UpstreamMode::CodexOauth),
                 enabled: Some(true),
@@ -1473,6 +1612,8 @@ mod tests {
                 label: "oauth-observed-rate-limit".to_string(),
                 base_url: "https://chatgpt.com/backend-api/codex".to_string(),
                 refresh_token: "rt-observed-rate-limit".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
                 chatgpt_account_id: None,
                 mode: Some(UpstreamMode::CodexOauth),
                 enabled: Some(true),
@@ -1537,6 +1678,8 @@ mod tests {
                 label: "oauth-codex".to_string(),
                 base_url: "https://chatgpt.com/backend-api/codex".to_string(),
                 refresh_token: "rt-codex-1".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
                 chatgpt_account_id: None,
                 mode: None,
                 enabled: Some(true),
@@ -1566,6 +1709,8 @@ mod tests {
                 label: "oauth-shared-a".to_string(),
                 base_url: "https://chatgpt.com/backend-api/codex".to_string(),
                 refresh_token: "rt-shared-workspace-a-1".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
                 chatgpt_account_id: None,
                 mode: Some(UpstreamMode::CodexOauth),
                 enabled: Some(true),
@@ -1580,6 +1725,8 @@ mod tests {
                 label: "oauth-shared-b".to_string(),
                 base_url: "https://chatgpt.com/backend-api/codex".to_string(),
                 refresh_token: "rt-shared-workspace-a-2".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
                 chatgpt_account_id: None,
                 mode: Some(UpstreamMode::CodexOauth),
                 enabled: Some(true),
@@ -1621,6 +1768,8 @@ mod tests {
                 label: "oauth-shared-a".to_string(),
                 base_url: "https://chatgpt.com/backend-api/codex".to_string(),
                 refresh_token: "rt-shared-workspace-a".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
                 chatgpt_account_id: None,
                 mode: Some(UpstreamMode::CodexOauth),
                 enabled: Some(true),
@@ -1635,6 +1784,8 @@ mod tests {
                 label: "oauth-shared-b".to_string(),
                 base_url: "https://chatgpt.com/backend-api/codex".to_string(),
                 refresh_token: "rt-shared-workspace-b".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
                 chatgpt_account_id: None,
                 mode: Some(UpstreamMode::CodexOauth),
                 enabled: Some(true),

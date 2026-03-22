@@ -403,6 +403,13 @@ impl PostgresStore {
             return Ok(false);
         }
         let refresh_token_enc = cipher.encrypt(refresh_token)?;
+        let fallback_access_token_enc = req
+            .fallback_access_token
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| cipher.encrypt(value))
+            .transpose()?;
         let refresh_token_sha256 = refresh_token_sha256(refresh_token);
         let now = Utc::now();
 
@@ -412,6 +419,8 @@ impl PostgresStore {
                 id,
                 refresh_token_enc,
                 refresh_token_sha256,
+                fallback_access_token_enc,
+                fallback_token_expires_at,
                 base_url,
                 label,
                 email,
@@ -431,11 +440,19 @@ impl PostgresStore {
                 updated_at
             )
             VALUES (
-                $1, $2, $3, $4, $5, NULL, $6, $7, $8, $9, $10, $11, 'queued', 0, NULL, $12, NULL, NULL, $12, $12
+                $1, $2, $3, $4, $5, $6, $7, NULL, $8, $9, $10, $11, $12, $13, 'queued', 0, NULL, $14, NULL, NULL, $14, $14
             )
             ON CONFLICT (refresh_token_sha256) DO UPDATE
             SET
                 refresh_token_enc = EXCLUDED.refresh_token_enc,
+                fallback_access_token_enc = COALESCE(
+                    EXCLUDED.fallback_access_token_enc,
+                    oauth_refresh_token_vault.fallback_access_token_enc
+                ),
+                fallback_token_expires_at = COALESCE(
+                    EXCLUDED.fallback_token_expires_at,
+                    oauth_refresh_token_vault.fallback_token_expires_at
+                ),
                 base_url = EXCLUDED.base_url,
                 label = EXCLUDED.label,
                 chatgpt_account_id = COALESCE(EXCLUDED.chatgpt_account_id, oauth_refresh_token_vault.chatgpt_account_id),
@@ -457,6 +474,8 @@ impl PostgresStore {
         .bind(Uuid::new_v4())
         .bind(refresh_token_enc)
         .bind(refresh_token_sha256)
+        .bind(fallback_access_token_enc)
+        .bind(req.fallback_token_expires_at)
         .bind(&normalized_base_url)
         .bind(&req.label)
         .bind(resolved_chatgpt_account_id)
@@ -489,6 +508,13 @@ impl PostgresStore {
             .map_err(|err| anyhow!(err.to_string()))?;
 
         let access_token_enc = cipher.encrypt(&token_info.access_token)?;
+        let fallback_access_token_enc = req
+            .fallback_access_token
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| cipher.encrypt(value))
+            .transpose()?;
         let refresh_token_enc = cipher.encrypt(&token_info.refresh_token)?;
         let refresh_token_sha256 = refresh_token_sha256(&token_info.refresh_token);
         let token_family_id = Uuid::new_v4().to_string();
@@ -553,11 +579,13 @@ impl PostgresStore {
             INSERT INTO upstream_account_oauth_credentials (
                 account_id,
                 access_token_enc,
+                fallback_access_token_enc,
                 refresh_token_enc,
                 refresh_token_sha256,
                 token_family_id,
                 token_version,
                 token_expires_at,
+                fallback_token_expires_at,
                 last_refresh_at,
                 last_refresh_status,
                 last_refresh_error_code,
@@ -569,15 +597,17 @@ impl PostgresStore {
                 next_refresh_at,
                 updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, 1, $6, $7, 'ok', NULL, NULL, 0, NULL, false, NULL, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8, $9, 'ok', NULL, NULL, 0, NULL, false, NULL, $10, $11)
             "#,
         )
         .bind(account_id)
         .bind(access_token_enc)
+        .bind(fallback_access_token_enc)
         .bind(refresh_token_enc)
         .bind(refresh_token_sha256)
         .bind(token_family_id)
         .bind(token_info.expires_at)
+        .bind(req.fallback_token_expires_at)
         .bind(Utc::now())
         .bind(schedule_next_oauth_refresh(token_info.expires_at, account_id))
         .bind(updated_at)
@@ -689,6 +719,13 @@ impl PostgresStore {
             let enabled = req.enabled.unwrap_or(true);
             let priority = req.priority.unwrap_or(100);
             let access_token_enc = cipher.encrypt(&token_info.access_token)?;
+            let fallback_access_token_enc = req
+                .fallback_access_token
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| cipher.encrypt(value))
+                .transpose()?;
             let refresh_token_enc = cipher.encrypt(&token_info.refresh_token)?;
             let token_family_id = Uuid::new_v4().to_string();
             let now = Utc::now();
@@ -728,11 +765,13 @@ impl PostgresStore {
                 INSERT INTO upstream_account_oauth_credentials (
                     account_id,
                     access_token_enc,
+                    fallback_access_token_enc,
                     refresh_token_enc,
                     refresh_token_sha256,
                     token_family_id,
                     token_version,
                     token_expires_at,
+                    fallback_token_expires_at,
                     last_refresh_at,
                     last_refresh_status,
                     last_refresh_error_code,
@@ -744,15 +783,23 @@ impl PostgresStore {
                     next_refresh_at,
                     updated_at
                 )
-                VALUES ($1, $2, $3, $4, $5, 1, $6, $7, 'ok', NULL, NULL, 0, NULL, false, NULL, $8, $7)
+                VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8, $9, 'ok', NULL, NULL, 0, NULL, false, NULL, $10, $11)
                 ON CONFLICT (account_id) DO UPDATE
                 SET
                     access_token_enc = EXCLUDED.access_token_enc,
+                    fallback_access_token_enc = COALESCE(
+                        EXCLUDED.fallback_access_token_enc,
+                        upstream_account_oauth_credentials.fallback_access_token_enc
+                    ),
                     refresh_token_enc = EXCLUDED.refresh_token_enc,
                     refresh_token_sha256 = EXCLUDED.refresh_token_sha256,
                     token_family_id = COALESCE(upstream_account_oauth_credentials.token_family_id, EXCLUDED.token_family_id),
                     token_version = GREATEST(upstream_account_oauth_credentials.token_version, 0) + 1,
                     token_expires_at = EXCLUDED.token_expires_at,
+                    fallback_token_expires_at = COALESCE(
+                        EXCLUDED.fallback_token_expires_at,
+                        upstream_account_oauth_credentials.fallback_token_expires_at
+                    ),
                     last_refresh_at = EXCLUDED.last_refresh_at,
                     last_refresh_status = 'ok',
                     last_refresh_error_code = NULL,
@@ -767,12 +814,15 @@ impl PostgresStore {
             )
             .bind(account_id)
             .bind(access_token_enc)
+            .bind(fallback_access_token_enc)
             .bind(refresh_token_enc)
             .bind(refresh_token_sha256)
             .bind(token_family_id)
             .bind(token_info.expires_at)
+            .bind(req.fallback_token_expires_at)
             .bind(now)
             .bind(schedule_next_oauth_refresh(token_info.expires_at, account_id))
+            .bind(now)
             .execute(tx.as_mut())
             .await
             .context("failed to upsert oauth credential row")?;

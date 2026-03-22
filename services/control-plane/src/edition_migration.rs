@@ -43,11 +43,15 @@ pub struct AccountAuthProviderMigrationRecord {
 pub struct OAuthCredentialMigrationRecord {
     pub account_id: Uuid,
     pub access_token_enc: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_access_token_enc: Option<String>,
     pub refresh_token_enc: String,
     pub refresh_token_sha256: String,
     pub token_family_id: String,
     pub token_version: u64,
     pub token_expires_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_token_expires_at: Option<DateTime<Utc>>,
     pub last_refresh_at: Option<DateTime<Utc>>,
     pub last_refresh_status: OAuthRefreshStatus,
     pub refresh_reused_detected: bool,

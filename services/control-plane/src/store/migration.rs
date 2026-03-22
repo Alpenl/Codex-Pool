@@ -252,11 +252,13 @@ fn sqlite_state_to_bundle(state: SqlitePersistedStoreState) -> ControlPlaneMigra
             .map(|(account_id, record)| OAuthCredentialMigrationRecord {
                 account_id,
                 access_token_enc: record.access_token_enc,
+                fallback_access_token_enc: record.fallback_access_token_enc,
                 refresh_token_enc: record.refresh_token_enc,
                 refresh_token_sha256: record.refresh_token_sha256,
                 token_family_id: record.token_family_id,
                 token_version: record.token_version,
                 token_expires_at: record.token_expires_at,
+                fallback_token_expires_at: record.fallback_token_expires_at,
                 last_refresh_at: record.last_refresh_at,
                 last_refresh_status: record.last_refresh_status,
                 refresh_reused_detected: record.refresh_reused_detected,
@@ -358,11 +360,13 @@ fn bundle_to_sqlite_state(bundle: &ControlPlaneMigrationBundle) -> SqlitePersist
                     item.account_id,
                     OAuthCredentialRecord {
                         access_token_enc: item.access_token_enc,
+                        fallback_access_token_enc: item.fallback_access_token_enc,
                         refresh_token_enc: item.refresh_token_enc,
                         refresh_token_sha256: item.refresh_token_sha256,
                         token_family_id: item.token_family_id,
                         token_version: item.token_version,
                         token_expires_at: item.token_expires_at,
+                        fallback_token_expires_at: item.fallback_token_expires_at,
                         last_refresh_at: item.last_refresh_at,
                         last_refresh_status: item.last_refresh_status,
                         refresh_reused_detected: item.refresh_reused_detected,
@@ -627,11 +631,13 @@ impl postgres::PostgresStore {
             SELECT
                 account_id,
                 access_token_enc,
+                fallback_access_token_enc,
                 refresh_token_enc,
                 refresh_token_sha256,
                 token_family_id,
                 token_version,
                 token_expires_at,
+                fallback_token_expires_at,
                 last_refresh_at,
                 last_refresh_status,
                 refresh_reused_detected,
@@ -653,6 +659,7 @@ impl postgres::PostgresStore {
             Ok(OAuthCredentialMigrationRecord {
                 account_id,
                 access_token_enc: row.try_get("access_token_enc")?,
+                fallback_access_token_enc: row.try_get("fallback_access_token_enc")?,
                 refresh_token_enc: row.try_get("refresh_token_enc")?,
                 refresh_token_sha256: row.try_get("refresh_token_sha256")?,
                 token_family_id: row
@@ -661,6 +668,7 @@ impl postgres::PostgresStore {
                 token_version: u64::try_from(row.try_get::<i64, _>("token_version")?)
                     .context("token_version out of range")?,
                 token_expires_at: row.try_get("token_expires_at")?,
+                fallback_token_expires_at: row.try_get("fallback_token_expires_at")?,
                 last_refresh_at: row.try_get("last_refresh_at")?,
                 last_refresh_status: parse_enum(&status_raw, "oauth refresh status")?,
                 refresh_reused_detected: row.try_get("refresh_reused_detected")?,
@@ -952,11 +960,13 @@ impl postgres::PostgresStore {
                 INSERT INTO upstream_account_oauth_credentials (
                     account_id,
                     access_token_enc,
+                    fallback_access_token_enc,
                     refresh_token_enc,
                     refresh_token_sha256,
                     token_family_id,
                     token_version,
                     token_expires_at,
+                    fallback_token_expires_at,
                     last_refresh_at,
                     last_refresh_status,
                     refresh_reused_detected,
@@ -967,17 +977,19 @@ impl postgres::PostgresStore {
                     updated_at
                 )
                 VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
                 )
                 "#,
             )
             .bind(credential.account_id)
             .bind(&credential.access_token_enc)
+            .bind(&credential.fallback_access_token_enc)
             .bind(&credential.refresh_token_enc)
             .bind(&credential.refresh_token_sha256)
             .bind(&credential.token_family_id)
             .bind(i64::try_from(credential.token_version).context("token_version overflow")?)
             .bind(credential.token_expires_at)
+            .bind(credential.fallback_token_expires_at)
             .bind(credential.last_refresh_at)
             .bind(enum_string(
                 &credential.last_refresh_status,

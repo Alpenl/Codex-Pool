@@ -4,6 +4,8 @@ struct VaultActivationItem {
     label: String,
     base_url: String,
     refresh_token_enc: String,
+    fallback_access_token_enc: Option<String>,
+    fallback_token_expires_at: Option<DateTime<Utc>>,
     chatgpt_account_id: Option<String>,
     chatgpt_plan_type: Option<String>,
     source_type: Option<String>,
@@ -54,6 +56,8 @@ impl PostgresStore {
                 label,
                 base_url,
                 refresh_token_enc,
+                fallback_access_token_enc,
+                fallback_token_expires_at,
                 chatgpt_account_id,
                 chatgpt_plan_type,
                 source_type,
@@ -82,6 +86,10 @@ impl PostgresStore {
                 label: row.try_get::<String, _>("label")?,
                 base_url: row.try_get::<String, _>("base_url")?,
                 refresh_token_enc: row.try_get::<String, _>("refresh_token_enc")?,
+                fallback_access_token_enc: row
+                    .try_get::<Option<String>, _>("fallback_access_token_enc")?,
+                fallback_token_expires_at: row
+                    .try_get::<Option<DateTime<Utc>>, _>("fallback_token_expires_at")?,
                 chatgpt_account_id: row.try_get::<Option<String>, _>("chatgpt_account_id")?,
                 chatgpt_plan_type: row.try_get::<Option<String>, _>("chatgpt_plan_type")?,
                 source_type: row.try_get::<Option<String>, _>("source_type")?,
@@ -273,11 +281,30 @@ impl PostgresStore {
                             return false;
                         }
                     };
+                    let fallback_access_token = match item.fallback_access_token_enc.as_deref() {
+                        Some(token_enc) => match cipher.decrypt(token_enc) {
+                            Ok(value) if !value.trim().is_empty() => Some(value),
+                            Ok(_) => None,
+                            Err(err) => {
+                                let _ = self
+                                    .mark_oauth_vault_activation_failed(
+                                        item.id,
+                                        "credential_decrypt_failed",
+                                        &err.to_string(),
+                                    )
+                                    .await;
+                                return false;
+                            }
+                        },
+                        None => None,
+                    };
 
                     let req = ImportOAuthRefreshTokenRequest {
                         label: item.label,
                         base_url: item.base_url,
                         refresh_token,
+                        fallback_access_token,
+                        fallback_token_expires_at: item.fallback_token_expires_at,
                         chatgpt_account_id: item.chatgpt_account_id,
                         mode: Some(item.desired_mode),
                         enabled: Some(item.desired_enabled),

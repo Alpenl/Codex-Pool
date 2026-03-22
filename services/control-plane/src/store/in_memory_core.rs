@@ -574,7 +574,9 @@ impl InMemoryStore {
             auth_provider: provider,
             credential_kind,
             has_refresh_credential,
-            has_access_token_fallback: false,
+            has_access_token_fallback: credential
+                .map(|item| item.has_access_token_fallback())
+                .unwrap_or(false),
             refresh_credential_state,
             email: session_profile.and_then(|item| item.email.clone()),
             oauth_subject: session_profile.and_then(|item| item.oauth_subject.clone()),

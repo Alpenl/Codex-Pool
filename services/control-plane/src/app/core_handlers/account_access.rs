@@ -687,6 +687,8 @@ async fn process_codex_oauth_callback_flow(
         label: label_value,
         base_url: base_url.clone(),
         refresh_token,
+        fallback_access_token: None,
+        fallback_token_expires_at: None,
         chatgpt_account_id: chatgpt_account_id.clone(),
         mode: Some(codex_pool_core::model::UpstreamMode::CodexOauth),
         enabled: Some(enabled),

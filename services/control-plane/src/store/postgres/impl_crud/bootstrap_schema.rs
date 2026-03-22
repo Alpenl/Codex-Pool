@@ -986,6 +986,8 @@ impl PostgresStore {
                 id UUID PRIMARY KEY,
                 refresh_token_enc TEXT NOT NULL,
                 refresh_token_sha256 TEXT NOT NULL DEFAULT '',
+                fallback_access_token_enc TEXT NULL,
+                fallback_token_expires_at TIMESTAMPTZ NULL,
                 base_url TEXT NOT NULL,
                 label TEXT NOT NULL,
                 email TEXT NULL,
@@ -1045,9 +1047,11 @@ impl PostgresStore {
             CREATE TABLE IF NOT EXISTS upstream_account_oauth_credentials (
                 account_id UUID PRIMARY KEY REFERENCES upstream_accounts(id) ON DELETE CASCADE,
                 access_token_enc TEXT NOT NULL,
+                fallback_access_token_enc TEXT NULL,
                 refresh_token_enc TEXT NOT NULL,
                 refresh_token_sha256 TEXT NOT NULL DEFAULT '',
                 token_expires_at TIMESTAMPTZ NOT NULL,
+                fallback_token_expires_at TIMESTAMPTZ NULL,
                 last_refresh_at TIMESTAMPTZ NULL,
                 last_refresh_status TEXT NOT NULL DEFAULT 'never',
                 last_refresh_error TEXT NULL,
@@ -1372,6 +1376,26 @@ impl PostgresStore {
         sqlx::query(
             r#"
             ALTER TABLE upstream_account_oauth_credentials
+            ADD COLUMN IF NOT EXISTS fallback_access_token_enc TEXT NULL
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to add fallback_access_token_enc column")?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE upstream_account_oauth_credentials
+            ADD COLUMN IF NOT EXISTS fallback_token_expires_at TIMESTAMPTZ NULL
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to add fallback_token_expires_at column")?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE upstream_account_oauth_credentials
             ADD COLUMN IF NOT EXISTS last_refresh_error_code TEXT NULL
             "#,
         )
@@ -1408,6 +1432,26 @@ impl PostgresStore {
         .execute(tx.as_mut())
         .await
         .context("failed to add next_refresh_at column")?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE oauth_refresh_token_vault
+            ADD COLUMN IF NOT EXISTS fallback_access_token_enc TEXT NULL
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to add oauth_refresh_token_vault fallback_access_token_enc column")?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE oauth_refresh_token_vault
+            ADD COLUMN IF NOT EXISTS fallback_token_expires_at TIMESTAMPTZ NULL
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to add oauth_refresh_token_vault fallback_token_expires_at column")?;
 
         sqlx::query(
             r#"

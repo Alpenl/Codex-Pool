@@ -142,6 +142,7 @@ impl PostgresStore {
                 p.groups_json::text AS groups_json_text,
                 p.source_type,
                 c.access_token_enc,
+                c.fallback_access_token_enc,
                 c.token_family_id,
                 c.token_version,
                 c.token_expires_at,
@@ -244,6 +245,9 @@ impl PostgresStore {
             }
             _ => None,
         };
+        let has_access_token_fallback = row
+            .try_get::<Option<String>, _>("fallback_access_token_enc")?
+            .is_some();
 
         let workspace_name = self
             .maybe_backfill_workspace_name_for_status(
@@ -261,7 +265,7 @@ impl PostgresStore {
             auth_provider,
             credential_kind,
             has_refresh_credential,
-            has_access_token_fallback: false,
+            has_access_token_fallback,
             refresh_credential_state,
             email: row.try_get::<Option<String>, _>("email")?,
             oauth_subject: row.try_get::<Option<String>, _>("oauth_subject")?,
@@ -341,6 +345,7 @@ impl PostgresStore {
                 p.groups_json::text AS groups_json_text,
                 p.source_type,
                 c.access_token_enc,
+                c.fallback_access_token_enc,
                 c.token_family_id,
                 c.token_version,
                 c.token_expires_at,
@@ -374,6 +379,7 @@ impl PostgresStore {
             base_url: String,
             chatgpt_account_id: Option<String>,
             access_token_enc: Option<String>,
+            has_access_token_fallback: bool,
             auth_provider: UpstreamAuthProvider,
             credential_kind: Option<SessionCredentialKind>,
             email: Option<String>,
@@ -483,6 +489,9 @@ impl PostgresStore {
                 base_url: row.try_get::<String, _>("base_url")?,
                 chatgpt_account_id: row.try_get::<Option<String>, _>("chatgpt_account_id")?,
                 access_token_enc: row.try_get::<Option<String>, _>("access_token_enc")?,
+                has_access_token_fallback: row
+                    .try_get::<Option<String>, _>("fallback_access_token_enc")?
+                    .is_some(),
                 auth_provider,
                 credential_kind,
                 email: row.try_get::<Option<String>, _>("email")?,
@@ -548,7 +557,7 @@ impl PostgresStore {
                     auth_provider: item.auth_provider,
                     credential_kind: item.credential_kind,
                     has_refresh_credential: has_refresh_credential(&item.auth_provider),
-                    has_access_token_fallback: false,
+                    has_access_token_fallback: item.has_access_token_fallback,
                     refresh_credential_state: refresh_credential_state(
                         &item.auth_provider,
                         &item.last_refresh_status,

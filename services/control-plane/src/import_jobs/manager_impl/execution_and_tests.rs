@@ -178,6 +178,8 @@ mod tests {
                 label: "pause-resume".to_string(),
                 base_url: "https://chatgpt.com/backend-api/codex".to_string(),
                 refresh_token: "rt-pause-resume".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
                 chatgpt_account_id: Some("acct-pause-resume".to_string()),
                 mode: Some(UpstreamMode::ChatGptSession),
                 enabled: Some(true),
@@ -302,6 +304,41 @@ mod tests {
         assert_eq!(req.source_type.as_deref(), Some("codex"));
         assert_eq!(req.chatgpt_account_id.as_deref(), Some("acct_codex_1"));
         assert!(req.token_expires_at.is_some());
+    }
+
+    #[test]
+    fn parse_record_keeps_access_token_as_refresh_fallback_when_both_are_present() {
+        let file = ImportUploadFile {
+            file_name: "codex-refresh-with-fallback.json".to_string(),
+            content: Bytes::from(
+                r#"{
+                  "type":"codex",
+                  "email":"codex-both@example.com",
+                  "refresh_token":"rt_primary",
+                  "access_token":"ak_fallback",
+                  "account_id":"acct_codex_both",
+                  "exp": 1893456000
+                }"#,
+            ),
+        };
+
+        let items = parse_file_records(&file, &CreateOAuthImportJobOptions::default())
+            .expect("parse file records");
+        assert_eq!(items.len(), 1);
+
+        let req = match items[0].request.as_ref().expect("request") {
+            ImportTaskRequest::OAuthRefresh(req) => req,
+            ImportTaskRequest::OneTimeAccessToken(_) => panic!("expected oauth refresh request"),
+            ImportTaskRequest::ManualRefreshAccount(_) => panic!("expected oauth refresh request"),
+        };
+
+        assert_eq!(req.refresh_token, "rt_primary");
+        assert_eq!(req.fallback_access_token.as_deref(), Some("ak_fallback"));
+        assert_eq!(
+            req.fallback_token_expires_at.map(|ts| ts.timestamp()),
+            Some(1_893_456_000)
+        );
+        assert_eq!(req.chatgpt_account_id.as_deref(), Some("acct_codex_both"));
     }
 
     #[test]
@@ -521,6 +558,8 @@ mod tests {
                     label: format!("multi-batch-{item_id}"),
                     base_url: "https://chatgpt.com/backend-api/codex".to_string(),
                     refresh_token: format!("rt-multi-{item_id}"),
+                    fallback_access_token: None,
+                    fallback_token_expires_at: None,
                     chatgpt_account_id: Some(format!("acct-multi-{item_id}")),
                     mode: Some(UpstreamMode::ChatGptSession),
                     enabled: Some(true),

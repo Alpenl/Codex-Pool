@@ -527,6 +527,12 @@ impl InMemoryStore {
         };
 
         let oauth_credential = OAuthCredentialRecord::from_token_info(cipher, &token_info)?;
+        let mut oauth_credential = oauth_credential;
+        oauth_credential.set_fallback_access_token(
+            cipher,
+            req.fallback_access_token.as_deref(),
+            req.fallback_token_expires_at,
+        )?;
 
         self.accounts
             .write()
@@ -611,10 +617,31 @@ impl InMemoryStore {
             account.enabled = req.enabled.unwrap_or(true);
             account.priority = req.priority.unwrap_or(100);
 
+            let existing_credential = self
+                .oauth_credentials
+                .read()
+                .unwrap()
+                .get(&account_id)
+                .cloned();
             let mut credential = OAuthCredentialRecord::from_token_info(cipher, &token_info)?;
-            if let Some(existing) = self.oauth_credentials.read().unwrap().get(&account_id) {
+            if let Some(existing) = existing_credential.as_ref() {
                 credential.token_family_id = existing.token_family_id.clone();
                 credential.token_version = existing.token_version.saturating_add(1);
+            }
+            if req
+                .fallback_access_token
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|value| !value.is_empty())
+            {
+                credential.set_fallback_access_token(
+                    cipher,
+                    req.fallback_access_token.as_deref(),
+                    req.fallback_token_expires_at,
+                )?;
+            } else if let Some(existing) = existing_credential.as_ref() {
+                credential.fallback_access_token_enc = existing.fallback_access_token_enc.clone();
+                credential.fallback_token_expires_at = existing.fallback_token_expires_at;
             }
             drop(accounts);
             self.account_auth_providers

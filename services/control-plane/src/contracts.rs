@@ -132,6 +132,15 @@ pub struct ImportOAuthRefreshTokenRequest {
     pub label: String,
     pub base_url: String,
     pub refresh_token: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "access_token",
+        alias = "bearer_token"
+    )]
+    pub fallback_access_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_token_expires_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chatgpt_account_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
