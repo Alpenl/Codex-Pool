@@ -42,8 +42,9 @@ use crate::contracts::{
     ImportOAuthRefreshTokenRequest, ModelRoutingPoliciesResponse, ModelRoutingSettingsResponse,
     OAuthAccountStatusResponse, OAuthFamilyActionResponse, OAuthImportItemStatus,
     OAuthImportJobActionResponse, OAuthImportJobItemsResponse, OAuthImportJobSummary,
-    OAuthRateLimitRefreshJobStatus, OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot,
-    OAuthRateLimitWindow, PolicyResponse, RoutingPlanVersionsResponse, RoutingProfilesResponse,
+    OAuthInventoryRecord, OAuthInventorySummaryResponse, OAuthRateLimitRefreshJobStatus,
+    OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot, OAuthRateLimitWindow,
+    PolicyResponse, RoutingPlanVersionsResponse, RoutingProfilesResponse,
     TenantUsageLeaderboardItem, TenantUsageLeaderboardResponse,
     UpdateAiErrorLearningSettingsRequest, UpdateBuiltinErrorTemplateRequest,
     UpdateModelRoutingSettingsRequest, UpdateOutboundProxyNodeRequest,
@@ -2181,6 +2182,14 @@ pub fn build_app_with_store_and_services(
         .route(
             "/api/v1/upstream-accounts/oauth/statuses",
             post(get_oauth_account_statuses),
+        )
+        .route(
+            "/api/v1/upstream-accounts/oauth/inventory/summary",
+            get(get_oauth_inventory_summary),
+        )
+        .route(
+            "/api/v1/upstream-accounts/oauth/inventory/records",
+            get(get_oauth_inventory_records),
         )
         .route(
             "/api/v1/upstream-accounts/oauth/rate-limits/refresh-jobs",

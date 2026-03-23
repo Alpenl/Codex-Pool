@@ -138,6 +138,17 @@ impl ControlPlaneStore for InMemoryStore {
         self.upsert_oauth_refresh_token_inner(req).await
     }
 
+    async fn queue_oauth_refresh_token(
+        &self,
+        req: ImportOAuthRefreshTokenRequest,
+    ) -> Result<bool> {
+        let created = self.queue_oauth_refresh_token_inner(req.clone())?;
+        if let Some(record_id) = self.oauth_vault_record_id_for_request(&req) {
+            self.probe_oauth_vault_admission_inner(record_id).await?;
+        }
+        Ok(created)
+    }
+
     async fn dedupe_oauth_accounts_by_identity(&self) -> Result<u64> {
         Ok(self.dedupe_oauth_accounts_by_identity_inner(None, None, None))
     }
@@ -155,6 +166,14 @@ impl ControlPlaneStore for InMemoryStore {
 
     async fn oauth_account_status(&self, account_id: Uuid) -> Result<OAuthAccountStatusResponse> {
         self.oauth_account_status_inner(account_id).await
+    }
+
+    async fn oauth_inventory_summary(&self) -> Result<crate::contracts::OAuthInventorySummaryResponse> {
+        Ok(self.oauth_inventory_summary_inner())
+    }
+
+    async fn oauth_inventory_records(&self) -> Result<Vec<crate::contracts::OAuthInventoryRecord>> {
+        Ok(self.oauth_inventory_records_inner())
     }
 
     async fn upsert_routing_policy(
@@ -795,7 +814,8 @@ mod tests {
     use crate::contracts::{
         CreateApiKeyRequest, CreateTenantRequest, CreateUpstreamAccountRequest,
         ImportOAuthRefreshTokenRequest, OAuthAccountPoolState, OAuthRateLimitRefreshJobStatus,
-        OAuthRateLimitSnapshot, OAuthRateLimitWindow, RefreshCredentialState,
+        OAuthRateLimitSnapshot, OAuthRateLimitWindow, OAuthVaultRecordStatus,
+        RefreshCredentialState,
         SessionCredentialKind, UpsertModelRoutingPolicyRequest, UpsertRoutingProfileRequest,
     };
     use codex_pool_core::model::{
@@ -1008,6 +1028,35 @@ mod tests {
                 }),
                 secondary: None,
             }])
+        }
+    }
+
+    #[derive(Clone)]
+    struct AdmissionProbeOAuthTokenClient {
+        refresh_calls: Arc<AtomicUsize>,
+        rate_limits: Vec<OAuthRateLimitSnapshot>,
+    }
+
+    #[async_trait]
+    impl OAuthTokenClient for AdmissionProbeOAuthTokenClient {
+        async fn refresh_token(
+            &self,
+            refresh_token: &str,
+            base_url: Option<&str>,
+        ) -> Result<OAuthTokenInfo, crate::oauth::OAuthTokenClientError> {
+            self.refresh_calls.fetch_add(1, Ordering::SeqCst);
+            StaticOAuthTokenClient
+                .refresh_token(refresh_token, base_url)
+                .await
+        }
+
+        async fn fetch_rate_limits(
+            &self,
+            _access_token: &str,
+            _base_url: Option<&str>,
+            _chatgpt_account_id: Option<&str>,
+        ) -> Result<Vec<OAuthRateLimitSnapshot>, crate::oauth::OAuthTokenClientError> {
+            Ok(self.rate_limits.clone())
         }
     }
 
@@ -2087,5 +2136,188 @@ mod tests {
             .expect("compiled exact route for gpt-5.4");
         assert_eq!(gpt54.fallback_segments.len(), 1);
         assert_eq!(gpt54.fallback_segments[0].account_ids, vec![paid_account.id]);
+    }
+
+    #[tokio::test]
+    async fn in_memory_queue_oauth_refresh_token_marks_ready_inventory_without_refresh() {
+        let cipher = CredentialCipher::from_base64_key(
+            &base64::engine::general_purpose::STANDARD.encode([21_u8; 32]),
+        )
+        .unwrap();
+        let refresh_calls = Arc::new(AtomicUsize::new(0));
+        let store = InMemoryStore::new_with_oauth(
+            Arc::new(AdmissionProbeOAuthTokenClient {
+                refresh_calls: refresh_calls.clone(),
+                rate_limits: vec![OAuthRateLimitSnapshot {
+                    limit_id: Some("five_hours".to_string()),
+                    limit_name: Some("5 hours".to_string()),
+                    primary: Some(OAuthRateLimitWindow {
+                        used_percent: 25.0,
+                        window_minutes: Some(300),
+                        resets_at: Some(Utc::now() + Duration::minutes(30)),
+                    }),
+                    secondary: None,
+                }],
+            }),
+            Some(cipher),
+        );
+
+        let fallback_token_expires_at = Utc::now() + Duration::hours(2);
+        let created = store
+            .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "oauth-admission-ready".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-admission-ready".to_string(),
+                fallback_access_token: Some("ak-ready".to_string()),
+                fallback_token_expires_at: Some(fallback_token_expires_at),
+                chatgpt_account_id: Some("acct_admission_ready".to_string()),
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: Some("pro".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .expect("queue oauth refresh token");
+
+        assert!(created);
+        assert_eq!(refresh_calls.load(Ordering::SeqCst), 0);
+        assert!(
+            store
+                .list_upstream_accounts()
+                .await
+                .expect("list runtime accounts")
+                .is_empty(),
+            "inventory-ready items should remain in vault before activation"
+        );
+
+        let summary = store
+            .oauth_inventory_summary()
+            .await
+            .expect("inventory summary");
+        assert_eq!(summary.total, 1);
+        assert_eq!(summary.ready, 1);
+
+        let records = store
+            .oauth_inventory_records()
+            .await
+            .expect("inventory records");
+        assert_eq!(records.len(), 1);
+        let record = &records[0];
+        assert_eq!(record.vault_status, OAuthVaultRecordStatus::Ready);
+        assert_eq!(
+            record.admission_source.as_deref(),
+            Some("fallback_access_token")
+        );
+        assert!(record.admission_checked_at.is_some());
+        assert!(record.admission_rate_limits_expires_at.is_some());
+        assert!(record.has_access_token_fallback);
+    }
+
+    #[tokio::test]
+    async fn in_memory_queue_oauth_refresh_token_marks_no_quota_inventory_with_retry_after() {
+        let cipher = CredentialCipher::from_base64_key(
+            &base64::engine::general_purpose::STANDARD.encode([22_u8; 32]),
+        )
+        .unwrap();
+        let refresh_calls = Arc::new(AtomicUsize::new(0));
+        let store = InMemoryStore::new_with_oauth(
+            Arc::new(AdmissionProbeOAuthTokenClient {
+                refresh_calls: refresh_calls.clone(),
+                rate_limits: vec![OAuthRateLimitSnapshot {
+                    limit_id: Some("five_hours".to_string()),
+                    limit_name: Some("5 hours".to_string()),
+                    primary: Some(OAuthRateLimitWindow {
+                        used_percent: 100.0,
+                        window_minutes: Some(300),
+                        resets_at: Some(Utc::now() + Duration::minutes(45)),
+                    }),
+                    secondary: None,
+                }],
+            }),
+            Some(cipher),
+        );
+
+        store
+            .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "oauth-admission-no-quota".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-admission-no-quota".to_string(),
+                fallback_access_token: Some("ak-no-quota".to_string()),
+                fallback_token_expires_at: Some(Utc::now() + Duration::hours(2)),
+                chatgpt_account_id: Some("acct_admission_no_quota".to_string()),
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: Some("pro".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .expect("queue oauth refresh token");
+
+        assert_eq!(refresh_calls.load(Ordering::SeqCst), 0);
+
+        let records = store
+            .oauth_inventory_records()
+            .await
+            .expect("inventory records");
+        let record = records.first().expect("inventory record");
+        assert_eq!(record.vault_status, OAuthVaultRecordStatus::NoQuota);
+        assert!(record.admission_retry_after.is_some());
+    }
+
+    #[tokio::test]
+    async fn in_memory_queue_oauth_refresh_token_marks_needs_refresh_when_expiry_unknown() {
+        let cipher = CredentialCipher::from_base64_key(
+            &base64::engine::general_purpose::STANDARD.encode([23_u8; 32]),
+        )
+        .unwrap();
+        let refresh_calls = Arc::new(AtomicUsize::new(0));
+        let store = InMemoryStore::new_with_oauth(
+            Arc::new(AdmissionProbeOAuthTokenClient {
+                refresh_calls: refresh_calls.clone(),
+                rate_limits: vec![OAuthRateLimitSnapshot {
+                    limit_id: Some("five_hours".to_string()),
+                    limit_name: Some("5 hours".to_string()),
+                    primary: Some(OAuthRateLimitWindow {
+                        used_percent: 12.0,
+                        window_minutes: Some(300),
+                        resets_at: Some(Utc::now() + Duration::minutes(20)),
+                    }),
+                    secondary: None,
+                }],
+            }),
+            Some(cipher),
+        );
+
+        store
+            .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "oauth-admission-needs-refresh".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-admission-needs-refresh".to_string(),
+                fallback_access_token: Some("opaque-ak-needs-refresh".to_string()),
+                fallback_token_expires_at: None,
+                chatgpt_account_id: Some("acct_admission_needs_refresh".to_string()),
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: Some("pro".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .expect("queue oauth refresh token");
+
+        assert_eq!(refresh_calls.load(Ordering::SeqCst), 0);
+
+        let records = store
+            .oauth_inventory_records()
+            .await
+            .expect("inventory records");
+        let record = records.first().expect("inventory record");
+        assert_eq!(record.vault_status, OAuthVaultRecordStatus::NeedsRefresh);
+        assert_eq!(
+            record.admission_error_code.as_deref(),
+            Some("expiry_unknown")
+        );
     }
 }

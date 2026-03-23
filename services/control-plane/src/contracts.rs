@@ -171,6 +171,17 @@ pub enum OAuthAccountPoolState {
     PendingPurge,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum OAuthVaultRecordStatus {
+    #[default]
+    Queued,
+    Ready,
+    NeedsRefresh,
+    NoQuota,
+    Failed,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionCredentialKind {
@@ -267,6 +278,49 @@ pub struct OAuthAccountStatusResponse {
     pub rate_limits_last_error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_refresh_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OAuthInventorySummaryResponse {
+    pub total: u64,
+    pub queued: u64,
+    pub ready: u64,
+    pub needs_refresh: u64,
+    pub no_quota: u64,
+    pub failed: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuthInventoryRecord {
+    pub id: Uuid,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chatgpt_account_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chatgpt_plan_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
+    pub vault_status: OAuthVaultRecordStatus,
+    pub has_refresh_token: bool,
+    pub has_access_token_fallback: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admission_source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admission_checked_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admission_retry_after: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admission_error_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admission_error_message: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub admission_rate_limits: Vec<OAuthRateLimitSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admission_rate_limits_expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -673,12 +727,22 @@ pub struct OAuthImportJobSummary {
     pub throughput_per_min: Option<f64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub error_summary: Vec<OAuthImportErrorSummary>,
+    #[serde(default)]
+    pub admission_counts: OAuthImportAdmissionCounts,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OAuthImportErrorSummary {
     pub error_code: String,
     pub count: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OAuthImportAdmissionCounts {
+    pub ready: u64,
+    pub needs_refresh: u64,
+    pub no_quota: u64,
+    pub failed: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -698,6 +762,12 @@ pub struct OAuthImportJobItem {
     pub error_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admission_status: Option<OAuthVaultRecordStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admission_source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admission_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1003,6 +1003,13 @@ impl PostgresStore {
                 next_attempt_at TIMESTAMPTZ NULL,
                 last_error_code TEXT NULL,
                 last_error_message TEXT NULL,
+                admission_source TEXT NULL,
+                admission_checked_at TIMESTAMPTZ NULL,
+                admission_retry_after TIMESTAMPTZ NULL,
+                admission_error_code TEXT NULL,
+                admission_error_message TEXT NULL,
+                admission_rate_limits_json JSONB NULL,
+                admission_rate_limits_expires_at TIMESTAMPTZ NULL,
                 created_at TIMESTAMPTZ NOT NULL,
                 updated_at TIMESTAMPTZ NOT NULL
             )
@@ -1041,6 +1048,16 @@ impl PostgresStore {
         .execute(tx.as_mut())
         .await
         .context("failed to create oauth_refresh_token_vault chatgpt_account index")?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_oauth_refresh_token_vault_status_admission_retry
+            ON oauth_refresh_token_vault (status, admission_retry_after, id)
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create oauth_refresh_token_vault admission retry index")?;
 
         sqlx::query(
             r#"
@@ -1452,6 +1469,86 @@ impl PostgresStore {
         .execute(tx.as_mut())
         .await
         .context("failed to add oauth_refresh_token_vault fallback_token_expires_at column")?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE oauth_refresh_token_vault
+            ADD COLUMN IF NOT EXISTS admission_source TEXT NULL
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to add oauth_refresh_token_vault admission_source column")?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE oauth_refresh_token_vault
+            ADD COLUMN IF NOT EXISTS admission_checked_at TIMESTAMPTZ NULL
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to add oauth_refresh_token_vault admission_checked_at column")?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE oauth_refresh_token_vault
+            ADD COLUMN IF NOT EXISTS admission_retry_after TIMESTAMPTZ NULL
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to add oauth_refresh_token_vault admission_retry_after column")?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE oauth_refresh_token_vault
+            ADD COLUMN IF NOT EXISTS admission_error_code TEXT NULL
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to add oauth_refresh_token_vault admission_error_code column")?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE oauth_refresh_token_vault
+            ADD COLUMN IF NOT EXISTS admission_error_message TEXT NULL
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to add oauth_refresh_token_vault admission_error_message column")?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE oauth_refresh_token_vault
+            ADD COLUMN IF NOT EXISTS admission_rate_limits_json JSONB NULL
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to add oauth_refresh_token_vault admission_rate_limits_json column")?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE oauth_refresh_token_vault
+            ADD COLUMN IF NOT EXISTS admission_rate_limits_expires_at TIMESTAMPTZ NULL
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to add oauth_refresh_token_vault admission_rate_limits_expires_at column")?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_oauth_refresh_token_vault_status_admission_retry
+            ON oauth_refresh_token_vault (status, admission_retry_after, id)
+            "#,
+        )
+        .execute(tx.as_mut())
+        .await
+        .context("failed to create oauth_refresh_token_vault status-admission retry index")?;
 
         sqlx::query(
             r#"

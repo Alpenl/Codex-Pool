@@ -57,6 +57,35 @@ fn parse_oauth_refresh_status(raw: &str) -> Result<OAuthRefreshStatus> {
     }
 }
 
+const OAUTH_VAULT_STATUS_QUEUED: &str = "queued";
+const OAUTH_VAULT_STATUS_READY: &str = "ready";
+const OAUTH_VAULT_STATUS_NEEDS_REFRESH: &str = "needs_refresh";
+const OAUTH_VAULT_STATUS_NO_QUOTA: &str = "no_quota";
+const OAUTH_VAULT_STATUS_FAILED: &str = "failed";
+
+fn oauth_vault_status_to_db(status: OAuthVaultRecordStatus) -> &'static str {
+    match status {
+        OAuthVaultRecordStatus::Queued => OAUTH_VAULT_STATUS_QUEUED,
+        OAuthVaultRecordStatus::Ready => OAUTH_VAULT_STATUS_READY,
+        OAuthVaultRecordStatus::NeedsRefresh => OAUTH_VAULT_STATUS_NEEDS_REFRESH,
+        OAuthVaultRecordStatus::NoQuota => OAUTH_VAULT_STATUS_NO_QUOTA,
+        OAuthVaultRecordStatus::Failed => OAUTH_VAULT_STATUS_FAILED,
+    }
+}
+
+fn parse_oauth_vault_record_status(raw: &str) -> Result<OAuthVaultRecordStatus> {
+    match raw {
+        OAUTH_VAULT_STATUS_QUEUED => Ok(OAuthVaultRecordStatus::Queued),
+        OAUTH_VAULT_STATUS_READY => Ok(OAuthVaultRecordStatus::Ready),
+        OAUTH_VAULT_STATUS_NEEDS_REFRESH => Ok(OAuthVaultRecordStatus::NeedsRefresh),
+        OAUTH_VAULT_STATUS_NO_QUOTA => Ok(OAuthVaultRecordStatus::NoQuota),
+        OAUTH_VAULT_STATUS_FAILED => Ok(OAuthVaultRecordStatus::Failed),
+        _ => Err(anyhow!(
+            "unsupported oauth vault record status in postgres: {raw}"
+        )),
+    }
+}
+
 fn session_credential_kind_to_db(kind: &SessionCredentialKind) -> &'static str {
     match kind {
         SessionCredentialKind::RefreshRotatable => SESSION_CREDENTIAL_KIND_REFRESH_ROTATABLE,
@@ -186,6 +215,65 @@ fn rate_limit_block_message(block_reason: &str) -> String {
     }
 }
 
+fn derive_rate_limit_block(
+    snapshots: &[OAuthRateLimitSnapshot],
+    now: DateTime<Utc>,
+) -> (Option<DateTime<Utc>>, Option<String>) {
+    if let Some(blocked_until) = find_blocked_until_for_window(
+        snapshots,
+        true,
+        Some(SECONDARY_RATE_LIMIT_WINDOW_MINUTES),
+        now,
+    ) {
+        return (
+            Some(blocked_until),
+            Some("secondary_window_exhausted".to_string()),
+        );
+    }
+    if let Some(blocked_until) = find_blocked_until_for_window(
+        snapshots,
+        false,
+        Some(PRIMARY_RATE_LIMIT_WINDOW_MINUTES),
+        now,
+    ) {
+        return (
+            Some(blocked_until),
+            Some("primary_window_exhausted".to_string()),
+        );
+    }
+    (None, None)
+}
+
+fn find_blocked_until_for_window(
+    snapshots: &[OAuthRateLimitSnapshot],
+    secondary: bool,
+    window_minutes: Option<i64>,
+    now: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    snapshots
+        .iter()
+        .filter_map(|snapshot| {
+            let window = if secondary {
+                snapshot.secondary.as_ref()
+            } else {
+                snapshot.primary.as_ref()
+            }?;
+            if window.used_percent < 100.0 {
+                return None;
+            }
+            if let Some(expected_minutes) = window_minutes {
+                if let Some(actual_minutes) = window.window_minutes {
+                    if actual_minutes != expected_minutes {
+                        return None;
+                    }
+                }
+            }
+            let reset_at = window.resets_at?;
+            (reset_at > now).then_some(reset_at)
+        })
+        .max()
+}
+
 fn has_active_rate_limit_block(
     now: DateTime<Utc>,
     rate_limits_expires_at: Option<DateTime<Utc>>,
@@ -207,6 +295,65 @@ fn rate_limit_failure_backoff_seconds(error_code: &str, error_message: &str) -> 
         return 120;
     }
     rate_limit_refresh_error_backoff_sec_from_env()
+}
+
+fn derive_admission_rate_limits_expires_at(
+    snapshots: &[OAuthRateLimitSnapshot],
+    checked_at: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    if snapshots.is_empty() {
+        return None;
+    }
+    let (blocked_until, _) = derive_rate_limit_block(snapshots, checked_at);
+    Some(
+        blocked_until.unwrap_or_else(|| {
+            checked_at + Duration::seconds(rate_limit_cache_ttl_sec_from_env())
+        }),
+    )
+}
+
+fn parse_jwt_exp_from_access_token(access_token: &str) -> Option<DateTime<Utc>> {
+    use base64::Engine as _;
+
+    let mut parts = access_token.split('.');
+    let _header = parts.next()?;
+    let payload = parts.next()?;
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(payload))
+        .ok()?;
+    let payload_json = serde_json::from_slice::<serde_json::Value>(&decoded).ok()?;
+    let exp = payload_json.get("exp").and_then(|value| {
+        value
+            .as_i64()
+            .or_else(|| value.as_u64().and_then(|number| i64::try_from(number).ok()))
+    })?;
+    (exp > 0)
+        .then_some(exp)
+        .and_then(|seconds| DateTime::<Utc>::from_timestamp(seconds, 0))
+}
+
+fn stable_vault_token_family_id(refresh_token_sha256: &str) -> String {
+    format!("vault:{refresh_token_sha256}")
+}
+
+fn oauth_vault_activation_priority(status: OAuthVaultRecordStatus) -> u8 {
+    match status {
+        OAuthVaultRecordStatus::Ready => 0,
+        OAuthVaultRecordStatus::NeedsRefresh => 1,
+        OAuthVaultRecordStatus::Queued => 2,
+        OAuthVaultRecordStatus::NoQuota => 3,
+        OAuthVaultRecordStatus::Failed => 4,
+    }
+}
+
+fn oauth_vault_activation_fallback_status(
+    status: OAuthVaultRecordStatus,
+) -> OAuthVaultRecordStatus {
+    match status {
+        OAuthVaultRecordStatus::Ready => OAuthVaultRecordStatus::NeedsRefresh,
+        other => other,
+    }
 }
 
 fn should_trigger_refresh_after_rate_limit_failure(error_code: &str, error_message: &str) -> bool {
@@ -554,6 +701,14 @@ impl ControlPlaneStore for PostgresStore {
         account_ids: Vec<Uuid>,
     ) -> Result<Vec<OAuthAccountStatusResponse>> {
         self.fetch_oauth_account_statuses(&account_ids).await
+    }
+
+    async fn oauth_inventory_summary(&self) -> Result<OAuthInventorySummaryResponse> {
+        self.oauth_inventory_summary_inner().await
+    }
+
+    async fn oauth_inventory_records(&self) -> Result<Vec<OAuthInventoryRecord>> {
+        self.oauth_inventory_records_inner().await
     }
 
     async fn upsert_routing_policy(

@@ -124,6 +124,117 @@ async fn oauth_statuses_route_returns_cached_rate_limit_metadata() {
 }
 
 #[tokio::test]
+async fn oauth_inventory_routes_expose_vault_admission_state() {
+    let cipher_key = base64::engine::general_purpose::STANDARD.encode([31_u8; 32]);
+    let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();
+    let store = InMemoryStore::new_with_oauth(
+        Arc::new(InventoryProbeOAuthTokenClient {
+            rate_limits: vec![OAuthRateLimitSnapshot {
+                limit_id: Some("five_hours".to_string()),
+                limit_name: Some("5 hours".to_string()),
+                primary: Some(OAuthRateLimitWindow {
+                    used_percent: 28.0,
+                    window_minutes: Some(300),
+                    resets_at: Some(chrono::Utc::now() + chrono::Duration::minutes(25)),
+                }),
+                secondary: None,
+            }],
+        }),
+        Some(cipher),
+    );
+    store
+        .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+            label: "inventory-ready".to_string(),
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            refresh_token: "rt-inventory-ready".to_string(),
+            fallback_access_token: Some("ak-inventory-ready".to_string()),
+            fallback_token_expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(2)),
+            chatgpt_account_id: Some("acct_inventory_ready".to_string()),
+            mode: None,
+            enabled: None,
+            priority: None,
+            chatgpt_plan_type: Some("free".to_string()),
+            source_type: Some("codex".to_string()),
+        })
+        .await
+        .unwrap();
+    store
+        .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+            label: "inventory-needs-refresh".to_string(),
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            refresh_token: "rt-inventory-needs-refresh".to_string(),
+            fallback_access_token: None,
+            fallback_token_expires_at: None,
+            chatgpt_account_id: Some("acct_inventory_needs_refresh".to_string()),
+            mode: None,
+            enabled: None,
+            priority: None,
+            chatgpt_plan_type: Some("free".to_string()),
+            source_type: Some("codex".to_string()),
+        })
+        .await
+        .unwrap();
+
+    let app = build_app_with_store(Arc::new(store));
+    let admin_token = login_admin_token(&app).await;
+
+    let summary_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/upstream-accounts/oauth/inventory/summary")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(summary_response.status(), StatusCode::OK);
+    let summary_body = to_bytes(summary_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let summary_json: Value = serde_json::from_slice(&summary_body).unwrap();
+    assert_eq!(summary_json["total"], 2);
+    assert_eq!(summary_json["ready"], 1);
+    assert_eq!(summary_json["needs_refresh"], 1);
+    assert_eq!(summary_json["no_quota"], 0);
+
+    let records_response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/upstream-accounts/oauth/inventory/records")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(records_response.status(), StatusCode::OK);
+    let records_body = to_bytes(records_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let mut records_json: Vec<Value> = serde_json::from_slice(&records_body).unwrap();
+    records_json.sort_by(|left, right| {
+        left["label"]
+            .as_str()
+            .cmp(&right["label"].as_str())
+    });
+    assert_eq!(records_json.len(), 2);
+    assert_eq!(records_json[0]["label"], "inventory-needs-refresh");
+    assert_eq!(records_json[0]["vault_status"], "needs_refresh");
+    assert_eq!(
+        records_json[0]["admission_error_code"],
+        "missing_access_token_fallback"
+    );
+    assert_eq!(records_json[1]["label"], "inventory-ready");
+    assert_eq!(records_json[1]["vault_status"], "ready");
+    assert_eq!(records_json[1]["admission_source"], "fallback_access_token");
+    assert!(records_json[1]["admission_checked_at"].is_string());
+}
+
+#[tokio::test]
 async fn oauth_status_route_returns_not_found_for_unknown_account() {
     let app = build_app();
     let admin_token = login_admin_token(&app).await;

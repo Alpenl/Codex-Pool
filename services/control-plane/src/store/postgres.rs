@@ -25,18 +25,19 @@ use uuid::Uuid;
 use crate::contracts::{
     CreateApiKeyRequest, CreateApiKeyResponse, CreateOutboundProxyNodeRequest,
     CreateTenantRequest, CreateUpstreamAccountRequest, ImportOAuthRefreshTokenRequest,
-    OAuthAccountStatusResponse, OAuthFamilyActionResponse, OAuthRateLimitRefreshErrorSummary,
+    OAuthAccountStatusResponse, OAuthFamilyActionResponse, OAuthInventoryRecord,
+    OAuthInventorySummaryResponse, OAuthRateLimitRefreshErrorSummary,
     OAuthRateLimitRefreshJobStatus, OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot,
-    OAuthRefreshStatus, SessionCredentialKind, UpdateAiErrorLearningSettingsRequest,
-    UpdateModelRoutingSettingsRequest, UpdateOutboundProxyNodeRequest,
-    UpdateOutboundProxyPoolSettingsRequest, UpsertModelRoutingPolicyRequest,
-    UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest, UpsertRoutingProfileRequest,
-    UpsertStreamRetryPolicyRequest, ValidateOAuthRefreshTokenRequest,
-    ValidateOAuthRefreshTokenResponse,
+    OAuthRefreshStatus, OAuthVaultRecordStatus, SessionCredentialKind,
+    UpdateAiErrorLearningSettingsRequest, UpdateModelRoutingSettingsRequest,
+    UpdateOutboundProxyNodeRequest, UpdateOutboundProxyPoolSettingsRequest,
+    UpsertModelRoutingPolicyRequest, UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest,
+    UpsertRoutingProfileRequest, UpsertStreamRetryPolicyRequest,
+    ValidateOAuthRefreshTokenRequest, ValidateOAuthRefreshTokenResponse,
 };
 use super::{
     has_refresh_credential, normalize_upstream_account_base_url, refresh_credential_state,
-    SessionProfileRecord, UpsertOneTimeSessionAccountRequest,
+    OAuthRefreshTokenVaultRecord, SessionProfileRecord, UpsertOneTimeSessionAccountRequest,
 };
 use super::{ControlPlaneStore, OAuthUpsertResult, RuntimeStorePorts, ValidatedPrincipal};
 use crate::crypto::CredentialCipher;

@@ -8,9 +8,10 @@ use codex_pool_core::model::{
 use control_plane::contracts::{
     CreateApiKeyRequest, CreateTenantRequest, CreateUpstreamAccountRequest,
     ImportOAuthRefreshTokenRequest, OAuthImportItemStatus, OAuthImportJobItem,
-    OAuthImportJobStatus, OAuthImportJobSummary, OAuthRateLimitSnapshot, OAuthRateLimitWindow,
-    OAuthRefreshStatus, UpdateAiErrorLearningSettingsRequest, UpsertRetryPolicyRequest,
-    UpsertRoutingPolicyRequest, UpsertStreamRetryPolicyRequest,
+    OAuthImportJobStatus, OAuthImportJobSummary, OAuthInventorySummaryResponse,
+    OAuthRateLimitSnapshot, OAuthRateLimitWindow, OAuthRefreshStatus, OAuthVaultRecordStatus,
+    UpdateAiErrorLearningSettingsRequest, UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest,
+    UpsertStreamRetryPolicyRequest,
 };
 use control_plane::crypto::CredentialCipher;
 use control_plane::import_jobs::{
@@ -464,6 +465,84 @@ impl OAuthTokenClient for RecordingOAuthClient {
     }
 }
 
+#[derive(Default)]
+struct AdmissionProbeOAuthClient {
+    refresh_calls: AtomicUsize,
+    fetch_calls: AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl OAuthTokenClient for AdmissionProbeOAuthClient {
+    async fn refresh_token(
+        &self,
+        refresh_token: &str,
+        _base_url: Option<&str>,
+    ) -> Result<OAuthTokenInfo, OAuthTokenClientError> {
+        self.refresh_calls.fetch_add(1, Ordering::SeqCst);
+        let account_suffix = refresh_token
+            .rsplit('-')
+            .next()
+            .filter(|value| !value.is_empty())
+            .unwrap_or("default");
+        Ok(OAuthTokenInfo {
+            access_token: format!("activation-access-{account_suffix}"),
+            refresh_token: refresh_token.to_string(),
+            expires_at: Utc::now() + Duration::hours(1),
+            token_type: Some("Bearer".to_string()),
+            scope: Some("model.read".to_string()),
+            email: Some(format!("activation-{account_suffix}@example.com")),
+            oauth_subject: Some(format!("auth0|activation-{account_suffix}")),
+            oauth_identity_provider: Some("google-oauth2".to_string()),
+            email_verified: Some(true),
+            chatgpt_account_id: Some(format!("acct-activation-{account_suffix}")),
+            chatgpt_user_id: Some(format!("user-activation-{account_suffix}")),
+            chatgpt_plan_type: Some("team".to_string()),
+            chatgpt_subscription_active_start: None,
+            chatgpt_subscription_active_until: None,
+            chatgpt_subscription_last_checked: None,
+            chatgpt_account_user_id: Some(format!("acct_user_activation_{account_suffix}")),
+            chatgpt_compute_residency: Some("us".to_string()),
+            workspace_name: Some("OAI-ACTIVE".to_string()),
+            organizations: Some(vec![json!({
+                "id": format!("org_activation_{account_suffix}"),
+                "title": "Personal",
+            })]),
+            groups: Some(vec![]),
+        })
+    }
+
+    async fn fetch_rate_limits(
+        &self,
+        access_token: &str,
+        _base_url: Option<&str>,
+        _chatgpt_account_id: Option<&str>,
+    ) -> Result<Vec<OAuthRateLimitSnapshot>, OAuthTokenClientError> {
+        self.fetch_calls.fetch_add(1, Ordering::SeqCst);
+        if access_token.starts_with("fallback-error") {
+            return Err(OAuthTokenClientError::Upstream {
+                code: OAuthRefreshErrorCode::InvalidRefreshToken,
+                message: "fallback access token rejected".to_string(),
+            });
+        }
+
+        let used_percent = if access_token.starts_with("fallback-quota") {
+            100.0
+        } else {
+            12.5
+        };
+        Ok(vec![OAuthRateLimitSnapshot {
+            limit_id: Some("codex".to_string()),
+            limit_name: Some("Codex".to_string()),
+            primary: Some(OAuthRateLimitWindow {
+                used_percent,
+                window_minutes: Some(5),
+                resets_at: Some(Utc::now() + Duration::minutes(5)),
+            }),
+            secondary: None,
+        }])
+    }
+}
+
 async fn expire_rate_limit_snapshot(repo: &PostgresStore, account_id: Uuid) {
     let pool = repo.clone_pool();
     query(
@@ -478,6 +557,232 @@ async fn expire_rate_limit_snapshot(repo: &PostgresStore, account_id: Uuid) {
     .execute(&pool)
     .await
     .expect("expire rate-limit snapshot");
+}
+
+async fn create_temp_repo_with_oauth(
+    database_url: &str,
+    name_prefix: &str,
+    oauth_client: Arc<dyn OAuthTokenClient>,
+    cipher: CredentialCipher,
+) -> (PostgresStore, String) {
+    let database_name = format!("{name_prefix}_{}", Uuid::new_v4().simple());
+    create_temp_database(database_url, &database_name).await;
+    let temp_db_url = child_database_url(database_url, &database_name);
+    let repo = PostgresStore::connect_with_oauth(&temp_db_url, oauth_client, Some(cipher))
+        .await
+        .expect("connect temp postgres repo");
+    (repo, database_name)
+}
+
+#[tokio::test]
+async fn postgres_repo_queue_oauth_refresh_token_marks_ready_inventory_without_refresh() {
+    let Some(db_url) = test_db_url() else {
+        eprintln!(
+            "skip postgres_repo_queue_oauth_refresh_token_marks_ready_inventory_without_refresh: set CONTROL_PLANE_DATABASE_URL"
+        );
+        return;
+    };
+
+    let cipher_key = base64::engine::general_purpose::STANDARD.encode([21_u8; 32]);
+    let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();
+    let oauth_client = Arc::new(AdmissionProbeOAuthClient::default());
+    let (repo, database_name) =
+        create_temp_repo_with_oauth(&db_url, "cp_pg_ready_inventory", oauth_client.clone(), cipher)
+            .await;
+
+    let inserted = repo
+        .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+            label: format!("oauth-ready-{}", Uuid::new_v4().simple()),
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            refresh_token: format!("rt-ready-{}", Uuid::new_v4().simple()),
+            fallback_access_token: Some("fallback-ready-token".to_string()),
+            fallback_token_expires_at: Some(Utc::now() + Duration::hours(1)),
+            chatgpt_account_id: Some(format!("acct-ready-{}", Uuid::new_v4().simple())),
+            mode: Some(UpstreamMode::CodexOauth),
+            enabled: Some(true),
+            priority: Some(100),
+            chatgpt_plan_type: Some("team".to_string()),
+            source_type: Some("codex".to_string()),
+        })
+        .await
+        .unwrap();
+
+    let summary = repo.oauth_inventory_summary().await.unwrap();
+    let records = repo.oauth_inventory_records().await.unwrap();
+    let snapshot = repo.snapshot().await.unwrap();
+    drop_temp_database(&db_url, &database_name).await;
+
+    assert!(inserted);
+    assert_eq!(
+        summary,
+        OAuthInventorySummaryResponse {
+            total: 1,
+            queued: 0,
+            ready: 1,
+            needs_refresh: 0,
+            no_quota: 0,
+            failed: 0,
+        }
+    );
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].vault_status, OAuthVaultRecordStatus::Ready);
+    assert!(records[0].admission_checked_at.is_some());
+    assert!(records[0].admission_rate_limits_expires_at.is_some());
+    assert_eq!(snapshot.accounts.len(), 0);
+    assert_eq!(oauth_client.refresh_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(oauth_client.fetch_calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn postgres_repo_queue_oauth_refresh_token_marks_no_quota_inventory() {
+    let Some(db_url) = test_db_url() else {
+        eprintln!(
+            "skip postgres_repo_queue_oauth_refresh_token_marks_no_quota_inventory: set CONTROL_PLANE_DATABASE_URL"
+        );
+        return;
+    };
+
+    let cipher_key = base64::engine::general_purpose::STANDARD.encode([22_u8; 32]);
+    let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();
+    let oauth_client = Arc::new(AdmissionProbeOAuthClient::default());
+    let (repo, database_name) = create_temp_repo_with_oauth(
+        &db_url,
+        "cp_pg_no_quota_inventory",
+        oauth_client.clone(),
+        cipher,
+    )
+    .await;
+
+    repo.queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+        label: format!("oauth-no-quota-{}", Uuid::new_v4().simple()),
+        base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+        refresh_token: format!("rt-no-quota-{}", Uuid::new_v4().simple()),
+        fallback_access_token: Some("fallback-quota-token".to_string()),
+        fallback_token_expires_at: Some(Utc::now() + Duration::hours(1)),
+        chatgpt_account_id: Some(format!("acct-no-quota-{}", Uuid::new_v4().simple())),
+        mode: Some(UpstreamMode::CodexOauth),
+        enabled: Some(true),
+        priority: Some(100),
+        chatgpt_plan_type: Some("team".to_string()),
+        source_type: Some("codex".to_string()),
+    })
+    .await
+    .unwrap();
+
+    let records = repo.oauth_inventory_records().await.unwrap();
+    drop_temp_database(&db_url, &database_name).await;
+
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].vault_status, OAuthVaultRecordStatus::NoQuota);
+    assert!(records[0].admission_retry_after.is_some());
+    assert_eq!(
+        records[0].admission_error_code.as_deref(),
+        Some("primary_window_exhausted")
+    );
+    assert_eq!(oauth_client.refresh_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(oauth_client.fetch_calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn postgres_repo_activation_uses_ready_without_refresh_and_needs_refresh_with_single_refresh() {
+    let Some(db_url) = test_db_url() else {
+        eprintln!(
+            "skip postgres_repo_activation_uses_ready_without_refresh_and_needs_refresh_with_single_refresh: set CONTROL_PLANE_DATABASE_URL"
+        );
+        return;
+    };
+
+    let _env_guard = ENV_LOCK.lock().await;
+    let old_target = std::env::var("CONTROL_PLANE_ACTIVE_POOL_TARGET").ok();
+    let old_min = std::env::var("CONTROL_PLANE_ACTIVE_POOL_MIN").ok();
+    let old_batch = std::env::var("CONTROL_PLANE_VAULT_ACTIVATE_BATCH_SIZE").ok();
+    let old_concurrency = std::env::var("CONTROL_PLANE_VAULT_ACTIVATE_CONCURRENCY").ok();
+    let old_max_rps = std::env::var("CONTROL_PLANE_VAULT_ACTIVATE_MAX_RPS").ok();
+    std::env::set_var("CONTROL_PLANE_ACTIVE_POOL_TARGET", "2");
+    std::env::set_var("CONTROL_PLANE_ACTIVE_POOL_MIN", "0");
+    std::env::set_var("CONTROL_PLANE_VAULT_ACTIVATE_BATCH_SIZE", "4");
+    std::env::set_var("CONTROL_PLANE_VAULT_ACTIVATE_CONCURRENCY", "1");
+    std::env::set_var("CONTROL_PLANE_VAULT_ACTIVATE_MAX_RPS", "10");
+
+    let cipher_key = base64::engine::general_purpose::STANDARD.encode([23_u8; 32]);
+    let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();
+    let oauth_client = Arc::new(AdmissionProbeOAuthClient::default());
+    let (repo, database_name) = create_temp_repo_with_oauth(
+        &db_url,
+        "cp_pg_activate_inventory",
+        oauth_client.clone(),
+        cipher,
+    )
+    .await;
+
+    repo.queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+        label: format!("oauth-ready-activate-{}", Uuid::new_v4().simple()),
+        base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+        refresh_token: format!("rt-ready-activate-{}", Uuid::new_v4().simple()),
+        fallback_access_token: Some("fallback-ready-activate".to_string()),
+        fallback_token_expires_at: Some(Utc::now() + Duration::hours(1)),
+        chatgpt_account_id: Some(format!("acct-ready-activate-{}", Uuid::new_v4().simple())),
+        mode: Some(UpstreamMode::CodexOauth),
+        enabled: Some(true),
+        priority: Some(100),
+        chatgpt_plan_type: Some("team".to_string()),
+        source_type: Some("codex".to_string()),
+    })
+    .await
+    .unwrap();
+    repo.queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+        label: format!("oauth-needs-refresh-{}", Uuid::new_v4().simple()),
+        base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+        refresh_token: format!("rt-needs-refresh-{}", Uuid::new_v4().simple()),
+        fallback_access_token: Some("fallback-needs-refresh".to_string()),
+        fallback_token_expires_at: None,
+        chatgpt_account_id: Some(format!("acct-needs-refresh-{}", Uuid::new_v4().simple())),
+        mode: Some(UpstreamMode::CodexOauth),
+        enabled: Some(true),
+        priority: Some(100),
+        chatgpt_plan_type: Some("team".to_string()),
+        source_type: Some("codex".to_string()),
+    })
+    .await
+    .unwrap();
+
+    let activated = repo.activate_oauth_refresh_token_vault().await.unwrap();
+    let inventory = repo.oauth_inventory_records().await.unwrap();
+    let snapshot = repo.snapshot().await.unwrap();
+
+    if let Some(value) = old_target.as_deref() {
+        std::env::set_var("CONTROL_PLANE_ACTIVE_POOL_TARGET", value);
+    } else {
+        std::env::remove_var("CONTROL_PLANE_ACTIVE_POOL_TARGET");
+    }
+    if let Some(value) = old_min.as_deref() {
+        std::env::set_var("CONTROL_PLANE_ACTIVE_POOL_MIN", value);
+    } else {
+        std::env::remove_var("CONTROL_PLANE_ACTIVE_POOL_MIN");
+    }
+    if let Some(value) = old_batch.as_deref() {
+        std::env::set_var("CONTROL_PLANE_VAULT_ACTIVATE_BATCH_SIZE", value);
+    } else {
+        std::env::remove_var("CONTROL_PLANE_VAULT_ACTIVATE_BATCH_SIZE");
+    }
+    if let Some(value) = old_concurrency.as_deref() {
+        std::env::set_var("CONTROL_PLANE_VAULT_ACTIVATE_CONCURRENCY", value);
+    } else {
+        std::env::remove_var("CONTROL_PLANE_VAULT_ACTIVATE_CONCURRENCY");
+    }
+    if let Some(value) = old_max_rps.as_deref() {
+        std::env::set_var("CONTROL_PLANE_VAULT_ACTIVATE_MAX_RPS", value);
+    } else {
+        std::env::remove_var("CONTROL_PLANE_VAULT_ACTIVATE_MAX_RPS");
+    }
+
+    drop_temp_database(&db_url, &database_name).await;
+
+    assert_eq!(activated, 2);
+    assert!(inventory.is_empty());
+    assert_eq!(snapshot.accounts.len(), 2);
+    assert_eq!(oauth_client.refresh_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(oauth_client.fetch_calls.load(Ordering::SeqCst), 3);
 }
 
 #[tokio::test]

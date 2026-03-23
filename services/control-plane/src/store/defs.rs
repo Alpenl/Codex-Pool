@@ -25,9 +25,10 @@ use crate::contracts::{
     CreateApiKeyRequest, CreateApiKeyResponse, CreateOutboundProxyNodeRequest,
     CreateTenantRequest, CreateUpstreamAccountRequest, ImportOAuthRefreshTokenRequest,
     OAuthAccountPoolState, OAuthAccountStatusResponse, OAuthFamilyActionResponse,
+    OAuthInventoryRecord, OAuthInventorySummaryResponse,
     OAuthRateLimitRefreshErrorSummary, OAuthRateLimitRefreshJobStatus,
     OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot, OAuthRefreshStatus,
-    RefreshCredentialState, SessionCredentialKind,
+    OAuthVaultRecordStatus, RefreshCredentialState, SessionCredentialKind,
     UpdateAiErrorLearningSettingsRequest, UpdateModelRoutingSettingsRequest,
     UpdateOutboundProxyNodeRequest, UpdateOutboundProxyPoolSettingsRequest,
     UpsertModelRoutingPolicyRequest, UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest,
@@ -808,6 +809,12 @@ pub trait ControlPlaneStore: Send + Sync {
         }
         Ok(items)
     }
+    async fn oauth_inventory_summary(&self) -> Result<OAuthInventorySummaryResponse> {
+        Err(anyhow!("oauth inventory summary query is not implemented"))
+    }
+    async fn oauth_inventory_records(&self) -> Result<Vec<OAuthInventoryRecord>> {
+        Err(anyhow!("oauth inventory records query is not implemented"))
+    }
     async fn upsert_routing_policy(
         &self,
         _req: UpsertRoutingPolicyRequest,
@@ -1510,18 +1517,12 @@ enum AccountPoolState {
     PendingPurge,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-enum OAuthVaultRecordStatus {
-    #[default]
-    Queued,
-    Failed,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct OAuthRefreshTokenVaultRecord {
     id: Uuid,
     label: String,
+    #[serde(default)]
+    email: Option<String>,
     base_url: String,
     refresh_token_enc: String,
     #[serde(default)]
@@ -1550,6 +1551,20 @@ struct OAuthRefreshTokenVaultRecord {
     last_error_code: Option<String>,
     #[serde(default)]
     last_error_message: Option<String>,
+    #[serde(default)]
+    admission_source: Option<String>,
+    #[serde(default)]
+    admission_checked_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    admission_retry_after: Option<DateTime<Utc>>,
+    #[serde(default)]
+    admission_error_code: Option<String>,
+    #[serde(default)]
+    admission_error_message: Option<String>,
+    #[serde(default)]
+    admission_rate_limits: Vec<OAuthRateLimitSnapshot>,
+    #[serde(default)]
+    admission_rate_limits_expires_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }

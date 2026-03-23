@@ -1,19 +1,3 @@
-#[derive(Debug, Clone)]
-struct VaultActivationItem {
-    id: Uuid,
-    label: String,
-    base_url: String,
-    refresh_token_enc: String,
-    fallback_access_token_enc: Option<String>,
-    fallback_token_expires_at: Option<DateTime<Utc>>,
-    chatgpt_account_id: Option<String>,
-    chatgpt_plan_type: Option<String>,
-    source_type: Option<String>,
-    desired_mode: UpstreamMode,
-    desired_enabled: bool,
-    desired_priority: i32,
-}
-
 fn classify_vault_activation_error_code(message: &str) -> &'static str {
     let lowered = message.to_ascii_lowercase();
     if lowered.contains("refresh token reused") {
@@ -60,14 +44,16 @@ impl PostgresStore {
         &self,
         now: DateTime<Utc>,
         limit: usize,
-    ) -> Result<Vec<VaultActivationItem>> {
+    ) -> Result<Vec<OAuthRefreshTokenVaultRecord>> {
         let rows = sqlx::query(
             r#"
             SELECT
                 id,
+                email,
                 label,
                 base_url,
                 refresh_token_enc,
+                refresh_token_sha256,
                 fallback_access_token_enc,
                 fallback_token_expires_at,
                 chatgpt_account_id,
@@ -75,17 +61,35 @@ impl PostgresStore {
                 source_type,
                 desired_mode,
                 desired_enabled,
-                desired_priority
+                desired_priority,
+                status,
+                failure_count,
+                backoff_until,
+                next_attempt_at,
+                last_error_code,
+                last_error_message,
+                admission_source,
+                admission_checked_at,
+                admission_retry_after,
+                admission_error_code,
+                admission_error_message,
+                admission_rate_limits_json::text AS admission_rate_limits_json_text,
+                admission_rate_limits_expires_at,
+                created_at,
+                updated_at
             FROM oauth_refresh_token_vault
             WHERE
-                status = 'queued'
+                status IN ($2, $3, $4)
                 AND (backoff_until IS NULL OR backoff_until <= $1)
                 AND (next_attempt_at IS NULL OR next_attempt_at <= $1)
             ORDER BY created_at ASC
-            LIMIT $2
+            LIMIT $5
             "#,
         )
         .bind(now)
+        .bind(oauth_vault_status_to_db(OAuthVaultRecordStatus::Ready))
+        .bind(oauth_vault_status_to_db(OAuthVaultRecordStatus::NeedsRefresh))
+        .bind(oauth_vault_status_to_db(OAuthVaultRecordStatus::Queued))
         .bind(i64::try_from(limit).unwrap_or(i64::MAX))
         .fetch_all(&self.pool)
         .await
@@ -93,31 +97,26 @@ impl PostgresStore {
 
         let mut items = Vec::with_capacity(rows.len());
         for row in rows {
-            items.push(VaultActivationItem {
-                id: row.try_get::<Uuid, _>("id")?,
-                label: row.try_get::<String, _>("label")?,
-                base_url: row.try_get::<String, _>("base_url")?,
-                refresh_token_enc: row.try_get::<String, _>("refresh_token_enc")?,
-                fallback_access_token_enc: row
-                    .try_get::<Option<String>, _>("fallback_access_token_enc")?,
-                fallback_token_expires_at: row
-                    .try_get::<Option<DateTime<Utc>>, _>("fallback_token_expires_at")?,
-                chatgpt_account_id: row.try_get::<Option<String>, _>("chatgpt_account_id")?,
-                chatgpt_plan_type: row.try_get::<Option<String>, _>("chatgpt_plan_type")?,
-                source_type: row.try_get::<Option<String>, _>("source_type")?,
-                desired_mode: parse_upstream_mode(
-                    row.try_get::<String, _>("desired_mode")?.as_str(),
-                )?,
-                desired_enabled: row.try_get::<bool, _>("desired_enabled")?,
-                desired_priority: row.try_get::<i32, _>("desired_priority")?,
-            });
+            items.push(parse_oauth_vault_record_row(&row)?);
         }
+        items.sort_by(|left, right| {
+            oauth_vault_activation_priority(left.status)
+                .cmp(&oauth_vault_activation_priority(right.status))
+                .then_with(|| {
+                    left.admission_checked_at
+                        .unwrap_or(left.created_at)
+                        .cmp(&right.admission_checked_at.unwrap_or(right.created_at))
+                })
+                .then_with(|| left.created_at.cmp(&right.created_at))
+                .then_with(|| left.id.cmp(&right.id))
+        });
         Ok(items)
     }
 
     async fn mark_oauth_vault_activation_failed(
         &self,
         item_id: Uuid,
+        current_status: OAuthVaultRecordStatus,
         error_code: &str,
         error_message: &str,
     ) -> Result<()> {
@@ -156,7 +155,11 @@ impl PostgresStore {
             Some(vault_activation_backoff(next_failure_count))
         };
         let next_attempt_at = backoff.map(|value| now + value);
-        let status = if fatal { "failed" } else { "queued" };
+        let status = if fatal {
+            OAuthVaultRecordStatus::Failed
+        } else {
+            oauth_vault_activation_fallback_status(current_status)
+        };
 
         sqlx::query(
             r#"
@@ -173,7 +176,7 @@ impl PostgresStore {
             "#,
         )
         .bind(item_id)
-        .bind(status)
+        .bind(oauth_vault_status_to_db(status))
         .bind(next_failure_count)
         .bind(next_attempt_at)
         .bind(next_attempt_at)
@@ -257,75 +260,91 @@ impl PostgresStore {
                 let throttle = throttle.clone();
                 async move {
                     throttle_refresh_start(throttle.as_ref(), launch_interval).await;
-                    let cipher = match self.require_credential_cipher() {
-                        Ok(cipher) => cipher,
-                        Err(err) => {
-                            let _ = self
-                                .mark_oauth_vault_activation_failed(
-                                    item.id,
-                                    "credential_cipher_missing",
-                                    &err.to_string(),
-                                )
-                                .await;
+                    let activation_result = match item.status {
+                        OAuthVaultRecordStatus::Ready => {
+                            self.materialize_ready_oauth_vault_record_inner(&item).await
+                        }
+                        OAuthVaultRecordStatus::NeedsRefresh | OAuthVaultRecordStatus::Queued => {
+                            let cipher = match self.require_credential_cipher() {
+                                Ok(cipher) => cipher,
+                                Err(err) => {
+                                    let _ = self
+                                        .mark_oauth_vault_activation_failed(
+                                            item.id,
+                                            item.status,
+                                            "credential_cipher_missing",
+                                            &err.to_string(),
+                                        )
+                                        .await;
+                                    return false;
+                                }
+                            };
+                            let refresh_token = match cipher.decrypt(&item.refresh_token_enc) {
+                                Ok(value) if !value.trim().is_empty() => value,
+                                Ok(_) => {
+                                    let _ = self
+                                        .mark_oauth_vault_activation_failed(
+                                            item.id,
+                                            item.status,
+                                            "invalid_refresh_token",
+                                            "refresh token is empty",
+                                        )
+                                        .await;
+                                    return false;
+                                }
+                                Err(err) => {
+                                    let _ = self
+                                        .mark_oauth_vault_activation_failed(
+                                            item.id,
+                                            item.status,
+                                            "credential_decrypt_failed",
+                                            &err.to_string(),
+                                        )
+                                        .await;
+                                    return false;
+                                }
+                            };
+                            let fallback_access_token = match item.fallback_access_token_enc.as_deref() {
+                                Some(token_enc) => match cipher.decrypt(token_enc) {
+                                    Ok(value) if !value.trim().is_empty() => Some(value),
+                                    Ok(_) => None,
+                                    Err(err) => {
+                                        let _ = self
+                                            .mark_oauth_vault_activation_failed(
+                                                item.id,
+                                                item.status,
+                                                "credential_decrypt_failed",
+                                                &err.to_string(),
+                                            )
+                                            .await;
+                                        return false;
+                                    }
+                                },
+                                None => None,
+                            };
+
+                            let req = ImportOAuthRefreshTokenRequest {
+                                label: item.label.clone(),
+                                base_url: item.base_url.clone(),
+                                refresh_token,
+                                fallback_access_token,
+                                fallback_token_expires_at: item.fallback_token_expires_at,
+                                chatgpt_account_id: item.chatgpt_account_id.clone(),
+                                mode: Some(item.desired_mode.clone()),
+                                enabled: Some(item.desired_enabled),
+                                priority: Some(item.desired_priority),
+                                chatgpt_plan_type: item.chatgpt_plan_type.clone(),
+                                source_type: item.source_type.clone(),
+                            };
+
+                            self.upsert_oauth_account(req).await.map(|_| ())
+                        }
+                        OAuthVaultRecordStatus::NoQuota | OAuthVaultRecordStatus::Failed => {
                             return false;
                         }
-                    };
-                    let refresh_token = match cipher.decrypt(&item.refresh_token_enc) {
-                        Ok(value) if !value.trim().is_empty() => value,
-                        Ok(_) => {
-                            let _ = self
-                                .mark_oauth_vault_activation_failed(
-                                    item.id,
-                                    "invalid_refresh_token",
-                                    "refresh token is empty",
-                                )
-                                .await;
-                            return false;
-                        }
-                        Err(err) => {
-                            let _ = self
-                                .mark_oauth_vault_activation_failed(
-                                    item.id,
-                                    "credential_decrypt_failed",
-                                    &err.to_string(),
-                                )
-                                .await;
-                            return false;
-                        }
-                    };
-                    let fallback_access_token = match item.fallback_access_token_enc.as_deref() {
-                        Some(token_enc) => match cipher.decrypt(token_enc) {
-                            Ok(value) if !value.trim().is_empty() => Some(value),
-                            Ok(_) => None,
-                            Err(err) => {
-                                let _ = self
-                                    .mark_oauth_vault_activation_failed(
-                                        item.id,
-                                        "credential_decrypt_failed",
-                                        &err.to_string(),
-                                    )
-                                    .await;
-                                return false;
-                            }
-                        },
-                        None => None,
                     };
 
-                    let req = ImportOAuthRefreshTokenRequest {
-                        label: item.label,
-                        base_url: item.base_url,
-                        refresh_token,
-                        fallback_access_token,
-                        fallback_token_expires_at: item.fallback_token_expires_at,
-                        chatgpt_account_id: item.chatgpt_account_id,
-                        mode: Some(item.desired_mode),
-                        enabled: Some(item.desired_enabled),
-                        priority: Some(item.desired_priority),
-                        chatgpt_plan_type: item.chatgpt_plan_type,
-                        source_type: item.source_type,
-                    };
-
-                    match self.upsert_oauth_account(req).await {
+                    match activation_result {
                         Ok(_) => {
                             let _ = self.delete_oauth_vault_item(item.id).await;
                             true
@@ -334,7 +353,12 @@ impl PostgresStore {
                             let message = err.to_string();
                             let error_code = classify_vault_activation_error_code(&message);
                             let _ = self
-                                .mark_oauth_vault_activation_failed(item.id, error_code, &message)
+                                .mark_oauth_vault_activation_failed(
+                                    item.id,
+                                    item.status,
+                                    error_code,
+                                    &message,
+                                )
                                 .await;
                             false
                         }

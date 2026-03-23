@@ -810,7 +810,7 @@ async fn codex_oauth_login_session_marks_failed_when_exchange_endpoint_errors() 
 }
 
 #[tokio::test]
-async fn oauth_import_job_returns_semantic_refresh_token_reused_error_code() {
+async fn oauth_import_job_does_not_fail_reused_refresh_tokens_during_queue_only_import() {
     let cipher_key = base64::engine::general_purpose::STANDARD.encode([7_u8; 32]);
     let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();
     let store = InMemoryStore::new_with_oauth(Arc::new(ReusedOAuthTokenClient), Some(cipher));
@@ -870,35 +870,33 @@ async fn oauth_import_job_returns_semantic_refresh_token_reused_error_code() {
         sleep(Duration::from_millis(30)).await;
     }
 
-    assert_eq!(latest_job["status"], "failed");
-    assert_eq!(latest_job["failed_count"], 1);
-    assert_eq!(
-        latest_job["error_summary"][0]["error_code"],
-        "refresh_token_reused"
-    );
+    assert_eq!(latest_job["status"], "completed");
+    assert_eq!(latest_job["created_count"], 1);
+    assert_eq!(latest_job["updated_count"], 0);
+    assert_eq!(latest_job["failed_count"], 0);
 
-    let failed_items_response = app
+    let inventory_response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!(
-                    "/api/v1/upstream-accounts/oauth/import-jobs/{job_id}/items?status=failed"
-                ))
+                .uri("/api/v1/upstream-accounts/oauth/inventory/records")
                 .header("authorization", format!("Bearer {admin_token}"))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-    assert_eq!(failed_items_response.status(), StatusCode::OK);
-    let failed_items_body = to_bytes(failed_items_response.into_body(), usize::MAX)
+    assert_eq!(inventory_response.status(), StatusCode::OK);
+    let inventory_body = to_bytes(inventory_response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let failed_items_json: Value = serde_json::from_slice(&failed_items_body).unwrap();
+    let inventory_json: Value = serde_json::from_slice(&inventory_body).unwrap();
+    assert_eq!(inventory_json.as_array().map(Vec::len), Some(1));
+    assert_eq!(inventory_json[0]["vault_status"], "needs_refresh");
     assert_eq!(
-        failed_items_json["items"][0]["error_code"],
-        "refresh_token_reused"
+        inventory_json[0]["admission_error_code"],
+        "missing_access_token_fallback"
     );
 }
 
@@ -942,7 +940,7 @@ async fn oauth_import_job_accepts_large_multipart_payload() {
 }
 
 #[tokio::test]
-async fn oauth_import_job_updates_existing_chatgpt_account_user_id() {
+async fn oauth_import_job_defers_identity_merge_until_activation() {
     let cipher_key = base64::engine::general_purpose::STANDARD.encode([22_u8; 32]);
     let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();
     let store = InMemoryStore::new_with_oauth(
@@ -1012,8 +1010,8 @@ async fn oauth_import_job_updates_existing_chatgpt_account_user_id() {
     }
 
     assert_eq!(latest_job["status"], "completed");
-    assert_eq!(latest_job["created_count"], 1);
-    assert_eq!(latest_job["updated_count"], 1);
+    assert_eq!(latest_job["created_count"], 2);
+    assert_eq!(latest_job["updated_count"], 0);
 
     let list_response = app
         .clone()
@@ -1032,11 +1030,30 @@ async fn oauth_import_job_updates_existing_chatgpt_account_user_id() {
         .await
         .unwrap();
     let list_json: Value = serde_json::from_slice(&list_body).unwrap();
-    assert_eq!(list_json.as_array().map(Vec::len), Some(1));
+    assert_eq!(list_json.as_array().map(Vec::len), Some(0));
+
+    let inventory_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/upstream-accounts/oauth/inventory/records")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(inventory_response.status(), StatusCode::OK);
+    let inventory_body = to_bytes(inventory_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let inventory_json: Value = serde_json::from_slice(&inventory_body).unwrap();
+    assert_eq!(inventory_json.as_array().map(Vec::len), Some(2));
 }
 
 #[tokio::test]
-async fn oauth_import_job_keeps_distinct_accounts_with_shared_chatgpt_account_id() {
+async fn oauth_import_job_keeps_distinct_vault_records_with_shared_chatgpt_account_id() {
     let cipher_key = base64::engine::general_purpose::STANDARD.encode([24_u8; 32]);
     let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();
     let store = InMemoryStore::new_with_oauth(
@@ -1123,7 +1140,26 @@ async fn oauth_import_job_keeps_distinct_accounts_with_shared_chatgpt_account_id
         .await
         .unwrap();
     let list_json: Value = serde_json::from_slice(&list_body).unwrap();
-    assert_eq!(list_json.as_array().map(Vec::len), Some(2));
+    assert_eq!(list_json.as_array().map(Vec::len), Some(0));
+
+    let inventory_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/upstream-accounts/oauth/inventory/records")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(inventory_response.status(), StatusCode::OK);
+    let inventory_body = to_bytes(inventory_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let inventory_json: Value = serde_json::from_slice(&inventory_body).unwrap();
+    assert_eq!(inventory_json.as_array().map(Vec::len), Some(2));
 }
 
 fn build_multipart_payload(boundary: &str, file_name: &str, content: &str) -> Vec<u8> {

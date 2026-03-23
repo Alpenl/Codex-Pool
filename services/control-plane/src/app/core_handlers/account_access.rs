@@ -1534,6 +1534,32 @@ async fn get_oauth_account_statuses(
         .map_err(internal_error)
 }
 
+async fn get_oauth_inventory_summary(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<OAuthInventorySummaryResponse>, (StatusCode, Json<ErrorEnvelope>)> {
+    let _principal = require_admin_principal(&state, &headers)?;
+    state
+        .store
+        .oauth_inventory_summary()
+        .await
+        .map(Json)
+        .map_err(internal_error)
+}
+
+async fn get_oauth_inventory_records(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<OAuthInventoryRecord>>, (StatusCode, Json<ErrorEnvelope>)> {
+    let _principal = require_admin_principal(&state, &headers)?;
+    state
+        .store
+        .oauth_inventory_records()
+        .await
+        .map(Json)
+        .map_err(internal_error)
+}
+
 fn map_oauth_rate_limit_refresh_job_error(
     err: anyhow::Error,
 ) -> (StatusCode, Json<ErrorEnvelope>) {

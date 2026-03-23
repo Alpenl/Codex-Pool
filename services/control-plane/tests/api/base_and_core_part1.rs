@@ -847,6 +847,33 @@ impl OAuthTokenClient for StaticOAuthTokenClient {
 }
 
 #[derive(Clone)]
+struct InventoryProbeOAuthTokenClient {
+    rate_limits: Vec<OAuthRateLimitSnapshot>,
+}
+
+#[async_trait]
+impl OAuthTokenClient for InventoryProbeOAuthTokenClient {
+    async fn refresh_token(
+        &self,
+        refresh_token: &str,
+        base_url: Option<&str>,
+    ) -> Result<OAuthTokenInfo, control_plane::oauth::OAuthTokenClientError> {
+        StaticOAuthTokenClient
+            .refresh_token(refresh_token, base_url)
+            .await
+    }
+
+    async fn fetch_rate_limits(
+        &self,
+        _access_token: &str,
+        _base_url: Option<&str>,
+        _chatgpt_account_id: Option<&str>,
+    ) -> Result<Vec<OAuthRateLimitSnapshot>, OAuthTokenClientError> {
+        Ok(self.rate_limits.clone())
+    }
+}
+
+#[derive(Clone)]
 struct ReusedOAuthTokenClient;
 
 #[async_trait]

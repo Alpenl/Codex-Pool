@@ -514,7 +514,7 @@ impl ControlPlaneStore for SqliteBackedStore {
         &self,
         req: ImportOAuthRefreshTokenRequest,
     ) -> Result<bool> {
-        let created = self.inner.queue_oauth_refresh_token_inner(req)?;
+        let created = ControlPlaneStore::queue_oauth_refresh_token(&self.inner, req).await?;
         self.persist_state_after_write().await?;
         Ok(created)
     }
@@ -542,6 +542,14 @@ impl ControlPlaneStore for SqliteBackedStore {
 
     async fn oauth_account_status(&self, account_id: Uuid) -> Result<OAuthAccountStatusResponse> {
         self.inner.oauth_account_status(account_id).await
+    }
+
+    async fn oauth_inventory_summary(&self) -> Result<OAuthInventorySummaryResponse> {
+        self.inner.oauth_inventory_summary().await
+    }
+
+    async fn oauth_inventory_records(&self) -> Result<Vec<OAuthInventoryRecord>> {
+        self.inner.oauth_inventory_records().await
     }
 
     async fn oauth_account_statuses(
@@ -991,6 +999,35 @@ mod sqlite_backed_store_tests {
     }
 
     #[derive(Clone)]
+    struct AdmissionProbeOAuthTokenClient {
+        refresh_calls: Arc<AtomicUsize>,
+        rate_limits: Vec<crate::contracts::OAuthRateLimitSnapshot>,
+    }
+
+    #[async_trait]
+    impl OAuthTokenClient for AdmissionProbeOAuthTokenClient {
+        async fn refresh_token(
+            &self,
+            refresh_token: &str,
+            _base_url: Option<&str>,
+        ) -> Result<OAuthTokenInfo, crate::oauth::OAuthTokenClientError> {
+            self.refresh_calls.fetch_add(1, Ordering::SeqCst);
+            StaticOAuthTokenClient
+                .refresh_token(refresh_token, None)
+                .await
+        }
+
+        async fn fetch_rate_limits(
+            &self,
+            _access_token: &str,
+            _base_url: Option<&str>,
+            _chatgpt_account_id: Option<&str>,
+        ) -> Result<Vec<crate::contracts::OAuthRateLimitSnapshot>, crate::oauth::OAuthTokenClientError> {
+            Ok(self.rate_limits.clone())
+        }
+    }
+
+    #[derive(Clone)]
     struct RateLimitedOAuthTokenClient;
 
     #[async_trait]
@@ -1376,6 +1413,193 @@ mod sqlite_backed_store_tests {
     }
 
     #[tokio::test]
+    async fn sqlite_backed_store_queue_oauth_refresh_token_persists_ready_inventory_without_refresh()
+    {
+        let database_url = temp_sqlite_url("cp-store-sqlite-vault-ready");
+        let refresh_calls = Arc::new(AtomicUsize::new(0));
+        let store = SqliteBackedStore::connect_with_oauth(
+            &database_url,
+            Arc::new(AdmissionProbeOAuthTokenClient {
+                refresh_calls: refresh_calls.clone(),
+                rate_limits: vec![crate::contracts::OAuthRateLimitSnapshot {
+                    limit_id: Some("five_hours".to_string()),
+                    limit_name: Some("5 hours".to_string()),
+                    primary: Some(crate::contracts::OAuthRateLimitWindow {
+                        used_percent: 18.0,
+                        window_minutes: Some(300),
+                        resets_at: Some(Utc::now() + Duration::minutes(30)),
+                    }),
+                    secondary: None,
+                }],
+            }),
+            Some(test_cipher(31)),
+        )
+        .await
+        .expect("connect sqlite store with oauth");
+
+        store
+            .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "sqlite-vault-ready".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-sqlite-vault-ready".to_string(),
+                fallback_access_token: Some("ak-sqlite-ready".to_string()),
+                fallback_token_expires_at: Some(Utc::now() + Duration::hours(2)),
+                chatgpt_account_id: Some("acct_sqlite_ready".to_string()),
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: Some("free".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .expect("queue oauth refresh token");
+
+        assert_eq!(refresh_calls.load(Ordering::SeqCst), 0);
+        assert!(
+            store.list_upstream_accounts().await.expect("list accounts").is_empty(),
+            "ready inventory should stay out of runtime before activation"
+        );
+
+        let summary = store
+            .oauth_inventory_summary()
+            .await
+            .expect("inventory summary");
+        assert_eq!(summary.ready, 1);
+
+        let records = store
+            .oauth_inventory_records()
+            .await
+            .expect("inventory records");
+        let record = records.first().expect("inventory record");
+        assert_eq!(record.vault_status, OAuthVaultRecordStatus::Ready);
+        assert!(record.admission_checked_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn sqlite_backed_store_queue_oauth_refresh_token_persists_no_quota_inventory() {
+        let database_url = temp_sqlite_url("cp-store-sqlite-vault-no-quota");
+        let refresh_calls = Arc::new(AtomicUsize::new(0));
+        let store = SqliteBackedStore::connect_with_oauth(
+            &database_url,
+            Arc::new(AdmissionProbeOAuthTokenClient {
+                refresh_calls: refresh_calls.clone(),
+                rate_limits: vec![crate::contracts::OAuthRateLimitSnapshot {
+                    limit_id: Some("five_hours".to_string()),
+                    limit_name: Some("5 hours".to_string()),
+                    primary: Some(crate::contracts::OAuthRateLimitWindow {
+                        used_percent: 100.0,
+                        window_minutes: Some(300),
+                        resets_at: Some(Utc::now() + Duration::minutes(45)),
+                    }),
+                    secondary: None,
+                }],
+            }),
+            Some(test_cipher(32)),
+        )
+        .await
+        .expect("connect sqlite store with oauth");
+
+        store
+            .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "sqlite-vault-no-quota".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-sqlite-vault-no-quota".to_string(),
+                fallback_access_token: Some("ak-sqlite-no-quota".to_string()),
+                fallback_token_expires_at: Some(Utc::now() + Duration::hours(2)),
+                chatgpt_account_id: Some("acct_sqlite_no_quota".to_string()),
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: Some("free".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .expect("queue oauth refresh token");
+
+        assert_eq!(refresh_calls.load(Ordering::SeqCst), 0);
+
+        let records = store
+            .oauth_inventory_records()
+            .await
+            .expect("inventory records");
+        let record = records.first().expect("inventory record");
+        assert_eq!(record.vault_status, OAuthVaultRecordStatus::NoQuota);
+        assert!(record.admission_retry_after.is_some());
+    }
+
+    #[tokio::test]
+    async fn sqlite_backed_store_activation_uses_ready_without_refresh_and_needs_refresh_with_single_refresh()
+    {
+        let database_url = temp_sqlite_url("cp-store-sqlite-ready-then-refresh");
+        let refresh_calls = Arc::new(AtomicUsize::new(0));
+        let store = SqliteBackedStore::connect_with_oauth(
+            &database_url,
+            Arc::new(AdmissionProbeOAuthTokenClient {
+                refresh_calls: refresh_calls.clone(),
+                rate_limits: vec![crate::contracts::OAuthRateLimitSnapshot {
+                    limit_id: Some("five_hours".to_string()),
+                    limit_name: Some("5 hours".to_string()),
+                    primary: Some(crate::contracts::OAuthRateLimitWindow {
+                        used_percent: 22.0,
+                        window_minutes: Some(300),
+                        resets_at: Some(Utc::now() + Duration::minutes(25)),
+                    }),
+                    secondary: None,
+                }],
+            }),
+            Some(test_cipher(33)),
+        )
+        .await
+        .expect("connect sqlite store with oauth");
+
+        store
+            .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "sqlite-ready-first".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-sqlite-ready-first".to_string(),
+                fallback_access_token: Some("ak-sqlite-ready-first".to_string()),
+                fallback_token_expires_at: Some(Utc::now() + Duration::hours(2)),
+                chatgpt_account_id: Some("acct_sqlite_ready_first".to_string()),
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: Some("free".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .expect("queue ready oauth refresh token");
+        store
+            .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "sqlite-needs-refresh".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-sqlite-needs-refresh".to_string(),
+                fallback_access_token: Some("opaque-ak-needs-refresh".to_string()),
+                fallback_token_expires_at: None,
+                chatgpt_account_id: Some("acct_sqlite_needs_refresh".to_string()),
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: Some("free".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .expect("queue needs-refresh oauth refresh token");
+
+        assert_eq!(refresh_calls.load(Ordering::SeqCst), 0);
+
+        let activated = store
+            .activate_oauth_refresh_token_vault()
+            .await
+            .expect("activate oauth vault");
+        assert_eq!(activated, 2);
+        assert_eq!(
+            refresh_calls.load(Ordering::SeqCst),
+            1,
+            "ready item should materialize without refresh while needs_refresh consumes one refresh"
+        );
+    }
+
+    #[tokio::test]
     async fn sqlite_backed_store_queued_vault_survives_reopen_before_activation() {
         let database_url = temp_sqlite_url("cp-store-sqlite-vault-reopen");
         let store = SqliteBackedStore::connect_with_oauth(
@@ -1685,7 +1909,7 @@ mod sqlite_backed_store_tests {
 
         let vault = store.inner.oauth_refresh_token_vault.read().unwrap();
         let record = vault.values().next().expect("vault record");
-        assert_eq!(record.status, OAuthVaultRecordStatus::Queued);
+        assert_eq!(record.status, OAuthVaultRecordStatus::NeedsRefresh);
         assert_eq!(record.failure_count, 1);
         assert_eq!(record.last_error_code.as_deref(), Some("rate_limited"));
         assert!(record.backoff_until.is_some());
