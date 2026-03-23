@@ -1,7 +1,9 @@
 use anyhow::Context;
 use sqlx_core::pool::PoolOptions;
 use sqlx_sqlite::SqlitePool;
-use tokio::sync::watch;
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
+use tokio::sync::{Mutex, watch};
 
 const SQLITE_STORE_STATE_ROW_ID: i64 = 1;
 const SQLITE_STORE_STATE_VERSION: i64 = 1;
@@ -163,6 +165,11 @@ pub struct SqliteBackedStore {
     pool: SqlitePool,
     inner: InMemoryStore,
     revision_tx: watch::Sender<u64>,
+    persist_lock: Mutex<()>,
+    persist_generation: AtomicU64,
+    persisted_generation: AtomicU64,
+    #[cfg(test)]
+    persist_write_count: AtomicUsize,
 }
 
 impl SqliteBackedStore {
@@ -189,12 +196,18 @@ impl SqliteBackedStore {
             Some(state) => InMemoryStore::from_sqlite_state(state, oauth_client, credential_cipher),
             None => InMemoryStore::new_with_oauth(oauth_client, credential_cipher),
         };
-        let (revision_tx, _) = watch::channel(inner.revision.load(Ordering::Relaxed).max(1));
+        let initial_revision = inner.revision.load(Ordering::Relaxed).max(1);
+        let (revision_tx, _) = watch::channel(initial_revision);
 
         Ok(Self {
             pool,
             inner,
             revision_tx,
+            persist_lock: Mutex::new(()),
+            persist_generation: AtomicU64::new(initial_revision),
+            persisted_generation: AtomicU64::new(initial_revision),
+            #[cfg(test)]
+            persist_write_count: AtomicUsize::new(0),
         })
     }
 
@@ -206,8 +219,22 @@ impl SqliteBackedStore {
         self.revision_tx.subscribe()
     }
 
+    #[cfg(test)]
+    fn persist_write_count(&self) -> usize {
+        self.persist_write_count.load(Ordering::SeqCst)
+    }
+
     fn current_revision(&self) -> u64 {
         self.inner.revision.load(Ordering::Relaxed).max(1)
+    }
+
+    fn mark_persist_pending(&self) -> u64 {
+        self.persist_generation.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    async fn persist_state_after_write(&self) -> Result<()> {
+        self.mark_persist_pending();
+        self.persist_state().await
     }
 
     async fn initialize_schema(pool: &SqlitePool) -> Result<()> {
@@ -259,7 +286,22 @@ impl SqliteBackedStore {
     }
 
     async fn persist_state(&self) -> Result<()> {
-        let state_json = serde_json::to_string(&self.inner.export_sqlite_state())
+        let pending_generation = self.persist_generation.load(Ordering::SeqCst);
+        if pending_generation <= self.persisted_generation.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+
+        // Serialize full-state SQLite writes so concurrent mutators can reuse
+        // the newest persisted revision instead of rewriting the same payload.
+        let _persist_guard = self.persist_lock.lock().await;
+        let pending_generation = self.persist_generation.load(Ordering::SeqCst);
+        if pending_generation <= self.persisted_generation.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+
+        let persisted_state = self.inner.export_sqlite_state();
+        let persisted_revision = persisted_state.revision.max(1);
+        let state_json = serde_json::to_string(&persisted_state)
             .context("failed to encode sqlite control-plane state")?;
         let updated_at = Utc::now().to_rfc3339();
 
@@ -281,13 +323,19 @@ impl SqliteBackedStore {
         .await
         .context("failed to persist sqlite control-plane state")?;
 
-        let _ = self.revision_tx.send(self.current_revision());
+        #[cfg(test)]
+        self.persist_write_count.fetch_add(1, Ordering::SeqCst);
+
+        self.persisted_generation
+            .store(pending_generation, Ordering::SeqCst);
+        let _ = self.revision_tx.send(persisted_revision);
 
         Ok(())
     }
 
     async fn persist_if_revision_changed(&self, before: u64) -> Result<()> {
         if self.current_revision() != before {
+            self.mark_persist_pending();
             self.persist_state().await?;
         }
         Ok(())
@@ -308,7 +356,7 @@ pub fn build_sqlite_store_ports(store: Arc<SqliteBackedStore>) -> RuntimeStorePo
 impl ControlPlaneStore for SqliteBackedStore {
     async fn create_tenant(&self, req: CreateTenantRequest) -> Result<Tenant> {
         let tenant = ControlPlaneStore::create_tenant(&self.inner, req).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(tenant)
     }
 
@@ -318,7 +366,7 @@ impl ControlPlaneStore for SqliteBackedStore {
 
     async fn create_api_key(&self, req: CreateApiKeyRequest) -> Result<CreateApiKeyResponse> {
         let response = ControlPlaneStore::create_api_key(&self.inner, req).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(response)
     }
 
@@ -328,7 +376,7 @@ impl ControlPlaneStore for SqliteBackedStore {
 
     async fn set_api_key_enabled(&self, api_key_id: Uuid, enabled: bool) -> Result<ApiKey> {
         let key = self.inner.set_api_key_enabled(api_key_id, enabled).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(key)
     }
 
@@ -341,7 +389,7 @@ impl ControlPlaneStore for SqliteBackedStore {
         req: UpdateOutboundProxyPoolSettingsRequest,
     ) -> Result<OutboundProxyPoolSettings> {
         let settings = self.inner.update_outbound_proxy_pool_settings(req).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(settings)
     }
 
@@ -354,7 +402,7 @@ impl ControlPlaneStore for SqliteBackedStore {
         req: CreateOutboundProxyNodeRequest,
     ) -> Result<OutboundProxyNode> {
         let node = self.inner.create_outbound_proxy_node(req).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(node)
     }
 
@@ -364,13 +412,13 @@ impl ControlPlaneStore for SqliteBackedStore {
         req: UpdateOutboundProxyNodeRequest,
     ) -> Result<OutboundProxyNode> {
         let node = self.inner.update_outbound_proxy_node(node_id, req).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(node)
     }
 
     async fn delete_outbound_proxy_node(&self, node_id: Uuid) -> Result<()> {
         self.inner.delete_outbound_proxy_node(node_id).await?;
-        self.persist_state().await
+        self.persist_state_after_write().await
     }
 
     async fn record_outbound_proxy_test_result(
@@ -391,7 +439,7 @@ impl ControlPlaneStore for SqliteBackedStore {
                 last_tested_at,
             )
             .await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(node)
     }
 
@@ -404,7 +452,7 @@ impl ControlPlaneStore for SqliteBackedStore {
         req: CreateUpstreamAccountRequest,
     ) -> Result<UpstreamAccount> {
         let account = ControlPlaneStore::create_upstream_account(&self.inner, req).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(account)
     }
 
@@ -424,13 +472,13 @@ impl ControlPlaneStore for SqliteBackedStore {
             .inner
             .set_upstream_account_enabled(account_id, enabled)
             .await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(account)
     }
 
     async fn delete_upstream_account(&self, account_id: Uuid) -> Result<()> {
         self.inner.delete_upstream_account(account_id).await?;
-        self.persist_state().await
+        self.persist_state_after_write().await
     }
 
     async fn validate_oauth_refresh_token(
@@ -445,7 +493,7 @@ impl ControlPlaneStore for SqliteBackedStore {
         req: ImportOAuthRefreshTokenRequest,
     ) -> Result<UpstreamAccount> {
         let account = self.inner.import_oauth_refresh_token(req).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(account)
     }
 
@@ -454,13 +502,13 @@ impl ControlPlaneStore for SqliteBackedStore {
         req: ImportOAuthRefreshTokenRequest,
     ) -> Result<OAuthUpsertResult> {
         let result = self.inner.upsert_oauth_refresh_token(req).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(result)
     }
 
     async fn dedupe_oauth_accounts_by_identity(&self) -> Result<u64> {
         let removed = self.inner.dedupe_oauth_accounts_by_identity().await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(removed)
     }
 
@@ -469,13 +517,13 @@ impl ControlPlaneStore for SqliteBackedStore {
         req: UpsertOneTimeSessionAccountRequest,
     ) -> Result<OAuthUpsertResult> {
         let result = self.inner.upsert_one_time_session_account(req).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(result)
     }
 
     async fn refresh_oauth_account(&self, account_id: Uuid) -> Result<OAuthAccountStatusResponse> {
         let status = self.inner.refresh_oauth_account(account_id).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(status)
     }
 
@@ -495,13 +543,13 @@ impl ControlPlaneStore for SqliteBackedStore {
         req: UpsertRoutingPolicyRequest,
     ) -> Result<RoutingPolicy> {
         let policy = self.inner.upsert_routing_policy(req).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(policy)
     }
 
     async fn upsert_retry_policy(&self, req: UpsertRetryPolicyRequest) -> Result<RoutingPolicy> {
         let policy = self.inner.upsert_retry_policy(req).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(policy)
     }
 
@@ -510,7 +558,7 @@ impl ControlPlaneStore for SqliteBackedStore {
         req: UpsertStreamRetryPolicyRequest,
     ) -> Result<RoutingPolicy> {
         let policy = self.inner.upsert_stream_retry_policy(req).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(policy)
     }
 
@@ -523,13 +571,13 @@ impl ControlPlaneStore for SqliteBackedStore {
         req: UpsertRoutingProfileRequest,
     ) -> Result<RoutingProfile> {
         let profile = self.inner.upsert_routing_profile(req).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(profile)
     }
 
     async fn delete_routing_profile(&self, profile_id: Uuid) -> Result<()> {
         self.inner.delete_routing_profile(profile_id).await?;
-        self.persist_state().await
+        self.persist_state_after_write().await
     }
 
     async fn list_model_routing_policies(&self) -> Result<Vec<ModelRoutingPolicy>> {
@@ -541,13 +589,13 @@ impl ControlPlaneStore for SqliteBackedStore {
         req: UpsertModelRoutingPolicyRequest,
     ) -> Result<ModelRoutingPolicy> {
         let policy = self.inner.upsert_model_routing_policy(req).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(policy)
     }
 
     async fn delete_model_routing_policy(&self, policy_id: Uuid) -> Result<()> {
         self.inner.delete_model_routing_policy(policy_id).await?;
-        self.persist_state().await
+        self.persist_state_after_write().await
     }
 
     async fn model_routing_settings(&self) -> Result<ModelRoutingSettings> {
@@ -559,7 +607,7 @@ impl ControlPlaneStore for SqliteBackedStore {
         req: UpdateModelRoutingSettingsRequest,
     ) -> Result<ModelRoutingSettings> {
         let settings = self.inner.update_model_routing_settings(req).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(settings)
     }
 
@@ -575,7 +623,7 @@ impl ControlPlaneStore for SqliteBackedStore {
             .inner
             .update_upstream_error_learning_settings(req)
             .await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(settings)
     }
 
@@ -607,7 +655,7 @@ impl ControlPlaneStore for SqliteBackedStore {
         template: UpstreamErrorTemplateRecord,
     ) -> Result<UpstreamErrorTemplateRecord> {
         let record = self.inner.save_upstream_error_template(template).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(record)
     }
 
@@ -622,7 +670,7 @@ impl ControlPlaneStore for SqliteBackedStore {
         record: BuiltinErrorTemplateOverrideRecord,
     ) -> Result<BuiltinErrorTemplateOverrideRecord> {
         let saved = self.inner.save_builtin_error_template_override(record).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(saved)
     }
 
@@ -634,7 +682,7 @@ impl ControlPlaneStore for SqliteBackedStore {
         self.inner
             .delete_builtin_error_template_override(kind, code)
             .await?;
-        self.persist_state().await
+        self.persist_state_after_write().await
     }
 
     async fn list_builtin_error_templates(&self) -> Result<Vec<BuiltinErrorTemplateRecord>> {
@@ -662,7 +710,7 @@ impl ControlPlaneStore for SqliteBackedStore {
         self.inner
             .record_account_model_support(account_id, supported_models, checked_at)
             .await?;
-        self.persist_state().await
+        self.persist_state_after_write().await
     }
 
     async fn refresh_expiring_oauth_accounts(&self) -> Result<()> {
@@ -687,14 +735,14 @@ impl ControlPlaneStore for SqliteBackedStore {
         let recovered =
             ControlPlaneStore::recover_oauth_rate_limit_refresh_jobs(&self.inner).await?;
         if recovered > 0 {
-            self.persist_state().await?;
+            self.persist_state_after_write().await?;
         }
         Ok(recovered)
     }
 
     async fn create_oauth_rate_limit_refresh_job(&self) -> Result<OAuthRateLimitRefreshJobSummary> {
         let summary = self.inner.create_oauth_rate_limit_refresh_job().await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(summary)
     }
 
@@ -707,7 +755,7 @@ impl ControlPlaneStore for SqliteBackedStore {
 
     async fn run_oauth_rate_limit_refresh_job(&self, job_id: Uuid) -> Result<()> {
         self.inner.run_oauth_rate_limit_refresh_job(job_id).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(())
     }
 
@@ -721,7 +769,7 @@ impl ControlPlaneStore for SqliteBackedStore {
         enabled: bool,
     ) -> Result<OAuthFamilyActionResponse> {
         let response = self.inner.set_oauth_family_enabled(account_id, enabled).await?;
-        self.persist_state().await?;
+        self.persist_state_after_write().await?;
         Ok(response)
     }
 
@@ -759,7 +807,7 @@ impl ControlPlaneStore for SqliteBackedStore {
         )
         .await?;
         if changed {
-            self.persist_state().await?;
+            self.persist_state_after_write().await?;
         }
         Ok(changed)
     }
@@ -787,23 +835,77 @@ impl ControlPlaneStore for SqliteBackedStore {
             observed_at,
         )
         .await?;
-        self.persist_state().await
+        self.persist_state_after_write().await
     }
 }
 
 #[cfg(test)]
 mod sqlite_backed_store_tests {
     use super::{normalize_sqlite_database_url, SqliteBackedStore};
-    use crate::store::ControlPlaneStore;
     use crate::contracts::{
         CreateApiKeyRequest, CreateTenantRequest, CreateUpstreamAccountRequest,
+        ImportOAuthRefreshTokenRequest,
     };
+    use crate::crypto::CredentialCipher;
+    use crate::oauth::{OAuthTokenClient, OAuthTokenInfo};
+    use crate::store::ControlPlaneStore;
+    use async_trait::async_trait;
+    use base64::Engine;
+    use chrono::{Duration, Utc};
     use codex_pool_core::model::{UpstreamAuthProvider, UpstreamMode};
+    use serde_json::json;
+    use std::sync::Arc;
+    use tokio::sync::Barrier;
     use uuid::Uuid;
 
     fn temp_sqlite_url(name: &str) -> String {
         let path = std::env::temp_dir().join(format!("{name}-{}.sqlite3", Uuid::new_v4()));
         normalize_sqlite_database_url(&path.display().to_string())
+    }
+
+    fn test_cipher(seed: u8) -> CredentialCipher {
+        CredentialCipher::from_base64_key(
+            &base64::engine::general_purpose::STANDARD.encode([seed; 32]),
+        )
+        .expect("build credential cipher")
+    }
+
+    #[derive(Clone)]
+    struct StaticOAuthTokenClient;
+
+    #[async_trait]
+    impl OAuthTokenClient for StaticOAuthTokenClient {
+        async fn refresh_token(
+            &self,
+            refresh_token: &str,
+            _base_url: Option<&str>,
+        ) -> Result<OAuthTokenInfo, crate::oauth::OAuthTokenClientError> {
+            Ok(OAuthTokenInfo {
+                access_token: format!("access-{refresh_token}"),
+                refresh_token: refresh_token.to_string(),
+                expires_at: Utc::now() + Duration::seconds(3600),
+                token_type: Some("Bearer".to_string()),
+                scope: Some("model.read".to_string()),
+                email: Some("sqlite-oauth@example.com".to_string()),
+                oauth_subject: Some("auth0|sqlite-oauth".to_string()),
+                oauth_identity_provider: Some("google-oauth2".to_string()),
+                email_verified: Some(true),
+                chatgpt_account_id: Some("acct_sqlite_demo".to_string()),
+                chatgpt_user_id: Some("user_sqlite_demo".to_string()),
+                chatgpt_plan_type: Some("free".to_string()),
+                chatgpt_subscription_active_start: None,
+                chatgpt_subscription_active_until: None,
+                chatgpt_subscription_last_checked: None,
+                chatgpt_account_user_id: Some("acct_user_sqlite_demo".to_string()),
+                chatgpt_compute_residency: Some("us".to_string()),
+                workspace_name: None,
+                organizations: Some(vec![json!({
+                    "id": "org_sqlite_demo",
+                    "title": "Personal",
+                })]),
+                groups: Some(vec![]),
+            })
+        }
     }
 
     #[tokio::test]
@@ -947,5 +1049,161 @@ mod sqlite_backed_store_tests {
             .expect("revision notification should arrive")
             .expect("revision sender should stay open");
         assert!(*revision_rx.borrow() > initial_revision);
+    }
+
+    #[tokio::test]
+    async fn sqlite_backed_store_concurrent_deletes_should_not_persist_every_item() {
+        let database_url = temp_sqlite_url("cp-store-delete-persist-coalesce");
+        let store = Arc::new(
+            SqliteBackedStore::connect(&database_url)
+                .await
+                .expect("connect sqlite store"),
+        );
+
+        let mut account_ids = Vec::new();
+        for index in 0..12 {
+            let account = store
+                .create_upstream_account(CreateUpstreamAccountRequest {
+                    label: format!("delete-target-{index}"),
+                    mode: UpstreamMode::OpenAiApiKey,
+                    base_url: "https://api.openai.com".to_string(),
+                    bearer_token: format!("delete-token-{index}"),
+                    chatgpt_account_id: None,
+                    auth_provider: Some(UpstreamAuthProvider::LegacyBearer),
+                    enabled: Some(true),
+                    priority: Some(10),
+                })
+                .await
+                .expect("create upstream account");
+            account_ids.push(account.id);
+        }
+
+        let baseline_persist_writes = store.persist_write_count();
+        let barrier = Arc::new(Barrier::new(account_ids.len() + 1));
+        let mut handles = Vec::new();
+
+        for account_id in account_ids {
+            let store = store.clone();
+            let barrier = barrier.clone();
+            handles.push(tokio::spawn(async move {
+                barrier.wait().await;
+                store
+                    .delete_upstream_account(account_id)
+                    .await
+                    .expect("delete upstream account");
+            }));
+        }
+
+        barrier.wait().await;
+        for handle in handles {
+            handle.await.expect("join delete task");
+        }
+
+        let persist_writes = store.persist_write_count() - baseline_persist_writes;
+        assert!(
+            persist_writes < 12,
+            "expected concurrent deletes to coalesce persists, got {persist_writes} writes for 12 deletes"
+        );
+        assert!(
+            store.list_upstream_accounts().await.expect("list accounts").is_empty(),
+            "all accounts should be deleted"
+        );
+    }
+
+    #[tokio::test]
+    async fn sqlite_backed_store_mixed_delete_and_import_should_not_persist_every_item() {
+        let database_url = temp_sqlite_url("cp-store-mixed-persist-coalesce");
+        let store = Arc::new(
+            SqliteBackedStore::connect_with_oauth(
+                &database_url,
+                Arc::new(StaticOAuthTokenClient),
+                Some(test_cipher(29)),
+            )
+            .await
+            .expect("connect sqlite store with oauth"),
+        );
+
+        let mut account_ids = Vec::new();
+        for index in 0..8 {
+            let account = store
+                .create_upstream_account(CreateUpstreamAccountRequest {
+                    label: format!("mixed-delete-{index}"),
+                    mode: UpstreamMode::OpenAiApiKey,
+                    base_url: "https://api.openai.com".to_string(),
+                    bearer_token: format!("mixed-delete-token-{index}"),
+                    chatgpt_account_id: None,
+                    auth_provider: Some(UpstreamAuthProvider::LegacyBearer),
+                    enabled: Some(true),
+                    priority: Some(10),
+                })
+                .await
+                .expect("create upstream account");
+            account_ids.push(account.id);
+        }
+
+        let import_requests = (0..8)
+            .map(|index| ImportOAuthRefreshTokenRequest {
+                label: format!("mixed-import-{index}"),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: format!("rt-mixed-import-{index}"),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
+                chatgpt_account_id: Some(format!("acct-mixed-import-{index}")),
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: Some("free".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .collect::<Vec<_>>();
+
+        let baseline_persist_writes = store.persist_write_count();
+        let total_operations = account_ids.len() + import_requests.len();
+        let barrier = Arc::new(Barrier::new(total_operations + 1));
+        let mut handles = Vec::new();
+
+        for account_id in account_ids {
+            let store = store.clone();
+            let barrier = barrier.clone();
+            handles.push(tokio::spawn(async move {
+                barrier.wait().await;
+                store
+                    .delete_upstream_account(account_id)
+                    .await
+                    .expect("delete upstream account");
+            }));
+        }
+
+        for request in import_requests {
+            let store = store.clone();
+            let barrier = barrier.clone();
+            handles.push(tokio::spawn(async move {
+                barrier.wait().await;
+                store
+                    .import_oauth_refresh_token(request)
+                    .await
+                    .expect("import oauth refresh token");
+            }));
+        }
+
+        barrier.wait().await;
+        for handle in handles {
+            handle.await.expect("join mixed write task");
+        }
+
+        let persist_writes = store.persist_write_count() - baseline_persist_writes;
+        assert!(
+            persist_writes < total_operations,
+            "expected mixed concurrent writes to coalesce persists, got {persist_writes} writes for {total_operations} operations"
+        );
+
+        let remaining_accounts = store.list_upstream_accounts().await.expect("list accounts");
+        assert_eq!(remaining_accounts.len(), 8, "deleted accounts should be replaced by imported accounts");
+        assert!(
+            remaining_accounts
+                .iter()
+                .all(|item| item.label.starts_with("mixed-import-")),
+            "only imported oauth accounts should remain after mixed writes"
+        );
     }
 }
