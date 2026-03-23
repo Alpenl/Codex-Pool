@@ -11,6 +11,9 @@ export interface OAuthImportJobItem {
     account_id?: string;
     error_code?: string;
     error_message?: string;
+    admission_status?: OAuthImportAdmissionStatus;
+    admission_source?: string;
+    admission_reason?: string;
 }
 
 export interface OAuthImportErrorSummary {
@@ -32,6 +35,14 @@ export interface OAuthImportJobSummary {
     created_at: string;
     throughput_per_min?: number;
     error_summary: OAuthImportErrorSummary[];
+    admission_counts: OAuthImportAdmissionCounts;
+}
+
+export interface OAuthImportAdmissionCounts {
+    ready: number;
+    needs_refresh: number;
+    no_quota: number;
+    failed: number;
 }
 
 export interface OAuthImportJobItemsResponse {
@@ -56,6 +67,13 @@ export type OAuthImportItemStatus =
     | 'cancelled'
 
 export type OAuthImportJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+
+export type OAuthImportAdmissionStatus =
+    | 'queued'
+    | 'ready'
+    | 'needs_refresh'
+    | 'no_quota'
+    | 'failed'
 
 export const importJobsApi = {
     createJob: (

@@ -45,6 +45,11 @@ export interface OAuthAccountStatusResponse {
     account_id: string
     auth_provider: 'legacy_bearer' | 'oauth_refresh_token'
     credential_kind?: 'refresh_rotatable' | 'one_time_access_token'
+    pool_state?: 'active' | 'quarantine' | 'pending_purge'
+    quarantine_reason?: string
+    quarantine_until?: string
+    pending_purge_at?: string
+    pending_purge_reason?: string
     email?: string
     oauth_subject?: string
     oauth_identity_provider?: string
@@ -68,6 +73,9 @@ export interface OAuthAccountStatusResponse {
     refresh_reused_detected: boolean
     last_refresh_error_code?: string
     last_refresh_error?: string
+    has_refresh_credential?: boolean
+    has_access_token_fallback?: boolean
+    refresh_credential_state?: 'healthy' | 'degraded' | 'missing' | 'invalid'
     effective_enabled: boolean
     supported_models?: string[]
     rate_limits?: OAuthRateLimitSnapshot[]
@@ -144,6 +152,43 @@ export interface OAuthRateLimitRefreshJobSummary {
     error_summary?: OAuthRateLimitRefreshErrorSummary[]
 }
 
+export type OAuthInventoryStatus =
+    | 'queued'
+    | 'ready'
+    | 'needs_refresh'
+    | 'no_quota'
+    | 'failed'
+
+export interface OAuthInventoryRecord {
+    id: string
+    label: string
+    email?: string
+    chatgpt_account_id?: string
+    chatgpt_plan_type?: string
+    source_type?: string
+    vault_status: OAuthInventoryStatus
+    has_refresh_token: boolean
+    has_access_token_fallback: boolean
+    admission_source?: string
+    admission_checked_at?: string
+    admission_retry_after?: string
+    admission_error_code?: string
+    admission_error_message?: string
+    admission_rate_limits?: OAuthRateLimitSnapshot[]
+    admission_rate_limits_expires_at?: string
+    created_at: string
+    updated_at: string
+}
+
+export interface OAuthInventorySummaryResponse {
+    total: number
+    queued: number
+    ready: number
+    needs_refresh: number
+    no_quota: number
+    failed: number
+}
+
 export const accountsApi = {
     listAccounts: () =>
         apiClient.get<UpstreamAccount[]>('/upstream-accounts'),
@@ -176,6 +221,12 @@ export const accountsApi = {
 
     getOAuthStatus: (accountId: string) =>
         apiClient.get<OAuthAccountStatusResponse>(`/upstream-accounts/${accountId}/oauth/status`),
+
+    getOAuthInventorySummary: () =>
+        apiClient.get<OAuthInventorySummaryResponse>('/upstream-accounts/oauth/inventory/summary'),
+
+    getOAuthInventoryRecords: () =>
+        apiClient.get<OAuthInventoryRecord[]>('/upstream-accounts/oauth/inventory/records'),
 
     refreshOAuth: (accountId: string) =>
         apiClient.post<OAuthAccountStatusResponse>(

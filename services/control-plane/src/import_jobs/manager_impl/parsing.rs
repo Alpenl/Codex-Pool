@@ -112,6 +112,9 @@ fn build_item_state(
         account_id: None,
         error_code: None,
         error_message: None,
+        admission_status: None,
+        admission_source: None,
+        admission_reason: None,
     };
 
     let request = match parsed {
@@ -126,6 +129,8 @@ fn build_item_state(
             item.status = OAuthImportItemStatus::Failed;
             item.error_code = Some("invalid_record".to_string());
             item.error_message = Some("record payload is invalid".to_string());
+            item.admission_status = Some(OAuthVaultRecordStatus::Failed);
+            item.admission_reason = Some("invalid_record".to_string());
             None
         }
     };
@@ -302,6 +307,9 @@ fn build_failed_line_item(
             account_id: None,
             error_code: Some(error_code.to_string()),
             error_message: Some(error_message),
+            admission_status: Some(OAuthVaultRecordStatus::Failed),
+            admission_source: None,
+            admission_reason: Some(error_code.to_string()),
         },
         request: None,
         raw_record,
@@ -593,6 +601,7 @@ fn refresh_summary_counts(
     let mut failed = 0_u64;
     let mut skipped = 0_u64;
     let mut errors = HashMap::<String, u64>::new();
+    let mut admission_counts = crate::contracts::OAuthImportAdmissionCounts::default();
 
     for item in items {
         match item.item.status {
@@ -619,6 +628,23 @@ fn refresh_summary_counts(
             }
             _ => {}
         }
+
+        match item.item.admission_status {
+            Some(OAuthVaultRecordStatus::Ready) => {
+                admission_counts.ready = admission_counts.ready.saturating_add(1)
+            }
+            Some(OAuthVaultRecordStatus::NeedsRefresh) => {
+                admission_counts.needs_refresh =
+                    admission_counts.needs_refresh.saturating_add(1)
+            }
+            Some(OAuthVaultRecordStatus::NoQuota) => {
+                admission_counts.no_quota = admission_counts.no_quota.saturating_add(1)
+            }
+            Some(OAuthVaultRecordStatus::Failed) => {
+                admission_counts.failed = admission_counts.failed.saturating_add(1)
+            }
+            Some(OAuthVaultRecordStatus::Queued) | None => {}
+        }
     }
 
     summary.total = items.len() as u64;
@@ -634,6 +660,7 @@ fn refresh_summary_counts(
         .collect::<Vec<_>>();
     error_summary.sort_by(|left, right| right.count.cmp(&left.count));
     summary.error_summary = error_summary;
+    summary.admission_counts = admission_counts;
 
     if summary.status == OAuthImportJobStatus::Running {
         summary.throughput_per_min =

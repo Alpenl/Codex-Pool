@@ -107,6 +107,7 @@ impl OAuthImportJobManager {
             created_at: now,
             throughput_per_min: None,
             error_summary: Vec::new(),
+            admission_counts: crate::contracts::OAuthImportAdmissionCounts::default(),
         };
         refresh_summary_counts(&mut summary, &items, false);
 
@@ -129,6 +130,9 @@ impl OAuthImportJobManager {
             account_id: Some(account_id),
             error_code: None,
             error_message: None,
+            admission_status: None,
+            admission_source: None,
+            admission_reason: None,
         };
         let mut persisted = PersistedImportItem {
             item,
@@ -156,6 +160,7 @@ impl OAuthImportJobManager {
             created_at: now,
             throughput_per_min: None,
             error_summary: Vec::new(),
+            admission_counts: crate::contracts::OAuthImportAdmissionCounts::default(),
         };
         refresh_summary_counts(&mut summary, &[persisted.clone()], false);
 

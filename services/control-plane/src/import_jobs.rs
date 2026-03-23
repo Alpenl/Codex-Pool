@@ -18,9 +18,10 @@ use tokio::time::{sleep, Duration};
 use uuid::Uuid;
 
 use crate::contracts::{
-    ImportOAuthRefreshTokenRequest, OAuthImportErrorSummary, OAuthImportItemStatus,
-    OAuthImportJobActionResponse, OAuthImportJobItem, OAuthImportJobItemsResponse,
-    OAuthImportJobStatus, OAuthImportJobSummary,
+    ImportOAuthRefreshTokenRequest, OAuthImportAdmissionCounts, OAuthImportErrorSummary,
+    OAuthImportItemStatus, OAuthImportJobActionResponse, OAuthImportJobItem,
+    OAuthImportJobItemsResponse, OAuthImportJobStatus, OAuthImportJobSummary,
+    OAuthInventoryRecord, OAuthVaultRecordStatus,
 };
 use crate::store::ControlPlaneStore;
 #[cfg(feature = "postgres-backend")]
@@ -111,6 +112,9 @@ pub struct ImportTaskSuccess {
     pub created: bool,
     pub account_id: Option<Uuid>,
     pub chatgpt_account_id: Option<String>,
+    pub admission_status: Option<OAuthVaultRecordStatus>,
+    pub admission_source: Option<String>,
+    pub admission_reason: Option<String>,
 }
 
 #[async_trait]
@@ -357,6 +361,9 @@ impl OAuthImportJobStore for InMemoryOAuthImportJobStore {
             state.item.chatgpt_account_id = outcome.chatgpt_account_id.clone();
             state.item.error_code = None;
             state.item.error_message = None;
+            state.item.admission_status = outcome.admission_status;
+            state.item.admission_source = outcome.admission_source.clone();
+            state.item.admission_reason = outcome.admission_reason.clone();
             state.normalized_record = Some(serde_json::to_value(&state.request)?);
         }
 
@@ -390,6 +397,9 @@ impl OAuthImportJobStore for InMemoryOAuthImportJobStore {
             state.item.status = OAuthImportItemStatus::Failed;
             state.item.error_code = Some(error_code.to_string());
             state.item.error_message = Some(error_message.to_string());
+            state.item.admission_status = Some(OAuthVaultRecordStatus::Failed);
+            state.item.admission_source = None;
+            state.item.admission_reason = Some(error_code.to_string());
         }
 
         let cancel_requested = guard.cancel_requested;
@@ -628,6 +638,9 @@ impl PostgresOAuthImportJobStore {
                 account_id UUID NULL,
                 error_code TEXT NULL,
                 error_message TEXT NULL,
+                admission_status TEXT NULL,
+                admission_source TEXT NULL,
+                admission_reason TEXT NULL,
                 request_json JSONB NULL,
                 raw_record JSONB NULL,
                 normalized_record JSONB NULL,
@@ -641,6 +654,36 @@ impl PostgresOAuthImportJobStore {
         .execute(&self.pool)
         .await
         .context("failed to create oauth_import_job_items table")?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE oauth_import_job_items
+            ADD COLUMN IF NOT EXISTS admission_status TEXT NULL
+            "#,
+        )
+        .execute(&self.pool)
+        .await
+        .context("failed to add oauth_import_job_items.admission_status column")?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE oauth_import_job_items
+            ADD COLUMN IF NOT EXISTS admission_source TEXT NULL
+            "#,
+        )
+        .execute(&self.pool)
+        .await
+        .context("failed to add oauth_import_job_items.admission_source column")?;
+
+        sqlx::query(
+            r#"
+            ALTER TABLE oauth_import_job_items
+            ADD COLUMN IF NOT EXISTS admission_reason TEXT NULL
+            "#,
+        )
+        .execute(&self.pool)
+        .await
+        .context("failed to add oauth_import_job_items.admission_reason column")?;
 
         sqlx::query(
             r#"
@@ -693,6 +736,39 @@ impl PostgresOAuthImportJobStore {
         Ok(summary)
     }
 
+    async fn load_admission_counts(&self, job_id: Uuid) -> Result<OAuthImportAdmissionCounts> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                COUNT(*) FILTER (WHERE admission_status = $2)::BIGINT AS ready_count,
+                COUNT(*) FILTER (WHERE admission_status = $3)::BIGINT AS needs_refresh_count,
+                COUNT(*) FILTER (WHERE admission_status = $4)::BIGINT AS no_quota_count,
+                COUNT(*) FILTER (WHERE admission_status = $5)::BIGINT AS failed_count
+            FROM oauth_import_job_items
+            WHERE job_id = $1
+            "#,
+        )
+        .bind(job_id)
+        .bind("ready")
+        .bind("needs_refresh")
+        .bind("no_quota")
+        .bind("failed")
+        .fetch_one(&self.pool)
+        .await
+        .context("failed to query oauth import admission counts")?;
+
+        Ok(OAuthImportAdmissionCounts {
+            ready: u64::try_from(row.try_get::<i64, _>("ready_count")?).unwrap_or_default(),
+            needs_refresh: u64::try_from(
+                row.try_get::<i64, _>("needs_refresh_count")?,
+            )
+            .unwrap_or_default(),
+            no_quota: u64::try_from(row.try_get::<i64, _>("no_quota_count")?)
+                .unwrap_or_default(),
+            failed: u64::try_from(row.try_get::<i64, _>("failed_count")?).unwrap_or_default(),
+        })
+    }
+
     async fn load_job_row(&self, job_id: Uuid) -> Result<OAuthImportJobSummary> {
         let row = sqlx::query(
             r#"
@@ -742,6 +818,7 @@ impl PostgresOAuthImportJobStore {
                 .try_get::<Option<f64>, _>("throughput_per_min")?
                 .or_else(|| compute_throughput_per_min(started_at, finished_at, processed)),
             error_summary: Vec::new(),
+            admission_counts: self.load_admission_counts(job_id).await?,
         })
     }
 

@@ -73,6 +73,9 @@ impl OAuthImportJobStore for PostgresOAuthImportJobStore {
                     account_id,
                     error_code,
                     error_message,
+                    admission_status,
+                    admission_source,
+                    admission_reason,
                     request_json,
                     raw_record,
                     normalized_record,
@@ -81,7 +84,7 @@ impl OAuthImportJobStore for PostgresOAuthImportJobStore {
                     updated_at
                 )
                 VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now(), now()
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), now()
                 )
                 "#,
             )
@@ -96,6 +99,9 @@ impl OAuthImportJobStore for PostgresOAuthImportJobStore {
             .bind(persisted.item.account_id)
             .bind(persisted.item.error_code)
             .bind(persisted.item.error_message)
+            .bind(persisted.item.admission_status.map(admission_status_to_db))
+            .bind(persisted.item.admission_source)
+            .bind(persisted.item.admission_reason)
             .bind(request_json)
             .bind(persisted.raw_record)
             .bind(normalized_record)
@@ -143,7 +149,10 @@ impl OAuthImportJobStore for PostgresOAuthImportJobStore {
                         chatgpt_account_id,
                         account_id,
                         error_code,
-                        error_message
+                        error_message,
+                        admission_status,
+                        admission_source,
+                        admission_reason
                     FROM oauth_import_job_items
                     WHERE job_id = $1 AND status = $2 AND item_id > $3
                     ORDER BY item_id ASC
@@ -169,7 +178,10 @@ impl OAuthImportJobStore for PostgresOAuthImportJobStore {
                         chatgpt_account_id,
                         account_id,
                         error_code,
-                        error_message
+                        error_message,
+                        admission_status,
+                        admission_source,
+                        admission_reason
                     FROM oauth_import_job_items
                     WHERE job_id = $1 AND item_id > $2
                     ORDER BY item_id ASC
@@ -197,6 +209,12 @@ impl OAuthImportJobStore for PostgresOAuthImportJobStore {
                 account_id: row.try_get("account_id")?,
                 error_code: row.try_get("error_code")?,
                 error_message: row.try_get("error_message")?,
+                admission_status: row
+                    .try_get::<Option<String>, _>("admission_status")?
+                    .map(|raw| parse_admission_status(raw.as_str()))
+                    .transpose()?,
+                admission_source: row.try_get("admission_source")?,
+                admission_reason: row.try_get("admission_reason")?,
             });
         }
 
@@ -361,12 +379,15 @@ impl OAuthImportJobStore for PostgresOAuthImportJobStore {
                 status = $3,
                 account_id = $4,
                 chatgpt_account_id = $5,
+                admission_status = $6,
+                admission_source = $7,
+                admission_reason = $8,
                 error_code = NULL,
                 error_message = NULL,
                 updated_at = now()
             WHERE job_id = $1
               AND item_id = $2
-              AND status = $6
+              AND status = $9
             "#,
         )
         .bind(job_id)
@@ -374,6 +395,9 @@ impl OAuthImportJobStore for PostgresOAuthImportJobStore {
         .bind(status)
         .bind(outcome.account_id)
         .bind(outcome.chatgpt_account_id.clone())
+        .bind(outcome.admission_status.map(admission_status_to_db))
+        .bind(outcome.admission_source.clone())
+        .bind(outcome.admission_reason.clone())
         .bind(DB_ITEM_PROCESSING)
         .execute(tx.as_mut())
         .await
@@ -422,10 +446,13 @@ impl OAuthImportJobStore for PostgresOAuthImportJobStore {
                 status = $3,
                 error_code = $4,
                 error_message = $5,
+                admission_status = $6,
+                admission_source = NULL,
+                admission_reason = $7,
                 updated_at = now()
             WHERE job_id = $1
               AND item_id = $2
-              AND status = $6
+              AND status = $8
             "#,
         )
         .bind(job_id)
@@ -433,6 +460,8 @@ impl OAuthImportJobStore for PostgresOAuthImportJobStore {
         .bind(DB_ITEM_FAILED)
         .bind(error_code)
         .bind(error_message)
+        .bind("failed")
+        .bind(error_code)
         .bind(DB_ITEM_PROCESSING)
         .execute(tx.as_mut())
         .await

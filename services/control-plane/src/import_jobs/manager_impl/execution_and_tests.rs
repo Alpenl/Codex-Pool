@@ -10,10 +10,23 @@ async fn execute_import_with_retry(
         let result: Result<ImportTaskSuccess> = match request.clone() {
             ImportTaskRequest::OAuthRefresh(req) => {
                 let created = data_store.queue_oauth_refresh_token(req.clone()).await?;
+                let admission = find_inventory_admission_for_request(data_store.clone(), &req).await?;
                 Ok(ImportTaskSuccess {
                     created,
                     account_id: None,
                     chatgpt_account_id: req.chatgpt_account_id,
+                    admission_status: admission
+                        .as_ref()
+                        .map(|record| record.vault_status),
+                    admission_source: admission
+                        .as_ref()
+                        .and_then(|record| record.admission_source.clone()),
+                    admission_reason: admission.as_ref().and_then(|record| {
+                        record
+                            .admission_error_code
+                            .clone()
+                            .or_else(|| record.admission_error_message.clone())
+                    }),
                 })
             }
             ImportTaskRequest::OneTimeAccessToken(req) => {
@@ -22,6 +35,9 @@ async fn execute_import_with_retry(
                     created: upserted.created,
                     account_id: Some(upserted.account.id),
                     chatgpt_account_id: upserted.account.chatgpt_account_id,
+                    admission_status: None,
+                    admission_source: None,
+                    admission_reason: None,
                 })
             }
             ImportTaskRequest::ManualRefreshAccount(req) => {
@@ -36,6 +52,9 @@ async fn execute_import_with_retry(
                     created: false,
                     account_id: Some(account.id),
                     chatgpt_account_id: account.chatgpt_account_id,
+                    admission_status: None,
+                    admission_source: None,
+                    admission_reason: None,
                 })
             }
         };
@@ -52,6 +71,29 @@ async fn execute_import_with_retry(
             }
         }
     }
+}
+
+async fn find_inventory_admission_for_request(
+    data_store: Arc<dyn ControlPlaneStore>,
+    req: &ImportOAuthRefreshTokenRequest,
+) -> Result<Option<OAuthInventoryRecord>> {
+    let records = data_store.oauth_inventory_records().await?;
+    Ok(records
+        .into_iter()
+        .filter(|record| {
+            record.label == req.label
+                && record.chatgpt_account_id == req.chatgpt_account_id
+                && record.has_access_token_fallback == req
+                    .fallback_access_token
+                    .as_deref()
+                    .map(str::trim)
+                    .is_some_and(|value| !value.is_empty())
+        })
+        .max_by(|left, right| {
+            left.updated_at
+                .cmp(&right.updated_at)
+                .then_with(|| left.id.cmp(&right.id))
+        }))
 }
 
 fn is_retryable_import_error(message: &str) -> bool {
@@ -128,6 +170,27 @@ fn parse_item_status(raw: &str) -> Result<OAuthImportItemStatus> {
     }
 }
 
+fn admission_status_to_db(status: OAuthVaultRecordStatus) -> &'static str {
+    match status {
+        OAuthVaultRecordStatus::Queued => "queued",
+        OAuthVaultRecordStatus::Ready => "ready",
+        OAuthVaultRecordStatus::NeedsRefresh => "needs_refresh",
+        OAuthVaultRecordStatus::NoQuota => "no_quota",
+        OAuthVaultRecordStatus::Failed => "failed",
+    }
+}
+
+fn parse_admission_status(raw: &str) -> Result<OAuthVaultRecordStatus> {
+    match raw {
+        "queued" => Ok(OAuthVaultRecordStatus::Queued),
+        "ready" => Ok(OAuthVaultRecordStatus::Ready),
+        "needs_refresh" => Ok(OAuthVaultRecordStatus::NeedsRefresh),
+        "no_quota" => Ok(OAuthVaultRecordStatus::NoQuota),
+        "failed" => Ok(OAuthVaultRecordStatus::Failed),
+        _ => Err(anyhow!("unsupported oauth import admission status: {raw}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -138,8 +201,8 @@ mod tests {
     use bytes::Bytes;
     use chrono::Utc;
     use crate::contracts::{
-        ImportOAuthRefreshTokenRequest, OAuthImportItemStatus, OAuthImportJobItem,
-        OAuthImportJobStatus, OAuthImportJobSummary,
+        ImportOAuthRefreshTokenRequest, OAuthImportAdmissionCounts, OAuthImportItemStatus,
+        OAuthImportJobItem, OAuthImportJobStatus, OAuthImportJobSummary,
     };
     use codex_pool_core::model::UpstreamMode;
     use crate::import_jobs::ImportCredentialMode;
@@ -160,6 +223,7 @@ mod tests {
             created_at: Utc::now(),
             throughput_per_min: None,
             error_summary: Vec::new(),
+            admission_counts: OAuthImportAdmissionCounts::default(),
         };
         let item = PersistedImportItem {
             item: OAuthImportJobItem {
@@ -173,6 +237,9 @@ mod tests {
                 account_id: None,
                 error_code: None,
                 error_message: None,
+                admission_status: None,
+                admission_source: None,
+                admission_reason: None,
             },
             request: Some(ImportTaskRequest::OAuthRefresh(ImportOAuthRefreshTokenRequest {
                 label: "pause-resume".to_string(),
@@ -511,6 +578,9 @@ mod tests {
                     created: true,
                     account_id: None,
                     chatgpt_account_id: Some("acct-pause-resume".to_string()),
+                    admission_status: None,
+                    admission_source: None,
+                    admission_reason: None,
                 },
             )
             .await
@@ -539,6 +609,7 @@ mod tests {
             created_at: Utc::now(),
             throughput_per_min: None,
             error_summary: Vec::new(),
+            admission_counts: OAuthImportAdmissionCounts::default(),
         };
         let items = (1..=3)
             .map(|item_id| PersistedImportItem {
@@ -553,6 +624,9 @@ mod tests {
                     account_id: None,
                     error_code: None,
                     error_message: None,
+                    admission_status: None,
+                    admission_source: None,
+                    admission_reason: None,
                 },
                 request: Some(ImportTaskRequest::OAuthRefresh(ImportOAuthRefreshTokenRequest {
                     label: format!("multi-batch-{item_id}"),
@@ -586,6 +660,9 @@ mod tests {
                         created: true,
                         account_id: None,
                         chatgpt_account_id: Some(format!("acct-success-{}", task.item_id)),
+                        admission_status: None,
+                        admission_source: None,
+                        admission_reason: None,
                     },
                 )
                 .await
