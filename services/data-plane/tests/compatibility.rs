@@ -100,6 +100,48 @@ async fn test_app(accounts: Vec<UpstreamAccount>) -> Router {
         .expect("app should build")
 }
 
+async fn spawn_live_test_app(accounts: Vec<UpstreamAccount>) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let cfg = DataPlaneConfig {
+        listen_addr: addr,
+        routing_strategy: RoutingStrategy::RoundRobin,
+        upstream_accounts: accounts,
+        account_ejection_ttl_sec: 30,
+        enable_request_failover: true,
+        same_account_quick_retry_max: 1,
+        request_failover_wait_ms: 2_000,
+        retry_poll_interval_ms: 100,
+        sticky_prefer_non_conflicting: true,
+        shared_routing_cache_enabled: true,
+        enable_metered_stream_billing: true,
+        billing_authorize_required_for_stream: true,
+        stream_billing_reserve_microcredits: 2_000_000,
+        billing_dynamic_preauth_enabled: true,
+        billing_preauth_expected_output_tokens: 256,
+        billing_preauth_safety_factor: 1.3,
+        billing_preauth_min_microcredits: 1_000,
+        billing_preauth_max_microcredits: 1_000_000_000_000,
+        billing_preauth_unit_price_microcredits: 10_000,
+        stream_billing_drain_timeout_ms: 5_000,
+        billing_capture_retry_max: 3,
+        billing_capture_retry_backoff_ms: 200,
+        redis_url: None,
+        auth_validate_url: None,
+        auth_validate_cache_ttl_sec: 30,
+        auth_validate_negative_cache_ttl_sec: 5,
+        auth_fail_open: false,
+        enable_internal_debug_routes: false,
+    };
+    let app = build_app_with_event_sink(cfg, Arc::new(NoopEventSink))
+        .await
+        .expect("app should build");
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    format!("http://{}", addr)
+}
+
 async fn spawn_scripted_sse_upstream(chunks: Vec<&'static str>) -> String {
     async fn sse_handler(
         chunks: Arc<Vec<String>>,
@@ -139,6 +181,205 @@ async fn spawn_scripted_sse_upstream(chunks: Vec<&'static str>) -> String {
         axum::serve(listener, app).await.unwrap();
     });
     format!("http://{}", addr)
+}
+
+async fn spawn_previous_response_reset_http_upstream(
+    route_path: &'static str,
+    success_payload: Value,
+) -> (String, Arc<Mutex<Vec<Value>>>) {
+    async fn continuation_handler(
+        body: Bytes,
+        seen_bodies: Arc<Mutex<Vec<Value>>>,
+        success_payload: Value,
+    ) -> (
+        StatusCode,
+        [(axum::http::header::HeaderName, &'static str); 1],
+        Body,
+    ) {
+        let value: Value = serde_json::from_slice(&body).unwrap_or_else(|_| json!({}));
+        seen_bodies.lock().unwrap().push(value.clone());
+        if value.get("previous_response_id").is_some() {
+            (
+                StatusCode::BAD_REQUEST,
+                [(CONTENT_TYPE, "application/json")],
+                Body::from(
+                    json!({
+                        "error": {
+                            "code": "previous_response_not_found",
+                            "message": "previous response was not found"
+                        }
+                    })
+                    .to_string(),
+                ),
+            )
+        } else {
+            (
+                StatusCode::OK,
+                [(CONTENT_TYPE, "application/json")],
+                Body::from(success_payload.to_string()),
+            )
+        }
+    }
+
+    let seen_bodies = Arc::new(Mutex::new(Vec::new()));
+    let app = Router::new().route(
+        route_path,
+        post({
+            let seen_bodies = seen_bodies.clone();
+            let success_payload = success_payload.clone();
+            move |body: Bytes| {
+                let seen_bodies = seen_bodies.clone();
+                let success_payload = success_payload.clone();
+                async move { continuation_handler(body, seen_bodies, success_payload).await }
+            }
+        }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr: SocketAddr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (format!("http://{}", addr), seen_bodies)
+}
+
+async fn spawn_storage_sensitive_continuation_upstream(
+    route_path: &'static str,
+) -> (String, Arc<Mutex<Vec<Value>>>) {
+    async fn continuation_handler(
+        body: Bytes,
+        seen_bodies: Arc<Mutex<Vec<Value>>>,
+    ) -> (
+        StatusCode,
+        [(axum::http::header::HeaderName, &'static str); 1],
+        Body,
+    ) {
+        let value: Value = serde_json::from_slice(&body).unwrap_or_else(|_| json!({}));
+        seen_bodies.lock().unwrap().push(value.clone());
+
+        let previous_response_id = value
+            .get("previous_response_id")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+
+        match previous_response_id.as_deref() {
+            Some("resp_stored") => (
+                StatusCode::OK,
+                [(CONTENT_TYPE, "application/json")],
+                Body::from(
+                    json!({
+                        "id": "resp_followup_ok",
+                        "status": "completed",
+                        "output": [{
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [{"type": "output_text", "text": "continued"}]
+                        }]
+                    })
+                    .to_string(),
+                ),
+            ),
+            Some(_) => (
+                StatusCode::BAD_REQUEST,
+                [(CONTENT_TYPE, "application/json")],
+                Body::from(
+                    json!({
+                        "error": {
+                            "code": "previous_response_not_found",
+                            "message": "previous response was not found"
+                        }
+                    })
+                    .to_string(),
+                ),
+            ),
+            None => {
+                let response_id = if value.get("store").and_then(Value::as_bool) == Some(false) {
+                    "resp_unstored"
+                } else {
+                    "resp_stored"
+                };
+                (
+                    StatusCode::OK,
+                    [(CONTENT_TYPE, "application/json")],
+                    Body::from(
+                        json!({
+                            "id": response_id,
+                            "status": "completed",
+                            "output": [{
+                                "type": "message",
+                                "role": "assistant",
+                                "content": [{"type": "output_text", "text": "first-turn"}]
+                            }]
+                        })
+                        .to_string(),
+                    ),
+                )
+            }
+        }
+    }
+
+    let seen_bodies = Arc::new(Mutex::new(Vec::new()));
+    let app = Router::new().route(
+        route_path,
+        post({
+            let seen_bodies = seen_bodies.clone();
+            move |body: Bytes| {
+                let seen_bodies = seen_bodies.clone();
+                async move { continuation_handler(body, seen_bodies).await }
+            }
+        }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr: SocketAddr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (format!("http://{}", addr), seen_bodies)
+}
+
+async fn spawn_background_delay_upstream(
+    route_path: &'static str,
+    delay: Duration,
+    success_payload: Value,
+) -> (String, Arc<AtomicUsize>) {
+    async fn delayed_handler(
+        body: Bytes,
+        seen_total: Arc<AtomicUsize>,
+        delay: Duration,
+        success_payload: Value,
+    ) -> (
+        StatusCode,
+        [(axum::http::header::HeaderName, &'static str); 1],
+        Body,
+    ) {
+        let _value: Value = serde_json::from_slice(&body).unwrap_or_else(|_| json!({}));
+        seen_total.fetch_add(1, Ordering::Relaxed);
+        tokio::time::sleep(delay).await;
+        (
+            StatusCode::OK,
+            [(CONTENT_TYPE, "application/json")],
+            Body::from(success_payload.to_string()),
+        )
+    }
+
+    let seen_total = Arc::new(AtomicUsize::new(0));
+    let app = Router::new().route(
+        route_path,
+        post({
+            let seen_total = seen_total.clone();
+            let success_payload = success_payload.clone();
+            move |body: Bytes| {
+                let seen_total = seen_total.clone();
+                let success_payload = success_payload.clone();
+                async move { delayed_handler(body, seen_total, delay, success_payload).await }
+            }
+        }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (format!("http://{}", addr), seen_total)
 }
 
 async fn test_app_with_failover_wait_and_control_plane(
@@ -530,9 +771,9 @@ async fn adapts_openai_non_stream_responses_request_for_codex_profile() {
     assert_eq!(requests.len(), 1);
     let forwarded: Value = serde_json::from_slice(&requests[0].body).unwrap();
     assert_eq!(forwarded["instructions"], "");
-    assert_eq!(forwarded["store"], false);
+    assert!(forwarded.get("store").is_none());
     assert_eq!(forwarded["stream"], true);
-    assert!(forwarded.get("max_output_tokens").is_none());
+    assert_eq!(forwarded["max_output_tokens"], 16);
     assert_eq!(
         forwarded["input"],
         json!([{
@@ -600,9 +841,9 @@ async fn adapts_openai_streaming_responses_request_for_codex_profile() {
     assert_eq!(requests.len(), 1);
     let forwarded: Value = serde_json::from_slice(&requests[0].body).unwrap();
     assert_eq!(forwarded["instructions"], "");
-    assert_eq!(forwarded["store"], false);
+    assert!(forwarded.get("store").is_none());
     assert_eq!(forwarded["stream"], true);
-    assert!(forwarded.get("max_output_tokens").is_none());
+    assert_eq!(forwarded["max_output_tokens"], 16);
     assert_eq!(
         forwarded["input"],
         json!([{
@@ -667,7 +908,7 @@ async fn rewrites_v1_responses_compact_to_codex_responses_compact_for_codex_base
     assert_eq!(forwarded["instructions"], "");
     assert!(forwarded.get("store").is_none());
     assert!(forwarded.get("stream").is_none());
-    assert!(forwarded.get("max_output_tokens").is_none());
+    assert_eq!(forwarded["max_output_tokens"], 16);
     assert_eq!(
         forwarded["input"],
         json!([{
@@ -677,6 +918,615 @@ async fn rewrites_v1_responses_compact_to_codex_responses_compact_for_codex_base
                 "text": "compress this history"
             }]
         }])
+    );
+}
+
+#[tokio::test]
+async fn keeps_previous_response_requests_continuation_aware_for_codex_profile() {
+    let upstream = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/backend-api/codex/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "resp_keep_prev",
+            "status": "completed",
+            "output": []
+        })))
+        .mount(&upstream)
+        .await;
+
+    let codex_base = format!("{}/backend-api/codex", upstream.uri());
+    let app = test_app(vec![test_account(codex_base, "upstream-token")]).await;
+
+    let request_body = json!({
+        "model": "gpt-5.4",
+        "previous_response_id": "resp_prev_123",
+        "input": "Continue from before."
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("content-type", "application/json")
+                .body(Body::from(request_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let requests = upstream.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    let forwarded: Value = serde_json::from_slice(&requests[0].body).unwrap();
+    assert_eq!(forwarded["previous_response_id"], "resp_prev_123");
+    assert!(forwarded.get("store").is_none());
+}
+
+#[tokio::test]
+async fn recovers_http_responses_from_previous_response_not_found_without_reusing_stale_id() {
+    let (upstream_base, seen_bodies) = spawn_previous_response_reset_http_upstream(
+        "/backend-api/codex/responses",
+        json!({
+            "id": "resp_recovered_http",
+            "status": "completed",
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "recovered"}]
+            }]
+        }),
+    )
+    .await;
+
+    let codex_base = format!("{upstream_base}/backend-api/codex");
+    let app = test_app(vec![test_account(codex_base, "upstream-token")]).await;
+
+    let request_body = json!({
+        "model": "gpt-5.4",
+        "previous_response_id": "resp_prev_123",
+        "input": "Continue from before."
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("content-type", "application/json")
+                .body(Body::from(request_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let payload: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(payload["id"], "resp_recovered_http");
+
+    let seen = seen_bodies.lock().unwrap().clone();
+    assert_eq!(seen.len(), 2);
+    assert_eq!(seen[0]["previous_response_id"], "resp_prev_123");
+    assert!(seen[1].get("previous_response_id").is_none());
+}
+
+#[tokio::test]
+async fn preserves_first_turn_storage_so_previous_response_id_continues_without_retry_rewrite() {
+    let (upstream_base, seen_bodies) =
+        spawn_storage_sensitive_continuation_upstream("/backend-api/codex/responses").await;
+    let codex_base = format!("{upstream_base}/backend-api/codex");
+    let app = test_app(vec![test_account(codex_base, "upstream-token")]).await;
+
+    let first_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "model": "gpt-5.4",
+                        "input": "Remember the token BLUEBIRD."
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(first_response.status(), StatusCode::OK);
+    let first_bytes = first_response
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    let first_payload: Value = serde_json::from_slice(&first_bytes).unwrap();
+    assert_eq!(first_payload["id"], "resp_stored");
+
+    let second_response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "model": "gpt-5.4",
+                        "previous_response_id": first_payload["id"].as_str().unwrap(),
+                        "input": "What token did I ask you to remember?"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(second_response.status(), StatusCode::OK);
+    let second_bytes = second_response
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    let second_payload: Value = serde_json::from_slice(&second_bytes).unwrap();
+    assert_eq!(second_payload["id"], "resp_followup_ok");
+
+    let seen = seen_bodies.lock().unwrap().clone();
+    assert_eq!(seen.len(), 2);
+    assert!(seen[0].get("store").is_none());
+    assert_eq!(seen[1]["previous_response_id"], "resp_stored");
+}
+
+#[tokio::test]
+async fn recovers_compact_responses_from_previous_response_not_found_without_reusing_stale_id() {
+    let (upstream_base, seen_bodies) = spawn_previous_response_reset_http_upstream(
+        "/backend-api/codex/responses/compact",
+        json!({
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "compacted-recovered"}]
+            }]
+        }),
+    )
+    .await;
+
+    let codex_base = format!("{upstream_base}/backend-api/codex");
+    let app = test_app(vec![test_account(codex_base, "upstream-token")]).await;
+
+    let request_body = json!({
+        "model": "gpt-5.4",
+        "previous_response_id": "resp_prev_456",
+        "input": "compress this history"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses/compact")
+                .header("content-type", "application/json")
+                .body(Body::from(request_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let payload: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        payload["output"][0]["content"][0]["text"],
+        "compacted-recovered"
+    );
+
+    let seen = seen_bodies.lock().unwrap().clone();
+    assert_eq!(seen.len(), 2);
+    assert_eq!(seen[0]["previous_response_id"], "resp_prev_456");
+    assert!(seen[1].get("previous_response_id").is_none());
+}
+
+#[tokio::test]
+async fn retrieves_stored_http_response_by_response_id() {
+    let upstream = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/backend-api/codex/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "resp_saved_http",
+            "status": "completed",
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "saved"}]
+            }]
+        })))
+        .mount(&upstream)
+        .await;
+
+    let codex_base = format!("{}/backend-api/codex", upstream.uri());
+    let base_url = spawn_live_test_app(vec![test_account(codex_base, "upstream-token")]).await;
+    let client = reqwest::Client::new();
+
+    let create = client
+        .post(format!("{base_url}/v1/responses"))
+        .header(CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            json!({
+                "model": "gpt-5.4",
+                "input": "Store this response."
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(create.status(), reqwest::StatusCode::OK);
+    let created: Value = create.json().await.unwrap();
+    assert_eq!(created["id"], "resp_saved_http");
+
+    let retrieve = client
+        .get(format!(
+            "{base_url}/v1/responses/{}",
+            created["id"].as_str().unwrap()
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(retrieve.status(), reqwest::StatusCode::OK);
+    let retrieved: Value = retrieve.json().await.unwrap();
+    assert_eq!(retrieved["id"], "resp_saved_http");
+    assert_eq!(
+        retrieved["output"][0]["content"][0]["text"],
+        Value::String("saved".to_string())
+    );
+}
+
+#[tokio::test]
+async fn does_not_retrieve_http_responses_when_store_is_false() {
+    let upstream = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/backend-api/codex/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "resp_not_stored",
+            "status": "completed",
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "volatile"}]
+            }]
+        })))
+        .mount(&upstream)
+        .await;
+
+    let codex_base = format!("{}/backend-api/codex", upstream.uri());
+    let base_url = spawn_live_test_app(vec![test_account(codex_base, "upstream-token")]).await;
+    let client = reqwest::Client::new();
+
+    let create = client
+        .post(format!("{base_url}/v1/responses"))
+        .header(CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            json!({
+                "model": "gpt-5.4",
+                "store": false,
+                "input": "Do not store this response."
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(create.status(), reqwest::StatusCode::OK);
+    let created: Value = create.json().await.unwrap();
+    assert_eq!(created["id"], "resp_not_stored");
+
+    let retrieve = client
+        .get(format!("{base_url}/v1/responses/resp_not_stored"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(retrieve.status(), reqwest::StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn completes_background_responses_and_makes_them_retrievable() {
+    let (upstream_base, _) = spawn_background_delay_upstream(
+        "/backend-api/codex/responses",
+        Duration::from_millis(80),
+        json!({
+            "id": "resp_background_done",
+            "status": "completed",
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "background-ok"}]
+            }]
+        }),
+    )
+    .await;
+    let codex_base = format!("{upstream_base}/backend-api/codex");
+    let base_url = spawn_live_test_app(vec![test_account(codex_base, "upstream-token")]).await;
+    let client = reqwest::Client::new();
+
+    let queued = client
+        .post(format!("{base_url}/v1/responses"))
+        .header(CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            json!({
+                "model": "gpt-5.4",
+                "background": true,
+                "input": "run in background"
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(queued.status(), reqwest::StatusCode::ACCEPTED);
+    let queued_payload: Value = queued.json().await.unwrap();
+    let response_id = queued_payload["id"].as_str().unwrap().to_string();
+
+    let mut final_payload = queued_payload.clone();
+    for _ in 0..20 {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let retrieve = client
+            .get(format!("{base_url}/v1/responses/{response_id}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(retrieve.status(), reqwest::StatusCode::OK);
+        let payload: Value = retrieve.json().await.unwrap();
+        if payload["status"] == "completed" {
+            final_payload = payload;
+            break;
+        }
+        final_payload = payload;
+    }
+
+    assert_eq!(final_payload["status"], "completed");
+    assert_eq!(
+        final_payload["output"][0]["content"][0]["text"],
+        Value::String("background-ok".to_string())
+    );
+}
+
+#[tokio::test]
+async fn cancels_background_responses_before_completion() {
+    let (upstream_base, seen_total) = spawn_background_delay_upstream(
+        "/backend-api/codex/responses",
+        Duration::from_millis(250),
+        json!({
+            "id": "resp_background_late",
+            "status": "completed",
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "too-late"}]
+            }]
+        }),
+    )
+    .await;
+    let codex_base = format!("{upstream_base}/backend-api/codex");
+    let base_url = spawn_live_test_app(vec![test_account(codex_base, "upstream-token")]).await;
+    let client = reqwest::Client::new();
+
+    let queued = client
+        .post(format!("{base_url}/v1/responses"))
+        .header(CONTENT_TYPE.as_str(), "application/json")
+        .body(
+            json!({
+                "model": "gpt-5.4",
+                "background": true,
+                "input": "cancel me"
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(queued.status(), reqwest::StatusCode::ACCEPTED);
+    let queued_payload: Value = queued.json().await.unwrap();
+    let response_id = queued_payload["id"].as_str().unwrap().to_string();
+
+    let cancelled = client
+        .post(format!("{base_url}/v1/responses/{response_id}/cancel"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(cancelled.status(), reqwest::StatusCode::OK);
+    let cancelled_payload: Value = cancelled.json().await.unwrap();
+    assert_eq!(cancelled_payload["status"], "cancelled");
+
+    tokio::time::sleep(Duration::from_millis(350)).await;
+    let retrieve = client
+        .get(format!("{base_url}/v1/responses/{response_id}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(retrieve.status(), reqwest::StatusCode::OK);
+    let retrieved: Value = retrieve.json().await.unwrap();
+    assert_eq!(retrieved["status"], "cancelled");
+    assert_eq!(seen_total.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn conversation_reuses_last_response_id_without_explicit_previous_response_id() {
+    let (upstream_base, seen_bodies) =
+        spawn_storage_sensitive_continuation_upstream("/backend-api/codex/responses").await;
+    let codex_base = format!("{upstream_base}/backend-api/codex");
+    let app = test_app(vec![test_account(codex_base, "upstream-token")]).await;
+
+    let first_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "model": "gpt-5.4",
+                        "conversation": "conv_bluebird",
+                        "input": "Remember BLUEBIRD."
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(first_response.status(), StatusCode::OK);
+    let first_payload: Value = serde_json::from_slice(
+        &first_response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes(),
+    )
+    .unwrap();
+    assert_eq!(first_payload["id"], "resp_stored");
+
+    let second_response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "model": "gpt-5.4",
+                        "conversation": "conv_bluebird",
+                        "input": "What did I ask you to remember?"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(second_response.status(), StatusCode::OK);
+    let second_payload: Value = serde_json::from_slice(
+        &second_response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes(),
+    )
+    .unwrap();
+    assert_eq!(second_payload["id"], "resp_followup_ok");
+
+    let seen = seen_bodies.lock().unwrap().clone();
+    assert_eq!(seen.len(), 2);
+    assert!(seen[0].get("conversation").is_none());
+    assert!(seen[1].get("conversation").is_none());
+    assert_eq!(seen[1]["previous_response_id"], "resp_stored");
+}
+
+#[tokio::test]
+async fn counts_input_tokens_for_responses_payloads() {
+    let app = test_app(Vec::new()).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses/input_tokens")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "model": "gpt-5.4",
+                        "input": [{
+                            "role": "user",
+                            "content": [
+                                {"type": "input_text", "text": "Count these prompt tokens."}
+                            ]
+                        }]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let payload: Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(payload["object"], "response.input_tokens");
+    assert!(payload["input_tokens"].as_i64().unwrap_or_default() > 0);
+}
+
+#[tokio::test]
+async fn passes_input_image_items_through_for_codex_profile() {
+    let upstream = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/backend-api/codex/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "resp_image_ok",
+            "status": "completed",
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "saw-image"}]
+            }]
+        })))
+        .mount(&upstream)
+        .await;
+
+    let codex_base = format!("{}/backend-api/codex", upstream.uri());
+    let app = test_app(vec![test_account(codex_base, "upstream-token")]).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/responses")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "model": "gpt-5.4",
+                        "input": [{
+                            "role": "user",
+                            "content": [
+                                {"type": "input_text", "text": "Describe this image."},
+                                {
+                                    "type": "input_image",
+                                    "image_url": "https://example.com/cat.png"
+                                }
+                            ]
+                        }]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let requests = upstream.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    let forwarded: Value = serde_json::from_slice(&requests[0].body).unwrap();
+    assert_eq!(
+        forwarded["input"][0]["content"][1],
+        json!({
+            "type": "input_image",
+            "image_url": "https://example.com/cat.png"
+        })
     );
 }
 

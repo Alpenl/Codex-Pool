@@ -16,6 +16,7 @@ use codex_pool_core::model::{
 use data_plane::app::AppState;
 use data_plane::event::NoopEventSink;
 use data_plane::outbound_proxy_runtime::OutboundProxyRuntime;
+use data_plane::proxy::BackgroundResponsesRuntime;
 use data_plane::router::RoundRobinRouter;
 use data_plane::routing_cache::InMemoryRoutingCache;
 use uuid::Uuid;
@@ -256,6 +257,9 @@ fn test_state() -> AppState {
         invalid_request_guard_block_ttl: Duration::from_secs(120),
         invalid_request_guard: std::sync::RwLock::new(std::collections::HashMap::new()),
         invalid_request_guard_block_total: AtomicU64::new(0),
+        background_responses: Arc::new(BackgroundResponsesRuntime::from_env(
+            "127.0.0.1:0".parse().unwrap(),
+        )),
     }
 }
 
