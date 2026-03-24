@@ -94,6 +94,19 @@ const PENDING_PURGE_BATCH_SIZE_ENV: &str = "CONTROL_PLANE_PENDING_PURGE_BATCH_SI
 const DEFAULT_PENDING_PURGE_BATCH_SIZE: usize = 200;
 const MIN_PENDING_PURGE_BATCH_SIZE: usize = 1;
 const MAX_PENDING_PURGE_BATCH_SIZE: usize = 5_000;
+const TOKEN_INVALIDATED_PURGE_WINDOW_SEC_ENV: &str =
+    "CONTROL_PLANE_TOKEN_INVALIDATED_PURGE_WINDOW_SEC";
+const DEFAULT_TOKEN_INVALIDATED_PURGE_WINDOW_SEC: i64 = 3_600;
+const MIN_TOKEN_INVALIDATED_PURGE_WINDOW_SEC: i64 = 60;
+const MAX_TOKEN_INVALIDATED_PURGE_WINDOW_SEC: i64 = 7 * 24 * 60 * 60;
+const TOKEN_INVALIDATED_LEGACY_PURGE_THRESHOLD_ENV: &str =
+    "CONTROL_PLANE_TOKEN_INVALIDATED_LEGACY_PURGE_THRESHOLD";
+const DEFAULT_TOKEN_INVALIDATED_LEGACY_PURGE_THRESHOLD: u32 = 2;
+const MIN_TOKEN_INVALIDATED_PURGE_THRESHOLD: u32 = 1;
+const MAX_TOKEN_INVALIDATED_PURGE_THRESHOLD: u32 = 10;
+const TOKEN_INVALIDATED_OAUTH_PURGE_THRESHOLD_ENV: &str =
+    "CONTROL_PLANE_TOKEN_INVALIDATED_OAUTH_PURGE_THRESHOLD";
+const DEFAULT_TOKEN_INVALIDATED_OAUTH_PURGE_THRESHOLD: u32 = 3;
 const RATE_LIMIT_CACHE_TTL_SEC_ENV: &str = "CONTROL_PLANE_RATE_LIMIT_CACHE_TTL_SEC";
 const DEFAULT_RATE_LIMIT_CACHE_TTL_SEC: i64 = 180;
 const MIN_RATE_LIMIT_CACHE_TTL_SEC: i64 = 30;
@@ -216,6 +229,37 @@ fn pending_purge_batch_size_from_env() -> usize {
         .and_then(|raw| raw.parse::<usize>().ok())
         .unwrap_or(DEFAULT_PENDING_PURGE_BATCH_SIZE)
         .clamp(MIN_PENDING_PURGE_BATCH_SIZE, MAX_PENDING_PURGE_BATCH_SIZE)
+}
+
+fn token_invalidated_purge_window_sec_from_env() -> i64 {
+    std::env::var(TOKEN_INVALIDATED_PURGE_WINDOW_SEC_ENV)
+        .ok()
+        .and_then(|raw| raw.parse::<i64>().ok())
+        .unwrap_or(DEFAULT_TOKEN_INVALIDATED_PURGE_WINDOW_SEC)
+        .clamp(
+            MIN_TOKEN_INVALIDATED_PURGE_WINDOW_SEC,
+            MAX_TOKEN_INVALIDATED_PURGE_WINDOW_SEC,
+        )
+}
+
+fn token_invalidated_purge_threshold_for_provider(provider: UpstreamAuthProvider) -> u32 {
+    let env_name = match provider {
+        UpstreamAuthProvider::OAuthRefreshToken => TOKEN_INVALIDATED_OAUTH_PURGE_THRESHOLD_ENV,
+        UpstreamAuthProvider::LegacyBearer => TOKEN_INVALIDATED_LEGACY_PURGE_THRESHOLD_ENV,
+    };
+    let default = match provider {
+        UpstreamAuthProvider::OAuthRefreshToken => DEFAULT_TOKEN_INVALIDATED_OAUTH_PURGE_THRESHOLD,
+        UpstreamAuthProvider::LegacyBearer => DEFAULT_TOKEN_INVALIDATED_LEGACY_PURGE_THRESHOLD,
+    };
+
+    std::env::var(env_name)
+        .ok()
+        .and_then(|raw| raw.parse::<u32>().ok())
+        .unwrap_or(default)
+        .clamp(
+            MIN_TOKEN_INVALIDATED_PURGE_THRESHOLD,
+            MAX_TOKEN_INVALIDATED_PURGE_THRESHOLD,
+        )
 }
 
 fn rate_limit_cache_ttl_sec_from_env() -> i64 {
@@ -1702,6 +1746,10 @@ struct UpstreamAccountHealthStateRecord {
     pending_purge_reason: Option<String>,
     #[serde(default)]
     last_pool_transition_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    token_invalidated_strike_count: u32,
+    #[serde(default)]
+    token_invalidated_first_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

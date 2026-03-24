@@ -1238,6 +1238,96 @@ async fn internal_live_result_token_invalidated_quarantines_runtime_account() {
 }
 
 #[tokio::test]
+async fn internal_live_result_token_invalidated_escalates_legacy_account_to_pending_purge() {
+    let store = InMemoryStore::default();
+    let app = build_app_with_store(Arc::new(store));
+    let admin_token = login_admin_token(&app).await;
+
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/upstream-accounts")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::from(
+                    json!({
+                        "label": "live-result-token-invalidated-escalate",
+                        "mode": "chat_gpt_session",
+                        "base_url": "https://chatgpt.com/backend-api/codex",
+                        "bearer_token": "test-token-token-invalidated-escalate",
+                        "enabled": true,
+                        "priority": 100
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::OK);
+    let create_body = to_bytes(create_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let create_json: Value = serde_json::from_slice(&create_body).unwrap();
+    let account_id = create_json["id"].as_str().unwrap().to_string();
+
+    let payload = json!({
+        "status": "failed",
+        "source": "passive",
+        "status_code": 401,
+        "error_code": "token_invalidated",
+        "error_message": "token invalidated",
+        "upstream_request_id": "req-live-token-invalidated-escalate",
+        "model": "gpt-5.4"
+    });
+
+    for _ in 0..2 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/internal/v1/upstream-accounts/{account_id}/health/live-result"
+                    ))
+                    .header("content-type", "application/json")
+                    .header(
+                        "authorization",
+                        format!("Bearer {}", internal_service_token()),
+                    )
+                    .body(Body::from(payload.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    let status_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/upstream-accounts/{account_id}/oauth/status"))
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(status_response.status(), StatusCode::OK);
+    let status_body = to_bytes(status_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let status_json: Value = serde_json::from_slice(&status_body).unwrap();
+    assert_eq!(status_json["pool_state"], "pending_purge");
+    assert_eq!(status_json["pending_purge_reason"], "token_invalidated");
+    assert!(status_json["pending_purge_at"].is_string());
+}
+
+#[tokio::test]
 async fn internal_model_seen_ok_route_requires_internal_token_and_accepts_model() {
     let store = InMemoryStore::default();
     let app = build_app_with_store(Arc::new(store));

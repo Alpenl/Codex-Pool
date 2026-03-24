@@ -430,7 +430,46 @@ impl InMemoryStore {
                 .seen_ok_at
                 .map_or(seen_ok_at, |previous| previous.max(seen_ok_at)),
         );
+        state.token_invalidated_strike_count = 0;
+        state.token_invalidated_first_at = None;
         true
+    }
+
+    fn reset_token_invalidated_strikes_inner(&self, account_id: Uuid) {
+        let mut states = self.account_health_states.write().unwrap();
+        let state = states.entry(account_id).or_default();
+        state.token_invalidated_strike_count = 0;
+        state.token_invalidated_first_at = None;
+    }
+
+    fn record_token_invalidated_strike_inner(
+        &self,
+        account_id: Uuid,
+        reported_at: DateTime<Utc>,
+    ) -> Result<bool> {
+        if !self.accounts.read().unwrap().contains_key(&account_id) {
+            return Err(anyhow!("upstream account not found"));
+        }
+
+        let threshold =
+            token_invalidated_purge_threshold_for_provider(self.account_auth_provider(account_id));
+        let window = Duration::seconds(token_invalidated_purge_window_sec_from_env());
+
+        let mut states = self.account_health_states.write().unwrap();
+        let state = states.entry(account_id).or_default();
+        let within_window = match state.token_invalidated_first_at {
+            Some(first_at) => reported_at <= first_at + window,
+            None => false,
+        };
+        if !within_window {
+            state.token_invalidated_first_at = Some(reported_at);
+            state.token_invalidated_strike_count = 1;
+        } else {
+            state.token_invalidated_strike_count =
+                state.token_invalidated_strike_count.saturating_add(1).max(1);
+        }
+
+        Ok(state.token_invalidated_strike_count >= threshold)
     }
 
     fn runtime_pool_account_count_inner(&self) -> usize {
@@ -536,6 +575,7 @@ impl InMemoryStore {
             }
             OAuthLiveResultStatus::Failed => match normalized_error_code.as_deref() {
                 Some("account_deactivated") => {
+                    self.reset_token_invalidated_strikes_inner(account_id);
                     self.mark_upstream_account_pending_purge_inner(
                         account_id,
                         Some("account_deactivated".to_string()),
@@ -543,6 +583,7 @@ impl InMemoryStore {
                     true
                 }
                 Some("rate_limited") | Some("quota_exhausted") => {
+                    self.reset_token_invalidated_strikes_inner(account_id);
                     let reason = normalized_error_code
                         .clone()
                         .unwrap_or_else(|| "rate_limited".to_string());
@@ -558,7 +599,8 @@ impl InMemoryStore {
                     )?;
                     true
                 }
-                Some("auth_expired") | Some("token_invalidated") => {
+                Some("auth_expired") => {
+                    self.reset_token_invalidated_strikes_inner(account_id);
                     self.set_account_pool_state_quarantine_inner(
                         account_id,
                         reported_at,
@@ -567,7 +609,26 @@ impl InMemoryStore {
                     )?;
                     true
                 }
-                _ => false,
+                Some("token_invalidated") => {
+                    if self.record_token_invalidated_strike_inner(account_id, reported_at)? {
+                        self.mark_upstream_account_pending_purge_inner(
+                            account_id,
+                            Some("token_invalidated".to_string()),
+                        )?;
+                    } else {
+                        self.set_account_pool_state_quarantine_inner(
+                            account_id,
+                            reported_at,
+                            Some(reported_at + Duration::minutes(30)),
+                            normalized_error_code.clone(),
+                        )?;
+                    }
+                    true
+                }
+                _ => {
+                    self.reset_token_invalidated_strikes_inner(account_id);
+                    false
+                }
             },
         };
 

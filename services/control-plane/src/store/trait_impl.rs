@@ -875,9 +875,10 @@ mod tests {
     use crate::contracts::{
         CreateApiKeyRequest, CreateTenantRequest, CreateUpstreamAccountRequest,
         ImportOAuthRefreshTokenRequest, OAuthAccountPoolState, OAuthInventoryFailureStage,
-        OAuthRateLimitRefreshJobStatus, OAuthRateLimitSnapshot, OAuthRateLimitWindow,
-        OAuthRefreshStatus, OAuthVaultRecordStatus, RefreshCredentialState,
-        SessionCredentialKind, UpsertModelRoutingPolicyRequest, UpsertRoutingProfileRequest,
+        OAuthLiveResultSource, OAuthLiveResultStatus, OAuthRateLimitRefreshJobStatus,
+        OAuthRateLimitSnapshot, OAuthRateLimitWindow, OAuthRefreshStatus,
+        OAuthVaultRecordStatus, RefreshCredentialState, SessionCredentialKind,
+        UpsertModelRoutingPolicyRequest, UpsertRoutingProfileRequest,
     };
     use codex_pool_core::model::{
         RoutingProfileSelector, UpstreamAuthProvider, UpstreamMode,
@@ -1945,6 +1946,80 @@ mod tests {
         );
         assert!(!status.has_refresh_credential);
         assert_eq!(status.last_refresh_status, OAuthRefreshStatus::Never);
+    }
+
+    #[tokio::test]
+    async fn in_memory_live_result_token_invalidated_escalates_oauth_account_on_third_strike() {
+        let cipher = CredentialCipher::from_base64_key(
+            &base64::engine::general_purpose::STANDARD.encode([27_u8; 32]),
+        )
+        .unwrap();
+        let store = InMemoryStore::new_with_oauth(Arc::new(StaticOAuthTokenClient), Some(cipher));
+
+        let account = store
+            .import_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "oauth-token-invalidated-strikes".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-token-invalidated-strikes".to_string(),
+                fallback_access_token: None,
+                fallback_token_expires_at: None,
+                chatgpt_account_id: None,
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: None,
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .expect("import oauth account");
+
+        for attempt in 0..2 {
+            let accepted = store
+                .record_upstream_account_live_result(
+                    account.id,
+                    Utc::now() + Duration::minutes(attempt),
+                    OAuthLiveResultStatus::Failed,
+                    OAuthLiveResultSource::Passive,
+                    Some(401),
+                    Some("token_invalidated".to_string()),
+                    Some("token invalidated".to_string()),
+                )
+                .await
+                .expect("record token invalidated live-result");
+            assert!(accepted);
+
+            let status = store
+                .oauth_account_status(account.id)
+                .await
+                .expect("oauth status after strike");
+            assert_eq!(status.pool_state, OAuthAccountPoolState::Quarantine);
+            assert_eq!(status.quarantine_reason.as_deref(), Some("token_invalidated"));
+        }
+
+        let accepted = store
+            .record_upstream_account_live_result(
+                account.id,
+                Utc::now() + Duration::minutes(2),
+                OAuthLiveResultStatus::Failed,
+                OAuthLiveResultSource::Passive,
+                Some(401),
+                Some("token_invalidated".to_string()),
+                Some("token invalidated".to_string()),
+            )
+            .await
+            .expect("record third token invalidated live-result");
+        assert!(accepted);
+
+        let status = store
+            .oauth_account_status(account.id)
+            .await
+            .expect("oauth status after third strike");
+        assert_eq!(status.pool_state, OAuthAccountPoolState::PendingPurge);
+        assert_eq!(
+            status.pending_purge_reason.as_deref(),
+            Some("token_invalidated")
+        );
+        assert!(status.pending_purge_at.is_some());
     }
 
     #[tokio::test]
