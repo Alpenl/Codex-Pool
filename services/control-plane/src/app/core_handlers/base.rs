@@ -184,6 +184,37 @@ struct OAuthAccountStatusesResponse {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+enum OAuthInventoryBatchActionKind {
+    MarkFailed,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct OAuthInventoryBatchActionRequest {
+    action: OAuthInventoryBatchActionKind,
+    record_ids: Vec<Uuid>,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct OAuthInventoryBatchActionResponse {
+    action: OAuthInventoryBatchActionKind,
+    total: usize,
+    success_count: usize,
+    failed_count: usize,
+    items: Vec<OAuthInventoryBatchActionItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct OAuthInventoryBatchActionItem {
+    record_id: Uuid,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<UpstreamAccountBatchActionError>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 enum UpstreamAccountBatchActionKind {
     Enable,
     Disable,

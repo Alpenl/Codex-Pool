@@ -228,6 +228,101 @@ impl InMemoryStore {
         items
     }
 
+    fn mark_oauth_inventory_record_failed_inner(
+        &self,
+        record_id: Uuid,
+        reason: Option<String>,
+    ) -> Result<()> {
+        let now = Utc::now();
+        let reason = reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        let mut vault = self.oauth_refresh_token_vault.write().unwrap();
+        let Some(item) = vault.get_mut(&record_id) else {
+            return Err(anyhow!("oauth inventory record not found"));
+        };
+        item.status = OAuthVaultRecordStatus::Failed;
+        item.admission_checked_at = Some(now);
+        item.admission_retry_after = None;
+        item.next_retry_at = None;
+        item.retryable = false;
+        if item.terminal_reason.is_none() || reason.is_some() {
+            item.terminal_reason = reason
+                .or_else(|| item.terminal_reason.clone())
+                .or_else(|| item.admission_error_code.clone());
+        }
+        item.updated_at = now;
+        drop(vault);
+        self.revision.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn mark_oauth_inventory_records_failed_inner(
+        &self,
+        record_ids: &[Uuid],
+        reason: Option<String>,
+    ) {
+        let now = Utc::now();
+        let reason = reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        let mut vault = self.oauth_refresh_token_vault.write().unwrap();
+        let mut changed = false;
+        for record_id in record_ids {
+            let Some(item) = vault.get_mut(record_id) else {
+                continue;
+            };
+            item.status = OAuthVaultRecordStatus::Failed;
+            item.admission_checked_at = Some(now);
+            item.admission_retry_after = None;
+            item.next_retry_at = None;
+            item.retryable = false;
+            if item.terminal_reason.is_none() || reason.is_some() {
+                item.terminal_reason = reason
+                    .clone()
+                    .or_else(|| item.terminal_reason.clone())
+                    .or_else(|| item.admission_error_code.clone());
+            }
+            item.updated_at = now;
+            changed = true;
+        }
+        drop(vault);
+        if changed {
+            self.revision.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn delete_oauth_inventory_record_inner(&self, record_id: Uuid) -> Result<()> {
+        let removed = self
+            .oauth_refresh_token_vault
+            .write()
+            .unwrap()
+            .remove(&record_id);
+        if removed.is_none() {
+            return Err(anyhow!("oauth inventory record not found"));
+        }
+        self.revision.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn delete_oauth_inventory_records_inner(&self, record_ids: &[Uuid]) {
+        let mut vault = self.oauth_refresh_token_vault.write().unwrap();
+        let mut changed = false;
+        for record_id in record_ids {
+            if vault.remove(record_id).is_some() {
+                changed = true;
+            }
+        }
+        drop(vault);
+        if changed {
+            self.revision.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
     fn oauth_vault_record_id_for_request(
         &self,
         req: &ImportOAuthRefreshTokenRequest,
@@ -478,7 +573,10 @@ impl InMemoryStore {
                         current_transient_retry_count,
                     )
                 };
-                let status = if retry_after.is_some()
+                let fatal_auth = is_fatal_refresh_error_code(Some(error_code.as_str()));
+                let status = if fatal_auth {
+                    OAuthVaultRecordStatus::Failed
+                } else if retry_after.is_some()
                     && (is_quota_error_signal(&error_code, &error_message)
                         || is_rate_limited_signal(&error_code, &error_message))
                 {
@@ -492,7 +590,7 @@ impl InMemoryStore {
                     OAuthVaultRecordStatus::Ready => false,
                     OAuthVaultRecordStatus::NeedsRefresh => true,
                     OAuthVaultRecordStatus::NoQuota => retry_after.is_some(),
-                    OAuthVaultRecordStatus::Failed => retry_after.is_some(),
+                    OAuthVaultRecordStatus::Failed => retry_after.is_some() && !fatal_auth,
                     OAuthVaultRecordStatus::Queued => false,
                 };
                 let terminal_reason = if retryable {

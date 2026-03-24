@@ -552,6 +552,42 @@ impl ControlPlaneStore for SqliteBackedStore {
         self.inner.oauth_inventory_records().await
     }
 
+    async fn mark_oauth_inventory_record_failed(
+        &self,
+        record_id: Uuid,
+        reason: Option<String>,
+    ) -> Result<()> {
+        self.inner
+            .mark_oauth_inventory_record_failed(record_id, reason)
+            .await?;
+        self.persist_state_after_write().await?;
+        Ok(())
+    }
+
+    async fn mark_oauth_inventory_records_failed(
+        &self,
+        record_ids: Vec<Uuid>,
+        reason: Option<String>,
+    ) -> Result<()> {
+        self.inner
+            .mark_oauth_inventory_records_failed(record_ids, reason)
+            .await?;
+        self.persist_state_after_write().await?;
+        Ok(())
+    }
+
+    async fn delete_oauth_inventory_record(&self, record_id: Uuid) -> Result<()> {
+        self.inner.delete_oauth_inventory_record(record_id).await?;
+        self.persist_state_after_write().await?;
+        Ok(())
+    }
+
+    async fn delete_oauth_inventory_records(&self, record_ids: Vec<Uuid>) -> Result<()> {
+        self.inner.delete_oauth_inventory_records(record_ids).await?;
+        self.persist_state_after_write().await?;
+        Ok(())
+    }
+
     async fn oauth_account_statuses(
         &self,
         account_ids: Vec<Uuid>,

@@ -11,9 +11,9 @@ use control_plane::app::{
 };
 use control_plane::config::ControlPlaneConfig;
 use control_plane::crypto::CredentialCipher;
-use control_plane::import_jobs::{InMemoryOAuthImportJobStore, SqliteOAuthImportJobStore};
 #[cfg(feature = "postgres-backend")]
 use control_plane::import_jobs::PostgresOAuthImportJobStore;
+use control_plane::import_jobs::{InMemoryOAuthImportJobStore, SqliteOAuthImportJobStore};
 use control_plane::oauth::OpenAiOAuthClient;
 use control_plane::outbound_proxy_runtime::OutboundProxyRuntime;
 use control_plane::runtime_profile::{

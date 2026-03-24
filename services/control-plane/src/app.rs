@@ -43,8 +43,8 @@ use crate::contracts::{
     OAuthAccountStatusResponse, OAuthFamilyActionResponse, OAuthHealthSignalsSummaryResponse,
     OAuthImportItemStatus, OAuthImportJobActionResponse, OAuthImportJobItemsResponse,
     OAuthImportJobSummary, OAuthInventoryRecord, OAuthInventorySummaryResponse,
-    OAuthRuntimePoolSummaryResponse, OAuthRateLimitRefreshJobStatus,
-    OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot, OAuthRateLimitWindow, PolicyResponse,
+    OAuthRateLimitRefreshJobStatus, OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot,
+    OAuthRateLimitWindow, OAuthRuntimePoolSummaryResponse, PolicyResponse,
     RoutingPlanVersionsResponse, RoutingProfilesResponse, TenantUsageLeaderboardItem,
     TenantUsageLeaderboardResponse, UpdateAiErrorLearningSettingsRequest,
     UpdateBuiltinErrorTemplateRequest, UpdateModelRoutingSettingsRequest,
@@ -2190,6 +2190,10 @@ pub fn build_app_with_store_and_services(
         .route(
             "/api/v1/upstream-accounts/oauth/inventory/records",
             get(get_oauth_inventory_records),
+        )
+        .route(
+            "/api/v1/upstream-accounts/oauth/inventory/batch-actions",
+            post(batch_operate_oauth_inventory_records),
         )
         .route(
             "/api/v1/upstream-accounts/runtime/summary",

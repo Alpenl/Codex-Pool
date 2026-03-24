@@ -940,6 +940,33 @@ pub trait ControlPlaneStore: Send + Sync {
     async fn oauth_inventory_records(&self) -> Result<Vec<OAuthInventoryRecord>> {
         Err(anyhow!("oauth inventory records query is not implemented"))
     }
+    async fn mark_oauth_inventory_record_failed(
+        &self,
+        _record_id: Uuid,
+        _reason: Option<String>,
+    ) -> Result<()> {
+        Err(anyhow!("oauth inventory mutation is not implemented"))
+    }
+    async fn mark_oauth_inventory_records_failed(
+        &self,
+        record_ids: Vec<Uuid>,
+        reason: Option<String>,
+    ) -> Result<()> {
+        for record_id in record_ids {
+            self.mark_oauth_inventory_record_failed(record_id, reason.clone())
+                .await?;
+        }
+        Ok(())
+    }
+    async fn delete_oauth_inventory_record(&self, _record_id: Uuid) -> Result<()> {
+        Err(anyhow!("oauth inventory deletion is not implemented"))
+    }
+    async fn delete_oauth_inventory_records(&self, record_ids: Vec<Uuid>) -> Result<()> {
+        for record_id in record_ids {
+            self.delete_oauth_inventory_record(record_id).await?;
+        }
+        Ok(())
+    }
     async fn oauth_runtime_pool_summary(&self) -> Result<OAuthRuntimePoolSummaryResponse> {
         let accounts = self.list_upstream_accounts().await?;
         let statuses = self

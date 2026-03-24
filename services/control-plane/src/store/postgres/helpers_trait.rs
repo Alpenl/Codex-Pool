@@ -748,6 +748,19 @@ impl ControlPlaneStore for PostgresStore {
         self.oauth_inventory_records_inner().await
     }
 
+    async fn mark_oauth_inventory_record_failed(
+        &self,
+        record_id: Uuid,
+        reason: Option<String>,
+    ) -> Result<()> {
+        self.mark_oauth_inventory_record_failed_inner(record_id, reason)
+            .await
+    }
+
+    async fn delete_oauth_inventory_record(&self, record_id: Uuid) -> Result<()> {
+        self.delete_oauth_inventory_record_inner(record_id).await
+    }
+
     async fn upsert_routing_policy(
         &self,
         req: UpsertRoutingPolicyRequest,

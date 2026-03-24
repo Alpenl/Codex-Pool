@@ -110,6 +110,9 @@ struct FixedAccountIdOAuthTokenClient {
 #[derive(Clone)]
 struct SharedAccountIdOAuthTokenClient;
 
+#[derive(Clone)]
+struct InvalidFallbackAdmissionOAuthTokenClient;
+
 #[async_trait::async_trait]
 impl control_plane::oauth::OAuthTokenClient for SharedAccountIdOAuthTokenClient {
     async fn refresh_token(
@@ -162,6 +165,37 @@ impl control_plane::oauth::OAuthTokenClient for SharedAccountIdOAuthTokenClient 
                 "title": "Personal",
             })]),
             groups: Some(vec![]),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl control_plane::oauth::OAuthTokenClient for InvalidFallbackAdmissionOAuthTokenClient {
+    async fn refresh_token(
+        &self,
+        refresh_token: &str,
+        base_url: Option<&str>,
+    ) -> Result<
+        control_plane::oauth::OAuthTokenInfo,
+        control_plane::oauth::OAuthTokenClientError,
+    > {
+        StaticOAuthTokenClient
+            .refresh_token(refresh_token, base_url)
+            .await
+    }
+
+    async fn fetch_rate_limits(
+        &self,
+        _access_token: &str,
+        _base_url: Option<&str>,
+        _chatgpt_account_id: Option<&str>,
+    ) -> Result<
+        Vec<control_plane::contracts::OAuthRateLimitSnapshot>,
+        control_plane::oauth::OAuthTokenClientError,
+    > {
+        Err(control_plane::oauth::OAuthTokenClientError::InvalidRefreshToken {
+            code: control_plane::oauth::OAuthRefreshErrorCode::InvalidRefreshToken,
+            message: "invalid refresh token".to_string(),
         })
     }
 }
@@ -870,7 +904,7 @@ async fn oauth_import_job_does_not_fail_reused_refresh_tokens_during_queue_only_
         sleep(Duration::from_millis(30)).await;
     }
 
-    assert_eq!(latest_job["status"], "completed");
+    assert_eq!(latest_job["status"], "failed");
     assert_eq!(latest_job["created_count"], 1);
     assert_eq!(latest_job["updated_count"], 0);
     assert_eq!(latest_job["failed_count"], 0);
@@ -937,6 +971,126 @@ async fn oauth_import_job_accepts_large_multipart_payload() {
         .unwrap();
     let create_json: Value = serde_json::from_slice(&create_body).unwrap();
     assert_eq!(create_json["total"], 1);
+}
+
+#[tokio::test]
+async fn oauth_import_job_rejects_terminal_invalid_refresh_token_inventory_admission() {
+    let cipher_key = base64::engine::general_purpose::STANDARD.encode([31_u8; 32]);
+    let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();
+    let store = InMemoryStore::new_with_oauth(
+        Arc::new(InvalidFallbackAdmissionOAuthTokenClient),
+        Some(cipher),
+    );
+    let app = build_app_with_store(Arc::new(store));
+    let admin_token = login_admin_token(&app).await;
+
+    let boundary = "----cp-boundary-strict-terminal";
+    let content = r#"{
+      "type":"codex",
+      "email":"strict-terminal@example.com",
+      "refresh_token":"rt-strict-terminal",
+      "access_token":"ak-strict-terminal",
+      "chatgpt_account_id":"acct_strict_terminal",
+      "exp": 1893456000
+    }"#;
+    let payload = build_multipart_payload(boundary, "strict-terminal.json", content);
+
+    let create_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/upstream-accounts/oauth/import-jobs")
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::from(payload))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create_response.status(), StatusCode::OK);
+    let create_body = to_bytes(create_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let create_json: Value = serde_json::from_slice(&create_body).unwrap();
+    let job_id = create_json["job_id"].as_str().unwrap().to_string();
+
+    let mut latest_job = Value::Null;
+    for _ in 0..30 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!(
+                        "/api/v1/upstream-accounts/oauth/import-jobs/{job_id}"
+                    ))
+                    .header("authorization", format!("Bearer {admin_token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        latest_job = serde_json::from_slice(&body).unwrap();
+        let status = latest_job["status"].as_str().unwrap_or_default();
+        if !matches!(status, "queued" | "running") {
+            break;
+        }
+        sleep(Duration::from_millis(30)).await;
+    }
+
+    assert_eq!(latest_job["status"], "failed");
+    assert_eq!(latest_job["created_count"], 0);
+    assert_eq!(latest_job["updated_count"], 0);
+    assert_eq!(latest_job["failed_count"], 1);
+    assert_eq!(latest_job["admission_counts"]["failed"], 1);
+
+    let items_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/api/v1/upstream-accounts/oauth/import-jobs/{job_id}/items"
+                ))
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(items_response.status(), StatusCode::OK);
+    let items_body = to_bytes(items_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let items_json: Value = serde_json::from_slice(&items_body).unwrap();
+    assert_eq!(items_json["items"][0]["status"], "failed");
+    assert_eq!(items_json["items"][0]["error_code"], "invalid_refresh_token");
+    assert_eq!(items_json["items"][0]["admission_status"], "failed");
+
+    let inventory_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/upstream-accounts/oauth/inventory/records")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(inventory_response.status(), StatusCode::OK);
+    let inventory_body = to_bytes(inventory_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let inventory_json: Value = serde_json::from_slice(&inventory_body).unwrap();
+    assert_eq!(inventory_json.as_array().map(Vec::len), Some(0));
 }
 
 #[tokio::test]

@@ -11,6 +11,17 @@ async fn execute_import_with_retry(
             ImportTaskRequest::OAuthRefresh(req) => {
                 let created = data_store.queue_oauth_refresh_token(req.clone()).await?;
                 let admission = find_inventory_admission_for_request(data_store.clone(), &req).await?;
+                if let Some(record) = admission.as_ref() {
+                    if should_reject_terminal_inventory_admission(record) {
+                        data_store.delete_oauth_inventory_record(record.id).await?;
+                        let error_code = record
+                            .terminal_reason
+                            .clone()
+                            .or_else(|| record.admission_error_code.clone())
+                            .unwrap_or_else(|| "invalid_refresh_token".to_string());
+                        return Err(anyhow!(error_code));
+                    }
+                }
                 Ok(ImportTaskSuccess {
                     created,
                     account_id: None,
@@ -125,6 +136,28 @@ async fn find_inventory_admission_for_request(
                 .cmp(&right.updated_at)
                 .then_with(|| left.id.cmp(&right.id))
         }))
+}
+
+fn should_reject_terminal_inventory_admission(record: &OAuthInventoryRecord) -> bool {
+    if record.retryable || record.vault_status != OAuthVaultRecordStatus::Failed {
+        return false;
+    }
+
+    let reason = record
+        .terminal_reason
+        .as_deref()
+        .or(record.admission_error_code.as_deref())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    matches!(
+        reason.as_str(),
+        "refresh_token_reused"
+            | "refresh_token_revoked"
+            | "invalid_refresh_token"
+            | "missing_client_id"
+            | "unauthorized_client"
+    )
 }
 
 fn is_retryable_import_error(message: &str) -> bool {

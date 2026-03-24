@@ -1560,6 +1560,80 @@ async fn get_oauth_inventory_records(
         .map_err(internal_error)
 }
 
+async fn batch_operate_oauth_inventory_records(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<OAuthInventoryBatchActionRequest>,
+) -> Result<Json<OAuthInventoryBatchActionResponse>, (StatusCode, Json<ErrorEnvelope>)> {
+    let _principal = require_admin_principal(&state, &headers)?;
+    if req.record_ids.is_empty() {
+        return Err(invalid_request_error("record_ids must not be empty"));
+    }
+    if req.record_ids.len() > UPSTREAM_ACCOUNT_BATCH_ACTION_MAX_ITEMS {
+        return Err(invalid_request_error(
+            "record_ids exceeds maximum allowed batch size",
+        ));
+    }
+
+    let mut seen = std::collections::HashSet::with_capacity(req.record_ids.len());
+    let record_ids = req
+        .record_ids
+        .into_iter()
+        .filter(|record_id| seen.insert(*record_id))
+        .collect::<Vec<_>>();
+    let action = req.action;
+    let reason = req.reason;
+    let store = state.store.clone();
+    let existing_record_ids = store
+        .oauth_inventory_records()
+        .await
+        .map_err(internal_error)?
+        .into_iter()
+        .map(|item| item.id)
+        .collect::<std::collections::HashSet<_>>();
+    let (known_record_ids, missing_record_ids): (Vec<_>, Vec<_>) = record_ids
+        .into_iter()
+        .partition(|record_id| existing_record_ids.contains(record_id));
+
+    match action {
+        OAuthInventoryBatchActionKind::MarkFailed => store
+            .mark_oauth_inventory_records_failed(known_record_ids.clone(), reason)
+            .await
+            .map_err(internal_error)?,
+    }
+
+    let mut items = known_record_ids
+        .into_iter()
+        .map(|record_id| OAuthInventoryBatchActionItem {
+            record_id,
+            ok: true,
+            error: None,
+        })
+        .collect::<Vec<_>>();
+    items.extend(
+        missing_record_ids
+            .into_iter()
+            .map(|record_id| OAuthInventoryBatchActionItem {
+                record_id,
+                ok: false,
+                error: Some(UpstreamAccountBatchActionError {
+                    code: "not_found".to_string(),
+                    message: "resource not found".to_string(),
+                }),
+            }),
+    );
+
+    let success_count = items.iter().filter(|item| item.ok).count();
+    let failed_count = items.len().saturating_sub(success_count);
+    Ok(Json(OAuthInventoryBatchActionResponse {
+        action,
+        total: items.len(),
+        success_count,
+        failed_count,
+        items,
+    }))
+}
+
 async fn get_oauth_runtime_pool_summary(
     State(state): State<AppState>,
     headers: HeaderMap,

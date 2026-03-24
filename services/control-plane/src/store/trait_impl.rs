@@ -176,6 +176,32 @@ impl ControlPlaneStore for InMemoryStore {
         Ok(self.oauth_inventory_records_inner())
     }
 
+    async fn mark_oauth_inventory_record_failed(
+        &self,
+        record_id: Uuid,
+        reason: Option<String>,
+    ) -> Result<()> {
+        self.mark_oauth_inventory_record_failed_inner(record_id, reason)
+    }
+
+    async fn mark_oauth_inventory_records_failed(
+        &self,
+        record_ids: Vec<Uuid>,
+        reason: Option<String>,
+    ) -> Result<()> {
+        self.mark_oauth_inventory_records_failed_inner(&record_ids, reason);
+        Ok(())
+    }
+
+    async fn delete_oauth_inventory_record(&self, record_id: Uuid) -> Result<()> {
+        self.delete_oauth_inventory_record_inner(record_id)
+    }
+
+    async fn delete_oauth_inventory_records(&self, record_ids: Vec<Uuid>) -> Result<()> {
+        self.delete_oauth_inventory_records_inner(&record_ids);
+        Ok(())
+    }
+
     async fn upsert_routing_policy(
         &self,
         req: UpsertRoutingPolicyRequest,

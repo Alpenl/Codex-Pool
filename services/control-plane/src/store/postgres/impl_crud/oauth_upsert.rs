@@ -606,6 +606,67 @@ impl PostgresStore {
         Ok(())
     }
 
+    async fn mark_oauth_inventory_record_failed_inner(
+        &self,
+        record_id: Uuid,
+        reason: Option<String>,
+    ) -> Result<()> {
+        let existing = self.fetch_oauth_vault_record_inner(record_id).await?;
+        let Some(existing) = existing else {
+            return Err(anyhow!("oauth inventory record not found"));
+        };
+        let checked_at = Utc::now();
+        let normalized_reason = reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .or(existing.terminal_reason)
+            .or(existing.admission_error_code);
+
+        sqlx::query(
+            r#"
+            UPDATE oauth_refresh_token_vault
+            SET
+                status = $2,
+                admission_checked_at = $3,
+                admission_retry_after = NULL,
+                next_retry_at = NULL,
+                retryable = FALSE,
+                terminal_reason = $4,
+                updated_at = $3
+            WHERE id = $1
+            "#,
+        )
+        .bind(record_id)
+        .bind(oauth_vault_status_to_db(OAuthVaultRecordStatus::Failed))
+        .bind(checked_at)
+        .bind(normalized_reason)
+        .execute(&self.pool)
+        .await
+        .context("failed to mark oauth inventory record failed")?;
+        Ok(())
+    }
+
+    async fn delete_oauth_inventory_record_inner(&self, record_id: Uuid) -> Result<()> {
+        let deleted = sqlx::query(
+            r#"
+            DELETE FROM oauth_refresh_token_vault
+            WHERE id = $1
+            "#,
+        )
+        .bind(record_id)
+        .execute(&self.pool)
+        .await
+        .context("failed to delete oauth inventory record")?
+        .rows_affected();
+
+        if deleted == 0 {
+            return Err(anyhow!("oauth inventory record not found"));
+        }
+        Ok(())
+    }
+
     async fn probe_oauth_vault_admission_inner(&self, record_id: Uuid) -> Result<()> {
         let Some(record) = self.fetch_oauth_vault_record_inner(record_id).await? else {
             return Ok(());
@@ -815,7 +876,10 @@ impl PostgresStore {
                         current_transient_retry_count,
                     )
                 };
-                let status = if retry_after.is_some()
+                let fatal_auth = is_fatal_refresh_error_code(Some(error_code.as_str()));
+                let status = if fatal_auth {
+                    OAuthVaultRecordStatus::Failed
+                } else if retry_after.is_some()
                     && (is_quota_error_signal(&error_code, &error_message)
                         || is_rate_limited_signal(&error_code, &error_message))
                 {
@@ -829,7 +893,7 @@ impl PostgresStore {
                     OAuthVaultRecordStatus::Ready => false,
                     OAuthVaultRecordStatus::NeedsRefresh => true,
                     OAuthVaultRecordStatus::NoQuota => retry_after.is_some(),
-                    OAuthVaultRecordStatus::Failed => retry_after.is_some(),
+                    OAuthVaultRecordStatus::Failed => retry_after.is_some() && !fatal_auth,
                     OAuthVaultRecordStatus::Queued => false,
                 };
                 let terminal_reason = if retryable {

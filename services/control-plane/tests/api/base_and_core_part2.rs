@@ -235,6 +235,111 @@ async fn oauth_inventory_routes_expose_vault_admission_state() {
 }
 
 #[tokio::test]
+async fn oauth_inventory_batch_action_marks_records_failed() {
+    let cipher_key = base64::engine::general_purpose::STANDARD.encode([7_u8; 32]);
+    let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();
+    let store = InMemoryStore::new_with_oauth(Arc::new(StaticOAuthTokenClient), Some(cipher));
+    store
+        .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+            label: "inventory-mark-failed".to_string(),
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            refresh_token: "rt-inventory-mark-failed".to_string(),
+            fallback_access_token: None,
+            fallback_token_expires_at: None,
+            chatgpt_account_id: Some("acct_inventory_mark_failed".to_string()),
+            mode: None,
+            enabled: None,
+            priority: None,
+            chatgpt_plan_type: Some("free".to_string()),
+            source_type: Some("codex".to_string()),
+        })
+        .await
+        .unwrap();
+
+    let app = build_app_with_store(Arc::new(store));
+    let admin_token = login_admin_token(&app).await;
+
+    let before_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/upstream-accounts/oauth/inventory/records")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(before_response.status(), StatusCode::OK);
+    let before_body = to_bytes(before_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let before_records: Vec<Value> = serde_json::from_slice(&before_body).unwrap();
+    let target_record = before_records
+        .iter()
+        .find(|item| item["label"] == "inventory-mark-failed")
+        .cloned()
+        .expect("inventory target record should exist");
+    let target_record_id = target_record["id"].as_str().unwrap();
+    assert_eq!(target_record["vault_status"], "needs_refresh");
+
+    let action_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/upstream-accounts/oauth/inventory/batch-actions")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "action": "mark_failed",
+                        "record_ids": [target_record_id],
+                        "reason": "operator_retired"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(action_response.status(), StatusCode::OK);
+    let action_body = to_bytes(action_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let action_json: Value = serde_json::from_slice(&action_body).unwrap();
+    assert_eq!(action_json["total"], 1);
+    assert_eq!(action_json["success_count"], 1);
+    assert_eq!(action_json["failed_count"], 0);
+
+    let after_response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/upstream-accounts/oauth/inventory/records")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(after_response.status(), StatusCode::OK);
+    let after_body = to_bytes(after_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let after_records: Vec<Value> = serde_json::from_slice(&after_body).unwrap();
+    let updated_record = after_records
+        .iter()
+        .find(|item| item["id"] == target_record_id)
+        .cloned()
+        .expect("updated inventory target record should exist");
+    assert_eq!(updated_record["vault_status"], "failed");
+    assert_eq!(updated_record["retryable"], false);
+    assert_eq!(updated_record["terminal_reason"], "operator_retired");
+}
+
+#[tokio::test]
 async fn oauth_runtime_and_health_summary_routes_reflect_pool_state() {
     let store = InMemoryStore::default();
     let app = build_app_with_store(Arc::new(store));
