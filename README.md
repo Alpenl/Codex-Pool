@@ -81,6 +81,7 @@ flowchart LR
 - `x-request-id` 用于请求链路追踪与日志关联，不作为计费幂等键。
 - data-plane 会为每个可计费 logical request 生成内部 billing key；control-plane 只对该内部键做授权/捕获/释放幂等。
 - `previous_response_id`、`session_id`、`x-codex-turn-state` 只参与 continuation / sticky routing，不直接承担账务幂等语义。
+- `Responses API` 在 Codex profile 下的兼容范围与已知限制，见 [docs/responses-api-compatibility-matrix.md](docs/responses-api-compatibility-matrix.md)。
 
 ---
 
