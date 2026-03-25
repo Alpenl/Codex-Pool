@@ -616,6 +616,7 @@ impl PostgresStore {
             return Err(anyhow!("oauth inventory record not found"));
         };
         let checked_at = Utc::now();
+        let delete_due_at = checked_at + Duration::seconds(pending_purge_delay_sec_from_env());
         let normalized_reason = reason
             .as_deref()
             .map(str::trim)
@@ -631,9 +632,9 @@ impl PostgresStore {
                 status = $2,
                 admission_checked_at = $3,
                 admission_retry_after = NULL,
-                next_retry_at = NULL,
+                next_retry_at = $4,
                 retryable = FALSE,
-                terminal_reason = $4,
+                terminal_reason = $5,
                 updated_at = $3
             WHERE id = $1
             "#,
@@ -641,6 +642,7 @@ impl PostgresStore {
         .bind(record_id)
         .bind(oauth_vault_status_to_db(OAuthVaultRecordStatus::Failed))
         .bind(checked_at)
+        .bind(delete_due_at)
         .bind(normalized_reason)
         .execute(&self.pool)
         .await
@@ -665,6 +667,72 @@ impl PostgresStore {
             return Err(anyhow!("oauth inventory record not found"));
         }
         Ok(())
+    }
+
+    async fn restore_oauth_inventory_record_inner(&self, record_id: Uuid) -> Result<()> {
+        let now = Utc::now();
+        let updated = sqlx::query(
+            r#"
+            UPDATE oauth_refresh_token_vault
+            SET
+                status = $2,
+                failure_count = 0,
+                backoff_until = NULL,
+                next_attempt_at = $3,
+                last_error_code = NULL,
+                last_error_message = NULL,
+                admission_source = NULL,
+                admission_checked_at = NULL,
+                admission_retry_after = NULL,
+                admission_error_code = NULL,
+                admission_error_message = NULL,
+                admission_rate_limits_json = NULL,
+                admission_rate_limits_expires_at = NULL,
+                failure_stage = NULL,
+                attempt_count = 0,
+                transient_retry_count = 0,
+                next_retry_at = $3,
+                retryable = TRUE,
+                terminal_reason = NULL,
+                updated_at = $3
+            WHERE id = $1
+            "#,
+        )
+        .bind(record_id)
+        .bind(oauth_vault_status_to_db(OAuthVaultRecordStatus::Queued))
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .context("failed to restore oauth inventory record")?
+        .rows_affected();
+
+        if updated == 0 {
+            return Err(anyhow!("oauth inventory record not found"));
+        }
+        Ok(())
+    }
+
+    async fn reprobe_oauth_inventory_record_inner(&self, record_id: Uuid) -> Result<()> {
+        self.restore_oauth_inventory_record_inner(record_id).await?;
+        self.probe_oauth_vault_admission_inner(record_id).await
+    }
+
+    async fn purge_due_oauth_inventory_records_inner(&self) -> Result<u64> {
+        let deleted = sqlx::query(
+            r#"
+            DELETE FROM oauth_refresh_token_vault
+            WHERE status = $1
+              AND retryable = FALSE
+              AND COALESCE(next_retry_at, updated_at + make_interval(secs => $2)) <= NOW()
+            "#,
+        )
+        .bind(oauth_vault_status_to_db(OAuthVaultRecordStatus::Failed))
+        .bind(pending_purge_delay_sec_from_env())
+        .execute(&self.pool)
+        .await
+        .context("failed to purge due oauth inventory records")?
+        .rows_affected();
+        Ok(deleted)
     }
 
     async fn probe_oauth_vault_admission_inner(&self, record_id: Uuid) -> Result<()> {

@@ -462,6 +462,571 @@ async fn oauth_runtime_and_health_summary_routes_reflect_pool_state() {
 }
 
 #[tokio::test]
+async fn account_pool_routes_unify_runtime_and_inventory_records() {
+    let cipher_key = base64::engine::general_purpose::STANDARD.encode([41_u8; 32]);
+    let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();
+    let store = InMemoryStore::new_with_oauth(
+        Arc::new(InventoryProbeOAuthTokenClient {
+            rate_limits: vec![OAuthRateLimitSnapshot {
+                limit_id: Some("five_hours".to_string()),
+                limit_name: Some("5 hours".to_string()),
+                primary: Some(OAuthRateLimitWindow {
+                    used_percent: 28.0,
+                    window_minutes: Some(300),
+                    resets_at: Some(chrono::Utc::now() + chrono::Duration::minutes(25)),
+                }),
+                secondary: None,
+            }],
+        }),
+        Some(cipher),
+    );
+    store
+        .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+            label: "pool-inventory-ready".to_string(),
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            refresh_token: "rt-pool-inventory-ready".to_string(),
+            fallback_access_token: Some("ak-pool-inventory-ready".to_string()),
+            fallback_token_expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(2)),
+            chatgpt_account_id: Some("acct_pool_inventory_ready".to_string()),
+            mode: None,
+            enabled: None,
+            priority: None,
+            chatgpt_plan_type: Some("pro".to_string()),
+            source_type: Some("codex".to_string()),
+        })
+        .await
+        .unwrap();
+    store
+        .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+            label: "pool-inventory-needs-refresh".to_string(),
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            refresh_token: "rt-pool-inventory-needs-refresh".to_string(),
+            fallback_access_token: None,
+            fallback_token_expires_at: None,
+            chatgpt_account_id: Some("acct_pool_inventory_needs_refresh".to_string()),
+            mode: None,
+            enabled: None,
+            priority: None,
+            chatgpt_plan_type: Some("free".to_string()),
+            source_type: Some("codex".to_string()),
+        })
+        .await
+        .unwrap();
+
+    let app = build_app_with_store(Arc::new(store));
+    let admin_token = login_admin_token(&app).await;
+
+    let routable_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/upstream-accounts")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::from(
+                    json!({
+                        "label": "pool-runtime-routable",
+                        "mode": "open_ai_api_key",
+                        "base_url": "https://api.openai.com/v1",
+                        "bearer_token": "token-pool-runtime-routable",
+                        "enabled": true,
+                        "priority": 100
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(routable_response.status(), StatusCode::OK);
+
+    let cooling_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/upstream-accounts")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::from(
+                    json!({
+                        "label": "pool-runtime-cooling",
+                        "mode": "chat_gpt_session",
+                        "base_url": "https://chatgpt.com/backend-api/codex",
+                        "bearer_token": "token-pool-runtime-cooling",
+                        "enabled": true,
+                        "priority": 100
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(cooling_response.status(), StatusCode::OK);
+
+    let runtime_accounts_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/upstream-accounts")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let runtime_accounts_body = to_bytes(runtime_accounts_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let runtime_accounts_json: Vec<Value> = serde_json::from_slice(&runtime_accounts_body).unwrap();
+    let cooling_account_id = runtime_accounts_json
+        .iter()
+        .find(|item| item["label"] == "pool-runtime-cooling")
+        .and_then(|item| item["id"].as_str())
+        .unwrap()
+        .to_string();
+
+    let live_result = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/internal/v1/upstream-accounts/{cooling_account_id}/health/live-result"
+                ))
+                .header("content-type", "application/json")
+                .header(
+                    "authorization",
+                    format!("Bearer {}", internal_service_token()),
+                )
+                .body(Body::from(
+                    json!({
+                        "status": "failed",
+                        "source": "passive",
+                        "status_code": 429,
+                        "error_code": "rate_limited",
+                        "error_message": "too many requests"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(live_result.status(), StatusCode::OK);
+
+    let inventory_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/upstream-accounts/oauth/inventory/records")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let inventory_body = to_bytes(inventory_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let inventory_records: Vec<Value> = serde_json::from_slice(&inventory_body).unwrap();
+    let inventory_failed_id = inventory_records
+        .iter()
+        .find(|item| item["label"] == "pool-inventory-needs-refresh")
+        .and_then(|item| item["id"].as_str())
+        .unwrap()
+        .to_string();
+
+    let mark_failed_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/upstream-accounts/oauth/inventory/batch-actions")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "action": "mark_failed",
+                        "record_ids": [inventory_failed_id],
+                        "reason": "operator_retired_invalid_refresh_token"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(mark_failed_response.status(), StatusCode::OK);
+
+    let summary_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/account-pool/summary")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(summary_response.status(), StatusCode::OK);
+    let summary_body = to_bytes(summary_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let summary_json: Value = serde_json::from_slice(&summary_body).unwrap();
+    assert_eq!(summary_json["total"], 4);
+    assert_eq!(summary_json["routable"], 1);
+    assert_eq!(summary_json["cooling"], 1);
+    assert_eq!(summary_json["inventory"], 1);
+    assert_eq!(summary_json["pending_delete"], 1);
+    assert_eq!(summary_json["quota"], 1);
+    assert_eq!(summary_json["admin"], 1);
+
+    let records_response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/account-pool/accounts")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(records_response.status(), StatusCode::OK);
+    let records_body = to_bytes(records_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let account_pool_records: Vec<Value> = serde_json::from_slice(&records_body).unwrap();
+
+    let routable_record = account_pool_records
+        .iter()
+        .find(|item| item["label"] == "pool-runtime-routable")
+        .unwrap();
+    assert_eq!(routable_record["record_scope"], "runtime");
+    assert_eq!(routable_record["operator_state"], "routable");
+    assert_eq!(routable_record["reason_class"], "healthy");
+    assert_eq!(routable_record["route_eligible"], true);
+    assert_eq!(routable_record["health_freshness"], "unknown");
+    assert!(routable_record["last_probe_at"].is_null());
+    assert!(routable_record["last_probe_outcome"].is_null());
+
+    let cooling_record = account_pool_records
+        .iter()
+        .find(|item| item["label"] == "pool-runtime-cooling")
+        .unwrap();
+    assert_eq!(cooling_record["record_scope"], "runtime");
+    assert_eq!(cooling_record["operator_state"], "cooling");
+    assert_eq!(cooling_record["reason_class"], "quota");
+    assert_eq!(cooling_record["reason_code"], "rate_limited");
+    assert_eq!(cooling_record["health_freshness"], "stale");
+    assert!(cooling_record["last_probe_at"].is_null());
+    assert!(cooling_record["last_probe_outcome"].is_null());
+
+    let inventory_ready_record = account_pool_records
+        .iter()
+        .find(|item| item["label"] == "pool-inventory-ready")
+        .unwrap();
+    assert_eq!(inventory_ready_record["record_scope"], "inventory");
+    assert_eq!(inventory_ready_record["operator_state"], "inventory");
+    assert_eq!(inventory_ready_record["reason_class"], "healthy");
+    assert_eq!(inventory_ready_record["health_freshness"], "unknown");
+
+    let pending_delete_record = account_pool_records
+        .iter()
+        .find(|item| item["label"] == "pool-inventory-needs-refresh")
+        .unwrap();
+    assert_eq!(pending_delete_record["record_scope"], "inventory");
+    assert_eq!(pending_delete_record["operator_state"], "pending_delete");
+    assert_eq!(pending_delete_record["reason_class"], "admin");
+    assert_eq!(
+        pending_delete_record["reason_code"],
+        "operator_retired_invalid_refresh_token"
+    );
+}
+
+#[tokio::test]
+async fn account_pool_actions_support_restore_reprobe_and_delete() {
+    let cipher_key = base64::engine::general_purpose::STANDARD.encode([42_u8; 32]);
+    let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();
+    let store = InMemoryStore::new_with_oauth(
+        Arc::new(InventoryProbeOAuthTokenClient {
+            rate_limits: vec![OAuthRateLimitSnapshot {
+                limit_id: Some("five_hours".to_string()),
+                limit_name: Some("5 hours".to_string()),
+                primary: Some(OAuthRateLimitWindow {
+                    used_percent: 33.0,
+                    window_minutes: Some(300),
+                    resets_at: Some(chrono::Utc::now() + chrono::Duration::minutes(45)),
+                }),
+                secondary: None,
+            }],
+        }),
+        Some(cipher),
+    );
+    store
+        .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+            label: "pool-action-target".to_string(),
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            refresh_token: "rt-pool-action-target".to_string(),
+            fallback_access_token: Some("ak-pool-action-target".to_string()),
+            fallback_token_expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(2)),
+            chatgpt_account_id: Some("acct_pool_action_target".to_string()),
+            mode: None,
+            enabled: None,
+            priority: None,
+            chatgpt_plan_type: Some("pro".to_string()),
+            source_type: Some("codex".to_string()),
+        })
+        .await
+        .unwrap();
+
+    let app = build_app_with_store(Arc::new(store));
+    let admin_token = login_admin_token(&app).await;
+
+    let before_records_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/account-pool/accounts")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let before_records_body = to_bytes(before_records_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let before_records: Vec<Value> = serde_json::from_slice(&before_records_body).unwrap();
+    let target_id = before_records
+        .iter()
+        .find(|item| item["label"] == "pool-action-target")
+        .and_then(|item| item["id"].as_str())
+        .unwrap()
+        .to_string();
+
+    let mark_failed_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/upstream-accounts/oauth/inventory/batch-actions")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "action": "mark_failed",
+                        "record_ids": [target_id],
+                        "reason": "operator_retired_invalid_refresh_token"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(mark_failed_response.status(), StatusCode::OK);
+
+    let restore_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/account-pool/actions")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "action": "restore",
+                        "record_ids": [target_id]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(restore_response.status(), StatusCode::OK);
+
+    let restored_record_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/account-pool/accounts/{target_id}"))
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let restored_record_body = to_bytes(restored_record_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let restored_record: Value = serde_json::from_slice(&restored_record_body).unwrap();
+    assert_eq!(restored_record["operator_state"], "inventory");
+    assert!(restored_record["reason_code"].is_null());
+
+    let reprobe_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/account-pool/actions")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "action": "reprobe",
+                        "record_ids": [target_id]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(reprobe_response.status(), StatusCode::OK);
+
+    let reprobed_record_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/account-pool/accounts/{target_id}"))
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let reprobed_record_body = to_bytes(reprobed_record_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let reprobed_record: Value = serde_json::from_slice(&reprobed_record_body).unwrap();
+    assert_eq!(reprobed_record["operator_state"], "inventory");
+    assert_eq!(reprobed_record["reason_class"], "healthy");
+
+    let delete_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/account-pool/actions")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "action": "delete",
+                        "record_ids": [target_id]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete_response.status(), StatusCode::OK);
+
+    let after_delete_response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/account-pool/accounts")
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let after_delete_body = to_bytes(after_delete_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let after_delete_records: Vec<Value> = serde_json::from_slice(&after_delete_body).unwrap();
+    assert!(after_delete_records
+        .iter()
+        .all(|item| item["label"] != "pool-action-target"));
+}
+
+#[tokio::test]
+async fn account_pool_routes_expose_runtime_health_freshness() {
+    let cipher_key = base64::engine::general_purpose::STANDARD.encode([43_u8; 32]);
+    let cipher = CredentialCipher::from_base64_key(&cipher_key).unwrap();
+    let store = InMemoryStore::new_with_oauth(
+        Arc::new(InventoryProbeOAuthTokenClient {
+            rate_limits: vec![OAuthRateLimitSnapshot {
+                limit_id: Some("five_hours".to_string()),
+                limit_name: Some("5 hours".to_string()),
+                primary: Some(OAuthRateLimitWindow {
+                    used_percent: 18.0,
+                    window_minutes: Some(300),
+                    resets_at: Some(chrono::Utc::now() + chrono::Duration::minutes(35)),
+                }),
+                secondary: None,
+            }],
+        }),
+        Some(cipher),
+    );
+    store
+        .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+            label: "pool-runtime-health-fresh".to_string(),
+            base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+            refresh_token: "rt-pool-runtime-health-fresh".to_string(),
+            fallback_access_token: Some("ak-pool-runtime-health-fresh".to_string()),
+            fallback_token_expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(2)),
+            chatgpt_account_id: Some("acct_pool_runtime_health_fresh".to_string()),
+            mode: Some(codex_pool_core::model::UpstreamMode::CodexOauth),
+            enabled: Some(true),
+            priority: Some(100),
+            chatgpt_plan_type: Some("pro".to_string()),
+            source_type: Some("codex".to_string()),
+        })
+        .await
+        .unwrap();
+    let activated = store.activate_oauth_refresh_token_vault().await.unwrap();
+    assert_eq!(activated, 1);
+    let account_id = store
+        .list_upstream_accounts()
+        .await
+        .unwrap()
+        .into_iter()
+        .next()
+        .expect("runtime account")
+        .id;
+
+    let app = build_app_with_store(Arc::new(store));
+    let admin_token = login_admin_token(&app).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/account-pool/accounts/{account_id}"))
+                .header("authorization", format!("Bearer {admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let payload: Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(payload["operator_state"], "routable");
+    assert_eq!(payload["health_freshness"], "fresh");
+    assert_eq!(payload["last_probe_outcome"], "ok");
+    assert!(payload["last_probe_at"].is_string());
+}
+
+#[tokio::test]
 async fn oauth_status_route_returns_not_found_for_unknown_account() {
     let app = build_app();
     let admin_token = login_admin_token(&app).await;

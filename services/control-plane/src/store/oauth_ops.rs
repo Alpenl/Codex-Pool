@@ -98,6 +98,146 @@ fn parse_jwt_exp_from_access_token(access_token: &str) -> Option<DateTime<Utc>> 
 }
 
 impl InMemoryStore {
+    fn record_account_probe_result_inner(
+        &self,
+        account_id: Uuid,
+        checked_at: DateTime<Utc>,
+        outcome: AccountProbeOutcome,
+    ) {
+        let mut states = self.account_health_states.write().unwrap();
+        let state = states.entry(account_id).or_default();
+        state.last_probe_at = Some(checked_at);
+        state.last_probe_outcome = Some(outcome);
+    }
+
+    fn classify_runtime_probe_failure(
+        &self,
+        checked_at: DateTime<Utc>,
+        error_code: &str,
+        error_message: &str,
+    ) -> (AccountProbeOutcome, String, Option<DateTime<Utc>>) {
+        let normalized_code = normalize_health_error_code(error_code);
+        let normalized_message = error_message.to_ascii_lowercase();
+        if normalized_code == "account_deactivated" || normalized_message.contains("account_deactivated")
+        {
+            return (
+                AccountProbeOutcome::Fatal,
+                "account_deactivated".to_string(),
+                None,
+            );
+        }
+        if normalized_code == "token_invalidated" || normalized_message.contains("token_invalidated")
+        {
+            return (
+                AccountProbeOutcome::Fatal,
+                "token_invalidated".to_string(),
+                None,
+            );
+        }
+        if is_quota_error_signal(error_code, error_message) {
+            let reason = if normalized_code.is_empty() {
+                "quota_exhausted".to_string()
+            } else {
+                normalized_code
+            };
+            let retry_after = Some(
+                checked_at + Duration::seconds(rate_limit_failure_backoff_seconds(&reason, error_message)),
+            );
+            return (AccountProbeOutcome::Quota, reason, retry_after);
+        }
+        if is_rate_limited_signal(error_code, error_message) {
+            let reason = if normalized_code.is_empty() {
+                "rate_limited".to_string()
+            } else {
+                normalized_code
+            };
+            let retry_after = Some(
+                checked_at + Duration::seconds(rate_limit_failure_backoff_seconds(&reason, error_message)),
+            );
+            return (AccountProbeOutcome::Quota, reason, retry_after);
+        }
+        if is_fatal_refresh_error_code(Some(error_code)) || is_auth_error_signal(error_code, error_message) {
+            return (
+                AccountProbeOutcome::Fatal,
+                if normalized_code.is_empty() {
+                    "invalid_refresh_token".to_string()
+                } else {
+                    normalized_code
+                },
+                None,
+            );
+        }
+        if is_transient_upstream_error_signal(error_code, error_message) {
+            return (
+                AccountProbeOutcome::Transient,
+                if normalized_code.is_empty() {
+                    "upstream_unavailable".to_string()
+                } else {
+                    normalized_code
+                },
+                Some(checked_at + Duration::minutes(5)),
+            );
+        }
+
+        (
+            AccountProbeOutcome::Transient,
+            if normalized_code.is_empty() {
+                "upstream_unavailable".to_string()
+            } else {
+                normalized_code
+            },
+            Some(checked_at + Duration::minutes(5)),
+        )
+    }
+
+    fn oauth_active_patrol_candidates_inner(&self, now: DateTime<Utc>, limit: usize) -> Vec<Uuid> {
+        let accounts = self.accounts.read().unwrap().clone();
+        let states = self.account_health_states.read().unwrap().clone();
+        let providers = self.account_auth_providers.read().unwrap().clone();
+        let mut items = accounts
+            .into_values()
+            .filter(|account| account.enabled)
+            .filter(|account| {
+                providers.get(&account.id) == Some(&UpstreamAuthProvider::OAuthRefreshToken)
+            })
+            .filter_map(|account| {
+                let state = states.get(&account.id).cloned().unwrap_or_default();
+                if state.pool_state != AccountPoolState::Active {
+                    return None;
+                }
+                let freshness = account_health_freshness_from_signals(
+                    now,
+                    state.seen_ok_at,
+                    state.last_probe_at,
+                    state.last_probe_outcome,
+                    state.last_live_result_at,
+                    state.last_live_result_status.as_ref(),
+                );
+                if matches!(freshness, AccountHealthFreshness::Fresh) {
+                    return None;
+                }
+                Some((
+                    account.id,
+                    matches!(freshness, AccountHealthFreshness::Unknown),
+                    state.last_probe_at,
+                    state.seen_ok_at,
+                    account.created_at,
+                ))
+            })
+            .collect::<Vec<_>>();
+        items.sort_by(|left, right| {
+            right
+                .1
+                .cmp(&left.1)
+                .then_with(|| left.2.cmp(&right.2))
+                .then_with(|| left.3.cmp(&right.3))
+                .then_with(|| left.4.cmp(&right.4))
+                .then_with(|| left.0.cmp(&right.0))
+        });
+        items.truncate(limit);
+        items.into_iter().map(|item| item.0).collect()
+    }
+
     fn build_rate_limit_refresh_target_inner(
         &self,
         account: &UpstreamAccount,
@@ -234,6 +374,7 @@ impl InMemoryStore {
         reason: Option<String>,
     ) -> Result<()> {
         let now = Utc::now();
+        let delete_due_at = now + Duration::seconds(pending_purge_delay_sec_from_env());
         let reason = reason
             .as_deref()
             .map(str::trim)
@@ -246,7 +387,7 @@ impl InMemoryStore {
         item.status = OAuthVaultRecordStatus::Failed;
         item.admission_checked_at = Some(now);
         item.admission_retry_after = None;
-        item.next_retry_at = None;
+        item.next_retry_at = Some(delete_due_at);
         item.retryable = false;
         if item.terminal_reason.is_none() || reason.is_some() {
             item.terminal_reason = reason
@@ -265,6 +406,7 @@ impl InMemoryStore {
         reason: Option<String>,
     ) {
         let now = Utc::now();
+        let delete_due_at = now + Duration::seconds(pending_purge_delay_sec_from_env());
         let reason = reason
             .as_deref()
             .map(str::trim)
@@ -279,7 +421,7 @@ impl InMemoryStore {
             item.status = OAuthVaultRecordStatus::Failed;
             item.admission_checked_at = Some(now);
             item.admission_retry_after = None;
-            item.next_retry_at = None;
+            item.next_retry_at = Some(delete_due_at);
             item.retryable = false;
             if item.terminal_reason.is_none() || reason.is_some() {
                 item.terminal_reason = reason
@@ -321,6 +463,101 @@ impl InMemoryStore {
         if changed {
             self.revision.fetch_add(1, Ordering::Relaxed);
         }
+    }
+
+    fn restore_oauth_inventory_record_inner(&self, record_id: Uuid) -> Result<()> {
+        let now = Utc::now();
+        let mut vault = self.oauth_refresh_token_vault.write().unwrap();
+        let Some(item) = vault.get_mut(&record_id) else {
+            return Err(anyhow!("oauth inventory record not found"));
+        };
+        item.status = OAuthVaultRecordStatus::Queued;
+        item.failure_count = 0;
+        item.backoff_until = None;
+        item.next_attempt_at = Some(now);
+        item.last_error_code = None;
+        item.last_error_message = None;
+        item.admission_source = None;
+        item.admission_checked_at = None;
+        item.admission_retry_after = None;
+        item.admission_error_code = None;
+        item.admission_error_message = None;
+        item.admission_rate_limits = Vec::new();
+        item.admission_rate_limits_expires_at = None;
+        item.failure_stage = None;
+        item.attempt_count = 0;
+        item.transient_retry_count = 0;
+        item.next_retry_at = Some(now);
+        item.retryable = true;
+        item.terminal_reason = None;
+        item.updated_at = now;
+        drop(vault);
+        self.revision.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn restore_oauth_inventory_records_inner(&self, record_ids: &[Uuid]) {
+        let now = Utc::now();
+        let mut vault = self.oauth_refresh_token_vault.write().unwrap();
+        let mut changed = false;
+        for record_id in record_ids {
+            let Some(item) = vault.get_mut(record_id) else {
+                continue;
+            };
+            item.status = OAuthVaultRecordStatus::Queued;
+            item.failure_count = 0;
+            item.backoff_until = None;
+            item.next_attempt_at = Some(now);
+            item.last_error_code = None;
+            item.last_error_message = None;
+            item.admission_source = None;
+            item.admission_checked_at = None;
+            item.admission_retry_after = None;
+            item.admission_error_code = None;
+            item.admission_error_message = None;
+            item.admission_rate_limits = Vec::new();
+            item.admission_rate_limits_expires_at = None;
+            item.failure_stage = None;
+            item.attempt_count = 0;
+            item.transient_retry_count = 0;
+            item.next_retry_at = Some(now);
+            item.retryable = true;
+            item.terminal_reason = None;
+            item.updated_at = now;
+            changed = true;
+        }
+        drop(vault);
+        if changed {
+            self.revision.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    async fn reprobe_oauth_inventory_record_inner(&self, record_id: Uuid) -> Result<()> {
+        self.restore_oauth_inventory_record_inner(record_id)?;
+        self.probe_oauth_vault_admission_inner(record_id).await
+    }
+
+    fn purge_due_oauth_inventory_records_inner(&self) -> u64 {
+        let now = Utc::now();
+        let delete_delay = Duration::seconds(pending_purge_delay_sec_from_env());
+        let due_record_ids = self
+            .oauth_refresh_token_vault
+            .read()
+            .unwrap()
+            .values()
+            .filter(|item| {
+                matches!(item.status, OAuthVaultRecordStatus::Failed)
+                    && !item.retryable
+                    && item
+                        .next_retry_at
+                        .unwrap_or(item.updated_at + delete_delay)
+                        <= now
+            })
+            .map(|item| item.id)
+            .collect::<Vec<_>>();
+        let deleted = due_record_ids.len() as u64;
+        self.delete_oauth_inventory_records_inner(&due_record_ids);
+        deleted
     }
 
     fn oauth_vault_record_id_for_request(
@@ -900,6 +1137,11 @@ impl InMemoryStore {
                 record.admission_checked_at.unwrap_or(now),
             );
         }
+        self.record_account_probe_result_inner(
+            account.id,
+            record.admission_checked_at.unwrap_or(now),
+            AccountProbeOutcome::Ok,
+        );
         self.set_account_pool_state_active_inner(account.id, now);
         self.revision.fetch_add(1, Ordering::Relaxed);
 
@@ -1546,6 +1788,136 @@ impl InMemoryStore {
         items.into_iter().map(|item| item.2).collect()
     }
 
+    pub(super) async fn patrol_active_oauth_accounts_inner(&self) -> Result<u64> {
+        self.purge_expired_one_time_accounts_inner();
+
+        let now = Utc::now();
+        let candidate_ids =
+            self.oauth_active_patrol_candidates_inner(now, active_patrol_batch_size_from_env());
+        if candidate_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let cipher = self.require_credential_cipher()?;
+        let mut patrolled = 0_u64;
+
+        for account_id in candidate_ids {
+            let Some(account) = self.accounts.read().unwrap().get(&account_id).cloned() else {
+                continue;
+            };
+            let Some(credential) = self
+                .oauth_credentials
+                .read()
+                .unwrap()
+                .get(&account_id)
+                .cloned()
+            else {
+                continue;
+            };
+            let checked_at = Utc::now();
+            let access_token = match cipher.decrypt(&credential.access_token_enc) {
+                Ok(access_token) => access_token,
+                Err(err) => {
+                    self.record_account_probe_result_inner(
+                        account_id,
+                        checked_at,
+                        AccountProbeOutcome::Fatal,
+                    );
+                    self.mark_upstream_account_pending_purge_inner(
+                        account_id,
+                        Some("credential_decrypt_failed".to_string()),
+                    )?;
+                    self.persist_rate_limit_cache_failure_inner(
+                        account_id,
+                        "credential_decrypt_failed",
+                        &truncate_error_message(err.to_string()),
+                    );
+                    patrolled = patrolled.saturating_add(1);
+                    continue;
+                }
+            };
+
+            match self
+                .oauth_client
+                .fetch_rate_limits(
+                    &access_token,
+                    Some(&account.base_url),
+                    account.chatgpt_account_id.as_deref(),
+                )
+                .await
+            {
+                Ok(rate_limits) => {
+                    let (blocked_until, block_reason) =
+                        derive_rate_limit_block(&rate_limits, checked_at);
+                    self.persist_rate_limit_cache_success_inner(
+                        account_id,
+                        rate_limits,
+                        checked_at,
+                    );
+
+                    if let Some(reason_code) = block_reason {
+                        self.record_account_probe_result_inner(
+                            account_id,
+                            checked_at,
+                            AccountProbeOutcome::Quota,
+                        );
+                        self.set_account_pool_state_quarantine_inner(
+                            account_id,
+                            checked_at,
+                            blocked_until,
+                            Some(reason_code),
+                        )?;
+                    } else {
+                        self.record_account_probe_result_inner(
+                            account_id,
+                            checked_at,
+                            AccountProbeOutcome::Ok,
+                        );
+                        self.set_account_pool_state_active_inner(account_id, checked_at);
+                    }
+                }
+                Err(err) => {
+                    let error_code = err.code().as_str().to_string();
+                    let error_message = truncate_error_message(err.to_string());
+                    self.persist_rate_limit_cache_failure_inner(
+                        account_id,
+                        &error_code,
+                        &error_message,
+                    );
+                    let (outcome, reason_code, retry_after) = self.classify_runtime_probe_failure(
+                        checked_at,
+                        &error_code,
+                        &error_message,
+                    );
+                    self.record_account_probe_result_inner(account_id, checked_at, outcome);
+                    match outcome {
+                        AccountProbeOutcome::Ok => {
+                            self.set_account_pool_state_active_inner(account_id, checked_at);
+                        }
+                        AccountProbeOutcome::Fatal => {
+                            self.mark_upstream_account_pending_purge_inner(
+                                account_id,
+                                Some(reason_code),
+                            )?;
+                        }
+                        AccountProbeOutcome::Quota | AccountProbeOutcome::Transient => {
+                            self.set_account_pool_state_quarantine_inner(
+                                account_id,
+                                checked_at,
+                                retry_after,
+                                Some(reason_code),
+                            )?;
+                        }
+                    }
+                }
+            }
+
+            patrolled = patrolled.saturating_add(1);
+        }
+
+        Ok(patrolled)
+    }
+
     pub(super) async fn activate_oauth_refresh_token_vault_inner(&self) -> Result<u64> {
         self.purge_expired_one_time_accounts_inner();
         let reprobe_limit = oauth_vault_activate_batch_size_from_env();
@@ -1597,9 +1969,26 @@ impl InMemoryStore {
         let launch_interval = std::time::Duration::from_secs_f64(1.0 / f64::from(max_rps));
 
         let mut activated = 0_u64;
-        for (index, candidate) in candidates.into_iter().enumerate() {
+        for (index, mut candidate) in candidates.into_iter().enumerate() {
             if index > 0 {
                 tokio::time::sleep(launch_interval).await;
+            }
+
+            if matches!(candidate.status, OAuthVaultRecordStatus::Ready) {
+                self.probe_oauth_vault_admission_inner(candidate.id).await?;
+                let Some(updated_candidate) = self
+                    .oauth_refresh_token_vault
+                    .read()
+                    .unwrap()
+                    .get(&candidate.id)
+                    .cloned()
+                else {
+                    continue;
+                };
+                if !matches!(updated_candidate.status, OAuthVaultRecordStatus::Ready) {
+                    continue;
+                }
+                candidate = updated_candidate;
             }
 
             let activation_result = match candidate.status {

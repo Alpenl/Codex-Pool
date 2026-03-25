@@ -1634,6 +1634,156 @@ async fn batch_operate_oauth_inventory_records(
     }))
 }
 
+fn account_pool_action_error_item(err: anyhow::Error) -> AccountPoolActionError {
+    let normalized = err.to_string().to_ascii_lowercase();
+    if normalized.contains("not found") {
+        return AccountPoolActionError {
+            code: "not_found".to_string(),
+            message: "resource not found".to_string(),
+        };
+    }
+    if normalized.contains("unsupported") {
+        return AccountPoolActionError {
+            code: "unsupported_action".to_string(),
+            message: "action is not supported for this account state".to_string(),
+        };
+    }
+    AccountPoolActionError {
+        code: "invalid_request".to_string(),
+        message: "request failed".to_string(),
+    }
+}
+
+async fn get_account_pool_summary(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<AccountPoolSummaryResponse>, (StatusCode, Json<ErrorEnvelope>)> {
+    let _principal = require_admin_principal(&state, &headers)?;
+    state
+        .store
+        .account_pool_summary()
+        .await
+        .map(Json)
+        .map_err(internal_error)
+}
+
+async fn list_account_pool_records(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<AccountPoolRecord>>, (StatusCode, Json<ErrorEnvelope>)> {
+    let _principal = require_admin_principal(&state, &headers)?;
+    state
+        .store
+        .account_pool_records()
+        .await
+        .map(Json)
+        .map_err(internal_error)
+}
+
+async fn get_account_pool_record(
+    Path(record_id): Path<Uuid>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<AccountPoolRecord>, (StatusCode, Json<ErrorEnvelope>)> {
+    let _principal = require_admin_principal(&state, &headers)?;
+    state
+        .store
+        .account_pool_record(record_id)
+        .await
+        .map(Json)
+        .map_err(internal_error)
+}
+
+async fn operate_account_pool_records(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<AccountPoolActionRequest>,
+) -> Result<Json<AccountPoolActionResponse>, (StatusCode, Json<ErrorEnvelope>)> {
+    let _principal = require_admin_principal(&state, &headers)?;
+    if req.record_ids.is_empty() {
+        return Err(invalid_request_error("record_ids must not be empty"));
+    }
+    if req.record_ids.len() > UPSTREAM_ACCOUNT_BATCH_ACTION_MAX_ITEMS {
+        return Err(invalid_request_error(
+            "record_ids exceeds maximum allowed batch size",
+        ));
+    }
+
+    let mut seen = std::collections::HashSet::with_capacity(req.record_ids.len());
+    let record_ids = req
+        .record_ids
+        .into_iter()
+        .filter(|record_id| seen.insert(*record_id))
+        .collect::<Vec<_>>();
+    let action = req.action;
+    let store = state.store.clone();
+    let record_map = store
+        .account_pool_records()
+        .await
+        .map_err(internal_error)?
+        .into_iter()
+        .map(|record| (record.id, record))
+        .collect::<std::collections::HashMap<_, _>>();
+
+    let mut items = Vec::with_capacity(record_ids.len());
+    for record_id in record_ids {
+        let Some(record) = record_map.get(&record_id).cloned() else {
+            items.push(AccountPoolActionItem {
+                record_id,
+                ok: false,
+                error: Some(AccountPoolActionError {
+                    code: "not_found".to_string(),
+                    message: "resource not found".to_string(),
+                }),
+            });
+            continue;
+        };
+
+        let outcome = match action {
+            AccountPoolActionKind::Reprobe => match record.record_scope {
+                AccountPoolRecordScope::Inventory => store.reprobe_oauth_inventory_record(record_id).await,
+                AccountPoolRecordScope::Runtime => match record.auth_provider {
+                    Some(UpstreamAuthProvider::OAuthRefreshToken) => {
+                        store.refresh_oauth_account(record_id).await.map(|_| ())
+                    }
+                    _ => Err(anyhow!("unsupported account pool action")),
+                },
+            },
+            AccountPoolActionKind::Restore => match record.record_scope {
+                AccountPoolRecordScope::Inventory => store.restore_oauth_inventory_record(record_id).await,
+                AccountPoolRecordScope::Runtime => Err(anyhow!("unsupported account pool action")),
+            },
+            AccountPoolActionKind::Delete => match record.record_scope {
+                AccountPoolRecordScope::Inventory => store.delete_oauth_inventory_record(record_id).await,
+                AccountPoolRecordScope::Runtime => store.delete_upstream_account(record_id).await,
+            },
+        };
+
+        match outcome {
+            Ok(()) => items.push(AccountPoolActionItem {
+                record_id,
+                ok: true,
+                error: None,
+            }),
+            Err(err) => items.push(AccountPoolActionItem {
+                record_id,
+                ok: false,
+                error: Some(account_pool_action_error_item(err)),
+            }),
+        }
+    }
+
+    let success_count = items.iter().filter(|item| item.ok).count();
+    let failed_count = items.len().saturating_sub(success_count);
+    Ok(Json(AccountPoolActionResponse {
+        action,
+        total: items.len(),
+        success_count,
+        failed_count,
+        items,
+    }))
+}
+
 async fn get_oauth_runtime_pool_summary(
     State(state): State<AppState>,
     headers: HeaderMap,

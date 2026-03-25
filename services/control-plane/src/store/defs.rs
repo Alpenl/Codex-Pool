@@ -22,15 +22,16 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::contracts::{
-    CreateApiKeyRequest, CreateApiKeyResponse, CreateOutboundProxyNodeRequest,
-    CreateTenantRequest, CreateUpstreamAccountRequest, ImportOAuthRefreshTokenRequest,
-    OAuthAccountPoolState, OAuthAccountStatusResponse, OAuthFamilyActionResponse,
-    OAuthHealthSignalsSummaryResponse, OAuthInventoryRecord, OAuthInventorySummaryResponse,
-    OAuthInventoryFailureStage, OAuthLiveResultSource, OAuthLiveResultStatus,
-    OAuthRuntimePoolSummaryResponse,
-    OAuthRateLimitRefreshErrorSummary, OAuthRateLimitRefreshJobStatus,
-    OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot, OAuthRefreshStatus,
-    OAuthVaultRecordStatus, RefreshCredentialState, SessionCredentialKind,
+    AccountHealthFreshness, AccountPoolOperatorState, AccountPoolReasonClass,
+    AccountPoolRecord, AccountPoolRecordScope, AccountPoolSummaryResponse,
+    AccountProbeOutcome, CreateApiKeyRequest, CreateApiKeyResponse,
+    CreateOutboundProxyNodeRequest, CreateTenantRequest, CreateUpstreamAccountRequest,
+    ImportOAuthRefreshTokenRequest, OAuthAccountPoolState, OAuthAccountStatusResponse,
+    OAuthFamilyActionResponse, OAuthHealthSignalsSummaryResponse, OAuthInventoryFailureStage,
+    OAuthInventoryRecord, OAuthInventorySummaryResponse, OAuthLiveResultSource,
+    OAuthLiveResultStatus, OAuthRuntimePoolSummaryResponse, OAuthRateLimitRefreshErrorSummary,
+    OAuthRateLimitRefreshJobStatus, OAuthRateLimitRefreshJobSummary, OAuthRateLimitSnapshot,
+    OAuthRefreshStatus, OAuthVaultRecordStatus, RefreshCredentialState, SessionCredentialKind,
     UpdateAiErrorLearningSettingsRequest, UpdateModelRoutingSettingsRequest,
     UpdateOutboundProxyNodeRequest, UpdateOutboundProxyPoolSettingsRequest,
     UpsertModelRoutingPolicyRequest, UpsertRetryPolicyRequest, UpsertRoutingPolicyRequest,
@@ -124,6 +125,11 @@ const RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC_ENV: &str =
 const DEFAULT_RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC: i64 = 60;
 const MIN_RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC: i64 = 5;
 const MAX_RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC: i64 = 3_600;
+const ACTIVE_PATROL_BATCH_SIZE_ENV: &str = "CONTROL_PLANE_ACTIVE_PATROL_BATCH_SIZE";
+const DEFAULT_ACTIVE_PATROL_BATCH_SIZE: usize = 5;
+const MIN_ACTIVE_PATROL_BATCH_SIZE: usize = 1;
+const MAX_ACTIVE_PATROL_BATCH_SIZE: usize = 100;
+const ACCOUNT_HEALTH_FRESHNESS_TTL_SEC: i64 = 15 * 60;
 const PRIMARY_RATE_LIMIT_WINDOW_MINUTES: i64 = 300;
 const SECONDARY_RATE_LIMIT_WINDOW_MINUTES: i64 = 10_080;
 const DEFAULT_CODEX_ACCOUNT_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
@@ -301,6 +307,14 @@ fn rate_limit_refresh_error_backoff_sec_from_env() -> i64 {
             MIN_RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC,
             MAX_RATE_LIMIT_REFRESH_ERROR_BACKOFF_SEC,
         )
+}
+
+fn active_patrol_batch_size_from_env() -> usize {
+    std::env::var(ACTIVE_PATROL_BATCH_SIZE_ENV)
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_ACTIVE_PATROL_BATCH_SIZE)
+        .clamp(MIN_ACTIVE_PATROL_BATCH_SIZE, MAX_ACTIVE_PATROL_BATCH_SIZE)
 }
 
 fn normalize_health_error_code(raw: &str) -> String {
@@ -1030,6 +1044,105 @@ pub trait ControlPlaneStore: Send + Sync {
         }
         Ok(summary)
     }
+    async fn restore_oauth_inventory_record(&self, _record_id: Uuid) -> Result<()> {
+        Err(anyhow!("oauth inventory restore is not implemented"))
+    }
+    async fn restore_oauth_inventory_records(&self, record_ids: Vec<Uuid>) -> Result<()> {
+        for record_id in record_ids {
+            self.restore_oauth_inventory_record(record_id).await?;
+        }
+        Ok(())
+    }
+    async fn reprobe_oauth_inventory_record(&self, _record_id: Uuid) -> Result<()> {
+        Err(anyhow!("oauth inventory reprobe is not implemented"))
+    }
+    async fn reprobe_oauth_inventory_records(&self, record_ids: Vec<Uuid>) -> Result<()> {
+        for record_id in record_ids {
+            self.reprobe_oauth_inventory_record(record_id).await?;
+        }
+        Ok(())
+    }
+    async fn purge_due_oauth_inventory_records(&self) -> Result<u64> {
+        Ok(0)
+    }
+    async fn patrol_active_oauth_accounts(&self) -> Result<u64> {
+        Ok(0)
+    }
+    async fn account_pool_summary(&self) -> Result<AccountPoolSummaryResponse> {
+        let records = self.account_pool_records().await?;
+        let mut summary = AccountPoolSummaryResponse {
+            total: records.len() as u64,
+            ..Default::default()
+        };
+        for record in records {
+            match record.operator_state {
+                AccountPoolOperatorState::Inventory => {
+                    summary.inventory = summary.inventory.saturating_add(1)
+                }
+                AccountPoolOperatorState::Routable => {
+                    summary.routable = summary.routable.saturating_add(1)
+                }
+                AccountPoolOperatorState::Cooling => {
+                    summary.cooling = summary.cooling.saturating_add(1)
+                }
+                AccountPoolOperatorState::PendingDelete => {
+                    summary.pending_delete = summary.pending_delete.saturating_add(1)
+                }
+            }
+            match record.reason_class {
+                AccountPoolReasonClass::Healthy => {
+                    summary.healthy = summary.healthy.saturating_add(1)
+                }
+                AccountPoolReasonClass::Quota => summary.quota = summary.quota.saturating_add(1),
+                AccountPoolReasonClass::Fatal => summary.fatal = summary.fatal.saturating_add(1),
+                AccountPoolReasonClass::Transient => {
+                    summary.transient = summary.transient.saturating_add(1)
+                }
+                AccountPoolReasonClass::Admin => summary.admin = summary.admin.saturating_add(1),
+            }
+        }
+        Ok(summary)
+    }
+    async fn account_pool_records(&self) -> Result<Vec<AccountPoolRecord>> {
+        let accounts = self.list_upstream_accounts().await?;
+        let account_ids = accounts.iter().map(|item| item.id).collect::<Vec<_>>();
+        let statuses = self.oauth_account_statuses(account_ids).await?;
+        let status_map = statuses
+            .into_iter()
+            .map(|status| (status.account_id, status))
+            .collect::<HashMap<_, _>>();
+
+        let mut records = accounts
+            .iter()
+            .filter_map(|account| {
+                status_map
+                    .get(&account.id)
+                    .map(|status| build_runtime_account_pool_record(account, status))
+            })
+            .collect::<Vec<_>>();
+
+        records.extend(
+            self.oauth_inventory_records()
+                .await?
+                .iter()
+                .map(build_inventory_account_pool_record),
+        );
+        records.sort_by(|left, right| {
+            account_pool_operator_state_order(left.operator_state)
+                .cmp(&account_pool_operator_state_order(right.operator_state))
+                .then_with(|| right.updated_at.cmp(&left.updated_at))
+                .then_with(|| left.label.cmp(&right.label))
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        Ok(records)
+    }
+    async fn account_pool_record(&self, record_id: Uuid) -> Result<AccountPoolRecord> {
+        self.account_pool_records()
+            .await?
+            .into_iter()
+            .find(|record| record.id == record_id)
+            .ok_or_else(|| anyhow!("account pool record not found"))
+    }
     async fn upsert_routing_policy(
         &self,
         _req: UpsertRoutingPolicyRequest,
@@ -1533,6 +1646,295 @@ where
     }
 }
 
+fn account_pool_operator_state_order(state: AccountPoolOperatorState) -> u8 {
+    match state {
+        AccountPoolOperatorState::Routable => 0,
+        AccountPoolOperatorState::Cooling => 1,
+        AccountPoolOperatorState::Inventory => 2,
+        AccountPoolOperatorState::PendingDelete => 3,
+    }
+}
+
+fn account_pool_reason_class_from_code(
+    code: Option<&str>,
+    fallback: AccountPoolReasonClass,
+) -> AccountPoolReasonClass {
+    let normalized = code
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase());
+    match normalized.as_deref() {
+        Some(
+            "token_invalidated"
+            | "account_deactivated"
+            | "invalid_refresh_token"
+            | "refresh_token_revoked"
+            | "refresh_token_reused"
+            | "terminal_invalid"
+            | "credential_cipher_missing",
+        ) => AccountPoolReasonClass::Fatal,
+        Some("rate_limited" | "quota_exhausted" | "no_quota") => AccountPoolReasonClass::Quota,
+        Some(
+            "upstream_unavailable"
+            | "transport_error"
+            | "overloaded"
+            | "upstream_network_error",
+        ) => AccountPoolReasonClass::Transient,
+        Some(code) if code.starts_with("operator_") || code == "disabled_by_admin" => {
+            AccountPoolReasonClass::Admin
+        }
+        _ => fallback,
+    }
+}
+
+fn account_health_freshness_from_signals(
+    now: DateTime<Utc>,
+    last_seen_ok_at: Option<DateTime<Utc>>,
+    last_probe_at: Option<DateTime<Utc>>,
+    last_probe_outcome: Option<AccountProbeOutcome>,
+    last_live_result_at: Option<DateTime<Utc>>,
+    last_live_result_status: Option<&OAuthLiveResultStatus>,
+) -> AccountHealthFreshness {
+    let cutoff = now - Duration::seconds(ACCOUNT_HEALTH_FRESHNESS_TTL_SEC);
+
+    let last_success_at = [
+        last_seen_ok_at,
+        last_probe_at.filter(|_| matches!(last_probe_outcome, Some(AccountProbeOutcome::Ok))),
+        last_live_result_at.filter(|_| {
+            matches!(last_live_result_status, Some(OAuthLiveResultStatus::Ok))
+        }),
+    ]
+    .into_iter()
+    .flatten()
+    .max();
+
+    let last_failure_at = [
+        last_probe_at.filter(|_| {
+            matches!(
+                last_probe_outcome,
+                Some(
+                    AccountProbeOutcome::Fatal
+                        | AccountProbeOutcome::Quota
+                        | AccountProbeOutcome::Transient
+                )
+            )
+        }),
+        last_live_result_at.filter(|_| {
+            matches!(last_live_result_status, Some(OAuthLiveResultStatus::Failed))
+        }),
+    ]
+    .into_iter()
+    .flatten()
+    .max();
+
+    if last_success_at.is_none() && last_failure_at.is_none() {
+        return AccountHealthFreshness::Unknown;
+    }
+
+    if last_failure_at.is_some_and(|last_failure_at| {
+        last_failure_at >= cutoff
+            && last_success_at.is_none_or(|last_success_at| last_failure_at >= last_success_at)
+    }) {
+        return AccountHealthFreshness::Stale;
+    }
+
+    if last_success_at.is_some_and(|last_success_at| last_success_at >= cutoff) {
+        return AccountHealthFreshness::Fresh;
+    }
+
+    AccountHealthFreshness::Stale
+}
+
+fn build_runtime_account_pool_record(
+    account: &UpstreamAccount,
+    status: &OAuthAccountStatusResponse,
+) -> AccountPoolRecord {
+    let (operator_state, next_action_at, fallback_code, fallback_reason_class) = match status.pool_state
+    {
+        OAuthAccountPoolState::PendingPurge => (
+            AccountPoolOperatorState::PendingDelete,
+            status.pending_purge_at,
+            status
+                .pending_purge_reason
+                .clone()
+                .or_else(|| status.last_live_error_code.clone())
+                .or_else(|| status.last_refresh_error_code.clone()),
+            AccountPoolReasonClass::Fatal,
+        ),
+        OAuthAccountPoolState::Quarantine => (
+            AccountPoolOperatorState::Cooling,
+            status.quarantine_until,
+            status
+                .quarantine_reason
+                .clone()
+                .or_else(|| status.last_live_error_code.clone())
+                .or_else(|| status.rate_limits_last_error_code.clone())
+                .or_else(|| status.last_refresh_error_code.clone()),
+            AccountPoolReasonClass::Transient,
+        ),
+        OAuthAccountPoolState::Active if status.effective_enabled => (
+            AccountPoolOperatorState::Routable,
+            None,
+            None,
+            AccountPoolReasonClass::Healthy,
+        ),
+        OAuthAccountPoolState::Active => {
+            let fallback_code = if !account.enabled {
+                Some("disabled_by_admin".to_string())
+            } else {
+                status
+                    .last_live_error_code
+                    .clone()
+                    .or_else(|| status.rate_limits_last_error_code.clone())
+                    .or_else(|| status.last_refresh_error_code.clone())
+                    .or_else(|| match status.refresh_credential_state {
+                        Some(RefreshCredentialState::TerminalInvalid) => {
+                            Some("terminal_invalid".to_string())
+                        }
+                        Some(RefreshCredentialState::TransientFailed) => {
+                            Some("refresh_failed".to_string())
+                        }
+                        Some(RefreshCredentialState::Healthy) | None => None,
+                    })
+            };
+            let fallback_reason_class = if !account.enabled {
+                AccountPoolReasonClass::Admin
+            } else if status.rate_limits_last_error_code.as_deref()
+                == Some("rate_limited")
+                || status.rate_limits_last_error_code.as_deref() == Some("quota_exhausted")
+            {
+                AccountPoolReasonClass::Quota
+            } else if matches!(
+                status.refresh_credential_state,
+                Some(RefreshCredentialState::TerminalInvalid)
+            ) {
+                AccountPoolReasonClass::Fatal
+            } else {
+                AccountPoolReasonClass::Transient
+            };
+            (
+                AccountPoolOperatorState::Cooling,
+                status.quarantine_until.or(status.rate_limits_expires_at),
+                fallback_code,
+                fallback_reason_class,
+            )
+        }
+    };
+
+    let reason_class =
+        account_pool_reason_class_from_code(fallback_code.as_deref(), fallback_reason_class);
+    let health_freshness = account_health_freshness_from_signals(
+        Utc::now(),
+        status.last_seen_ok_at,
+        status.last_probe_at,
+        status.last_probe_outcome,
+        status.last_live_result_at,
+        status.last_live_result_status.as_ref(),
+    );
+
+    AccountPoolRecord {
+        id: account.id,
+        record_scope: AccountPoolRecordScope::Runtime,
+        operator_state,
+        health_freshness,
+        reason_class,
+        reason_code: fallback_code,
+        route_eligible: matches!(operator_state, AccountPoolOperatorState::Routable),
+        next_action_at,
+        last_signal_at: status.last_live_result_at,
+        last_signal_source: status.last_live_result_source.clone(),
+        last_probe_at: status.last_probe_at,
+        last_probe_outcome: status.last_probe_outcome,
+        label: account.label.clone(),
+        email: status.email.clone(),
+        chatgpt_account_id: account
+            .chatgpt_account_id
+            .clone()
+            .or_else(|| status.chatgpt_account_user_id.clone()),
+        chatgpt_plan_type: status.chatgpt_plan_type.clone(),
+        source_type: status.source_type.clone(),
+        mode: Some(account.mode.clone()),
+        auth_provider: Some(status.auth_provider.clone()),
+        credential_kind: status.credential_kind.clone(),
+        has_refresh_credential: status.has_refresh_credential,
+        has_access_token_fallback: status.has_access_token_fallback,
+        refresh_credential_state: status.refresh_credential_state.clone(),
+        enabled: Some(account.enabled),
+        rate_limits: status.rate_limits.clone(),
+        rate_limits_fetched_at: status.rate_limits_fetched_at,
+        created_at: account.created_at,
+        updated_at: status
+            .last_live_result_at
+            .or(status.last_refresh_at)
+            .or(status.rate_limits_fetched_at)
+            .unwrap_or(account.created_at),
+    }
+}
+
+fn build_inventory_account_pool_record(record: &OAuthInventoryRecord) -> AccountPoolRecord {
+    let (operator_state, next_action_at, fallback_reason_class) = match record.vault_status {
+        OAuthVaultRecordStatus::Queued
+        | OAuthVaultRecordStatus::Ready
+        | OAuthVaultRecordStatus::NeedsRefresh => (
+            AccountPoolOperatorState::Inventory,
+            record.next_retry_at.or(record.admission_retry_after),
+            AccountPoolReasonClass::Healthy,
+        ),
+        OAuthVaultRecordStatus::NoQuota => (
+            AccountPoolOperatorState::Cooling,
+            record.admission_retry_after.or(record.next_retry_at),
+            AccountPoolReasonClass::Quota,
+        ),
+        OAuthVaultRecordStatus::Failed if record.retryable => (
+            AccountPoolOperatorState::Cooling,
+            record.next_retry_at.or(record.admission_retry_after),
+            AccountPoolReasonClass::Transient,
+        ),
+        OAuthVaultRecordStatus::Failed => (
+            AccountPoolOperatorState::PendingDelete,
+            record.next_retry_at.or(record.admission_retry_after),
+            AccountPoolReasonClass::Fatal,
+        ),
+    };
+    let reason_code = record
+        .terminal_reason
+        .clone()
+        .or_else(|| record.admission_error_code.clone());
+    let reason_class =
+        account_pool_reason_class_from_code(reason_code.as_deref(), fallback_reason_class);
+
+    AccountPoolRecord {
+        id: record.id,
+        record_scope: AccountPoolRecordScope::Inventory,
+        operator_state,
+        health_freshness: AccountHealthFreshness::Unknown,
+        reason_class,
+        reason_code,
+        route_eligible: false,
+        next_action_at,
+        last_signal_at: record.admission_checked_at,
+        last_signal_source: None,
+        last_probe_at: None,
+        last_probe_outcome: None,
+        label: record.label.clone(),
+        email: record.email.clone(),
+        chatgpt_account_id: record.chatgpt_account_id.clone(),
+        chatgpt_plan_type: record.chatgpt_plan_type.clone(),
+        source_type: record.source_type.clone(),
+        mode: None,
+        auth_provider: Some(UpstreamAuthProvider::OAuthRefreshToken),
+        credential_kind: Some(SessionCredentialKind::RefreshRotatable),
+        has_refresh_credential: record.has_refresh_token,
+        has_access_token_fallback: record.has_access_token_fallback,
+        refresh_credential_state: None,
+        enabled: None,
+        rate_limits: record.admission_rate_limits.clone(),
+        rate_limits_fetched_at: record.admission_checked_at,
+        created_at: record.created_at,
+        updated_at: record.updated_at,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct OAuthCredentialRecord {
     access_token_enc: String,
@@ -1749,6 +2151,10 @@ impl SessionProfileRecord {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct UpstreamAccountHealthStateRecord {
     seen_ok_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    last_probe_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    last_probe_outcome: Option<AccountProbeOutcome>,
     #[serde(default)]
     last_live_result_at: Option<DateTime<Utc>>,
     #[serde(default)]

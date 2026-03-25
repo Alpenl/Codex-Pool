@@ -761,6 +761,18 @@ impl ControlPlaneStore for PostgresStore {
         self.delete_oauth_inventory_record_inner(record_id).await
     }
 
+    async fn restore_oauth_inventory_record(&self, record_id: Uuid) -> Result<()> {
+        self.restore_oauth_inventory_record_inner(record_id).await
+    }
+
+    async fn reprobe_oauth_inventory_record(&self, record_id: Uuid) -> Result<()> {
+        self.reprobe_oauth_inventory_record_inner(record_id).await
+    }
+
+    async fn purge_due_oauth_inventory_records(&self) -> Result<u64> {
+        self.purge_due_oauth_inventory_records_inner().await
+    }
+
     async fn upsert_routing_policy(
         &self,
         req: UpsertRoutingPolicyRequest,

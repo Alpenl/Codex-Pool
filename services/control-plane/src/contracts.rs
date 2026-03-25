@@ -213,6 +213,23 @@ pub enum OAuthLiveResultSource {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum AccountProbeOutcome {
+    Ok,
+    Quota,
+    Transient,
+    Fatal,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountHealthFreshness {
+    Fresh,
+    Stale,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum OAuthInventoryFailureStage {
     AdmissionProbe,
     ActivationRefresh,
@@ -294,6 +311,12 @@ pub struct OAuthAccountStatusResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_live_result_source: Option<OAuthLiveResultSource>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_seen_ok_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_probe_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_probe_outcome: Option<AccountProbeOutcome>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_live_result_status_code: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_live_error_code: Option<String>,
@@ -343,6 +366,134 @@ pub struct OAuthHealthSignalsSummaryResponse {
     pub live_result_failed: u64,
     pub pending_purge_signals: u64,
     pub quarantine_signals: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountPoolRecordScope {
+    Runtime,
+    Inventory,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountPoolOperatorState {
+    Inventory,
+    Routable,
+    Cooling,
+    PendingDelete,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountPoolReasonClass {
+    Healthy,
+    Quota,
+    Fatal,
+    Transient,
+    Admin,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountPoolRecord {
+    pub id: Uuid,
+    pub record_scope: AccountPoolRecordScope,
+    pub operator_state: AccountPoolOperatorState,
+    pub health_freshness: AccountHealthFreshness,
+    pub reason_class: AccountPoolReasonClass,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason_code: Option<String>,
+    pub route_eligible: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_action_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_signal_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_signal_source: Option<OAuthLiveResultSource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_probe_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_probe_outcome: Option<AccountProbeOutcome>,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chatgpt_account_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chatgpt_plan_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<UpstreamMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_provider: Option<UpstreamAuthProvider>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credential_kind: Option<SessionCredentialKind>,
+    #[serde(default)]
+    pub has_refresh_credential: bool,
+    #[serde(default)]
+    pub has_access_token_fallback: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_credential_state: Option<RefreshCredentialState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rate_limits: Vec<OAuthRateLimitSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_limits_fetched_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AccountPoolSummaryResponse {
+    pub total: u64,
+    pub inventory: u64,
+    pub routable: u64,
+    pub cooling: u64,
+    pub pending_delete: u64,
+    pub healthy: u64,
+    pub quota: u64,
+    pub fatal: u64,
+    pub transient: u64,
+    pub admin: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountPoolActionKind {
+    Reprobe,
+    Restore,
+    Delete,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountPoolActionRequest {
+    pub action: AccountPoolActionKind,
+    pub record_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountPoolActionError {
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountPoolActionItem {
+    pub record_id: Uuid,
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<AccountPoolActionError>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountPoolActionResponse {
+    pub action: AccountPoolActionKind,
+    pub total: usize,
+    pub success_count: usize,
+    pub failed_count: usize,
+    pub items: Vec<AccountPoolActionItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

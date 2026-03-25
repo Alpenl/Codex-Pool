@@ -588,6 +588,38 @@ impl ControlPlaneStore for SqliteBackedStore {
         Ok(())
     }
 
+    async fn restore_oauth_inventory_record(&self, record_id: Uuid) -> Result<()> {
+        self.inner.restore_oauth_inventory_record(record_id).await?;
+        self.persist_state_after_write().await?;
+        Ok(())
+    }
+
+    async fn restore_oauth_inventory_records(&self, record_ids: Vec<Uuid>) -> Result<()> {
+        self.inner.restore_oauth_inventory_records(record_ids).await?;
+        self.persist_state_after_write().await?;
+        Ok(())
+    }
+
+    async fn reprobe_oauth_inventory_record(&self, record_id: Uuid) -> Result<()> {
+        self.inner.reprobe_oauth_inventory_record(record_id).await?;
+        self.persist_state_after_write().await?;
+        Ok(())
+    }
+
+    async fn reprobe_oauth_inventory_records(&self, record_ids: Vec<Uuid>) -> Result<()> {
+        self.inner.reprobe_oauth_inventory_records(record_ids).await?;
+        self.persist_state_after_write().await?;
+        Ok(())
+    }
+
+    async fn purge_due_oauth_inventory_records(&self) -> Result<u64> {
+        let purged = self.inner.purge_due_oauth_inventory_records().await?;
+        if purged > 0 {
+            self.persist_state_after_write().await?;
+        }
+        Ok(purged)
+    }
+
     async fn oauth_account_statuses(
         &self,
         account_ids: Vec<Uuid>,
@@ -780,6 +812,14 @@ impl ControlPlaneStore for SqliteBackedStore {
         let activated = self.inner.activate_oauth_refresh_token_vault_inner().await?;
         self.persist_state_after_write().await?;
         Ok(activated)
+    }
+
+    async fn patrol_active_oauth_accounts(&self) -> Result<u64> {
+        let patrolled = self.inner.patrol_active_oauth_accounts().await?;
+        if patrolled > 0 {
+            self.persist_state_after_write().await?;
+        }
+        Ok(patrolled)
     }
 
     async fn mark_upstream_account_pending_purge(

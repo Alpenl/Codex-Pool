@@ -202,6 +202,30 @@ impl ControlPlaneStore for InMemoryStore {
         Ok(())
     }
 
+    async fn restore_oauth_inventory_record(&self, record_id: Uuid) -> Result<()> {
+        self.restore_oauth_inventory_record_inner(record_id)
+    }
+
+    async fn restore_oauth_inventory_records(&self, record_ids: Vec<Uuid>) -> Result<()> {
+        self.restore_oauth_inventory_records_inner(&record_ids);
+        Ok(())
+    }
+
+    async fn reprobe_oauth_inventory_record(&self, record_id: Uuid) -> Result<()> {
+        self.reprobe_oauth_inventory_record_inner(record_id).await
+    }
+
+    async fn reprobe_oauth_inventory_records(&self, record_ids: Vec<Uuid>) -> Result<()> {
+        for record_id in record_ids {
+            self.reprobe_oauth_inventory_record_inner(record_id).await?;
+        }
+        Ok(())
+    }
+
+    async fn purge_due_oauth_inventory_records(&self) -> Result<u64> {
+        Ok(self.purge_due_oauth_inventory_records_inner())
+    }
+
     async fn upsert_routing_policy(
         &self,
         req: UpsertRoutingPolicyRequest,
@@ -536,6 +560,14 @@ impl ControlPlaneStore for InMemoryStore {
     async fn refresh_expiring_oauth_accounts(&self) -> Result<()> {
         self.refresh_expiring_oauth_accounts_inner().await;
         Ok(())
+    }
+
+    async fn activate_oauth_refresh_token_vault(&self) -> Result<u64> {
+        self.activate_oauth_refresh_token_vault_inner().await
+    }
+
+    async fn patrol_active_oauth_accounts(&self) -> Result<u64> {
+        self.patrol_active_oauth_accounts_inner().await
     }
 
     async fn refresh_due_oauth_rate_limit_caches(&self) -> Result<u64> {
@@ -910,8 +942,9 @@ mod tests {
         RoutingProfileSelector, UpstreamAuthProvider, UpstreamMode,
     };
     use serde_json::json;
+    use std::collections::VecDeque;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     #[tokio::test]
     async fn in_memory_store_validates_plaintext_api_key() {
@@ -1145,6 +1178,38 @@ mod tests {
             _chatgpt_account_id: Option<&str>,
         ) -> Result<Vec<OAuthRateLimitSnapshot>, crate::oauth::OAuthTokenClientError> {
             Ok(self.rate_limits.clone())
+        }
+    }
+
+    #[derive(Clone)]
+    struct SequentialAdmissionProbeOAuthTokenClient {
+        fetch_results:
+            Arc<Mutex<VecDeque<Result<Vec<OAuthRateLimitSnapshot>, crate::oauth::OAuthTokenClientError>>>>,
+    }
+
+    #[async_trait]
+    impl OAuthTokenClient for SequentialAdmissionProbeOAuthTokenClient {
+        async fn refresh_token(
+            &self,
+            refresh_token: &str,
+            base_url: Option<&str>,
+        ) -> Result<OAuthTokenInfo, crate::oauth::OAuthTokenClientError> {
+            StaticOAuthTokenClient
+                .refresh_token(refresh_token, base_url)
+                .await
+        }
+
+        async fn fetch_rate_limits(
+            &self,
+            _access_token: &str,
+            _base_url: Option<&str>,
+            _chatgpt_account_id: Option<&str>,
+        ) -> Result<Vec<OAuthRateLimitSnapshot>, crate::oauth::OAuthTokenClientError> {
+            self.fetch_results
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or_else(|| Ok(Vec::new()))
         }
     }
 
@@ -2777,5 +2842,155 @@ mod tests {
                 assert!(record.next_retry_at.is_none());
             }
         }
+    }
+
+    #[tokio::test]
+    async fn in_memory_activate_ready_record_requires_preflight_probe() {
+        let cipher = CredentialCipher::from_base64_key(
+            &base64::engine::general_purpose::STANDARD.encode([26_u8; 32]),
+        )
+        .unwrap();
+        let store = InMemoryStore::new_with_oauth(
+            Arc::new(SequentialAdmissionProbeOAuthTokenClient {
+                fetch_results: Arc::new(Mutex::new(VecDeque::from(vec![
+                    Ok(vec![OAuthRateLimitSnapshot {
+                        limit_id: Some("five_hours".to_string()),
+                        limit_name: Some("5 hours".to_string()),
+                        primary: Some(OAuthRateLimitWindow {
+                            used_percent: 12.0,
+                            window_minutes: Some(300),
+                            resets_at: Some(Utc::now() + Duration::minutes(20)),
+                        }),
+                        secondary: None,
+                    }]),
+                    Err(crate::oauth::OAuthTokenClientError::InvalidRefreshToken {
+                        code: crate::oauth::OAuthRefreshErrorCode::InvalidRefreshToken,
+                        message: "invalid refresh token".to_string(),
+                    }),
+                ]))),
+            }),
+            Some(cipher),
+        );
+
+        store
+            .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "oauth-ready-preflight".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-ready-preflight".to_string(),
+                fallback_access_token: Some("ak-ready-preflight".to_string()),
+                fallback_token_expires_at: Some(Utc::now() + Duration::hours(2)),
+                chatgpt_account_id: Some("acct_ready_preflight".to_string()),
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: Some("pro".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .unwrap();
+
+        let summary_before = store.oauth_inventory_summary().await.unwrap();
+        assert_eq!(summary_before.ready, 1);
+
+        let activated = store.activate_oauth_refresh_token_vault().await.unwrap();
+        assert_eq!(activated, 0, "fatal preflight probe must block activation");
+        assert!(
+            store.list_upstream_accounts().await.unwrap().is_empty(),
+            "ready inventory should not materialize into runtime when preflight probe fails"
+        );
+
+        let record = store
+            .oauth_inventory_records()
+            .await
+            .unwrap()
+            .into_iter()
+            .next()
+            .expect("inventory record");
+        assert_eq!(record.vault_status, OAuthVaultRecordStatus::Failed);
+        assert_eq!(
+            record.terminal_reason.as_deref(),
+            Some("invalid_refresh_token")
+        );
+    }
+
+    #[tokio::test]
+    async fn in_memory_active_patrol_rechecks_stale_routable_accounts() {
+        let cipher = CredentialCipher::from_base64_key(
+            &base64::engine::general_purpose::STANDARD.encode([27_u8; 32]),
+        )
+        .unwrap();
+        let store = InMemoryStore::new_with_oauth(
+            Arc::new(SequentialAdmissionProbeOAuthTokenClient {
+                fetch_results: Arc::new(Mutex::new(VecDeque::from(vec![
+                    Ok(vec![OAuthRateLimitSnapshot {
+                        limit_id: Some("five_hours".to_string()),
+                        limit_name: Some("5 hours".to_string()),
+                        primary: Some(OAuthRateLimitWindow {
+                            used_percent: 20.0,
+                            window_minutes: Some(300),
+                            resets_at: Some(Utc::now() + Duration::minutes(40)),
+                        }),
+                        secondary: None,
+                    }]),
+                    Ok(vec![OAuthRateLimitSnapshot {
+                        limit_id: Some("five_hours".to_string()),
+                        limit_name: Some("5 hours".to_string()),
+                        primary: Some(OAuthRateLimitWindow {
+                            used_percent: 24.0,
+                            window_minutes: Some(300),
+                            resets_at: Some(Utc::now() + Duration::minutes(35)),
+                        }),
+                        secondary: None,
+                    }]),
+                    Err(crate::oauth::OAuthTokenClientError::Upstream {
+                        code: crate::oauth::OAuthRefreshErrorCode::UnauthorizedClient,
+                        message: "account_deactivated".to_string(),
+                    }),
+                ]))),
+            }),
+            Some(cipher),
+        );
+
+        let account = store
+            .queue_oauth_refresh_token(ImportOAuthRefreshTokenRequest {
+                label: "oauth-patrol-stale".to_string(),
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                refresh_token: "rt-patrol-stale".to_string(),
+                fallback_access_token: Some("ak-patrol-stale".to_string()),
+                fallback_token_expires_at: Some(Utc::now() + Duration::hours(2)),
+                chatgpt_account_id: Some("acct_patrol_stale".to_string()),
+                mode: Some(UpstreamMode::CodexOauth),
+                enabled: Some(true),
+                priority: Some(100),
+                chatgpt_plan_type: Some("pro".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .unwrap();
+
+        assert!(account);
+        let activated = store.activate_oauth_refresh_token_vault().await.unwrap();
+        assert_eq!(activated, 1);
+        let account = store
+            .list_upstream_accounts()
+            .await
+            .unwrap()
+            .into_iter()
+            .next()
+            .expect("runtime account");
+
+        {
+            let mut states = store.account_health_states.write().unwrap();
+            let state = states.entry(account.id).or_default();
+            state.last_probe_at = Some(Utc::now() - Duration::minutes(30));
+            state.last_probe_outcome = Some(crate::contracts::AccountProbeOutcome::Ok);
+        }
+
+        let patrolled = store.patrol_active_oauth_accounts().await.unwrap();
+        assert_eq!(patrolled, 1);
+
+        let pool_record = store.account_pool_record(account.id).await.unwrap();
+        assert_eq!(pool_record.operator_state, crate::contracts::AccountPoolOperatorState::PendingDelete);
+        assert_eq!(pool_record.reason_code.as_deref(), Some("account_deactivated"));
     }
 }

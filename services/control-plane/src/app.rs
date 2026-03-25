@@ -23,7 +23,8 @@ use codex_pool_core::api::{
 use codex_pool_core::model::{
     ApiKey, BuiltinErrorTemplateKind, BuiltinErrorTemplateOverrideRecord,
     BuiltinErrorTemplateRecord, LocalizedErrorTemplates, ModelRoutingPolicy, RoutingProfile,
-    UpstreamAccount, UpstreamErrorTemplateRecord, UpstreamErrorTemplateStatus,
+    UpstreamAccount, UpstreamAuthProvider, UpstreamErrorTemplateRecord,
+    UpstreamErrorTemplateStatus,
 };
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -32,12 +33,15 @@ use uuid::Uuid;
 
 use crate::admin_auth::{AdminAuthService, AdminPrincipal};
 use crate::contracts::{
-    AccountUsageLeaderboardItem, AccountUsageLeaderboardResponse, AdminLoginRequest,
-    AdminMeResponse, AdminOutboundProxyNodeMutationResponse, AdminOutboundProxyNodeView,
-    AdminOutboundProxyPoolResponse, AdminOutboundProxyPoolSettingsResponse,
-    AdminOutboundProxyTestResponse, AiErrorLearningSettingsResponse, ApiKeyUsageLeaderboardItem,
-    ApiKeyUsageLeaderboardResponse, BuiltinErrorTemplateResponse, BuiltinErrorTemplatesResponse,
-    CreateApiKeyRequest, CreateApiKeyResponse, CreateOutboundProxyNodeRequest, CreateTenantRequest,
+    AccountPoolActionError, AccountPoolActionItem, AccountPoolActionKind, AccountPoolActionRequest,
+    AccountPoolActionResponse, AccountPoolRecord, AccountPoolRecordScope,
+    AccountPoolSummaryResponse, AccountUsageLeaderboardItem, AccountUsageLeaderboardResponse,
+    AdminLoginRequest, AdminMeResponse, AdminOutboundProxyNodeMutationResponse,
+    AdminOutboundProxyNodeView, AdminOutboundProxyPoolResponse,
+    AdminOutboundProxyPoolSettingsResponse, AdminOutboundProxyTestResponse,
+    AiErrorLearningSettingsResponse, ApiKeyUsageLeaderboardItem, ApiKeyUsageLeaderboardResponse,
+    BuiltinErrorTemplateResponse, BuiltinErrorTemplatesResponse, CreateApiKeyRequest,
+    CreateApiKeyResponse, CreateOutboundProxyNodeRequest, CreateTenantRequest,
     CreateUpstreamAccountRequest, HourlyAccountUsagePoint, HourlyTenantApiKeyUsagePoint,
     ImportOAuthRefreshTokenRequest, ModelRoutingPoliciesResponse, ModelRoutingSettingsResponse,
     OAuthAccountStatusResponse, OAuthFamilyActionResponse, OAuthHealthSignalsSummaryResponse,
@@ -2194,6 +2198,22 @@ pub fn build_app_with_store_and_services(
         .route(
             "/api/v1/upstream-accounts/oauth/inventory/batch-actions",
             post(batch_operate_oauth_inventory_records),
+        )
+        .route(
+            "/api/v1/account-pool/summary",
+            get(get_account_pool_summary),
+        )
+        .route(
+            "/api/v1/account-pool/accounts",
+            get(list_account_pool_records),
+        )
+        .route(
+            "/api/v1/account-pool/accounts/{record_id}",
+            get(get_account_pool_record),
+        )
+        .route(
+            "/api/v1/account-pool/actions",
+            post(operate_account_pool_records),
         )
         .route(
             "/api/v1/upstream-accounts/runtime/summary",

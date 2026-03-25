@@ -357,6 +357,28 @@ fn oauth_vault_activate_interval_sec_from_env() -> u64 {
         )
 }
 
+fn active_patrol_enabled_from_env() -> bool {
+    std::env::var("CONTROL_PLANE_ACTIVE_PATROL_ENABLED")
+        .ok()
+        .and_then(|raw| {
+            let normalized = raw.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "1" | "true" | "yes" | "on" => Some(true),
+                "0" | "false" | "no" | "off" => Some(false),
+                _ => None,
+            }
+        })
+        .unwrap_or(true)
+}
+
+fn active_patrol_interval_sec_from_env() -> u64 {
+    std::env::var("CONTROL_PLANE_ACTIVE_PATROL_INTERVAL_SEC")
+        .ok()
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .unwrap_or(60)
+        .max(1)
+}
+
 fn pending_purge_enabled_from_env() -> bool {
     std::env::var(PENDING_PURGE_ENABLED_ENV)
         .ok()
@@ -661,6 +683,24 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("oauth vault activation loop disabled by config");
     }
 
+    if active_patrol_enabled_from_env() {
+        let patrol_store = store.clone();
+        let interval_sec = active_patrol_interval_sec_from_env();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_secs(interval_sec));
+            ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            loop {
+                ticker.tick().await;
+                if let Err(err) = patrol_store.patrol_active_oauth_accounts().await {
+                    tracing::warn!(error = %err, "active oauth patrol loop tick failed");
+                }
+            }
+        });
+        tracing::info!(interval_sec, "active oauth patrol loop started");
+    } else {
+        tracing::info!("active oauth patrol loop disabled by config");
+    }
+
     if pending_purge_enabled_from_env() {
         let purge_store = store.clone();
         let interval_sec = pending_purge_interval_sec_from_env();
@@ -671,6 +711,9 @@ async fn main() -> anyhow::Result<()> {
                 ticker.tick().await;
                 if let Err(err) = purge_store.purge_pending_upstream_accounts().await {
                     tracing::warn!(error = %err, "pending purge loop tick failed");
+                }
+                if let Err(err) = purge_store.purge_due_oauth_inventory_records().await {
+                    tracing::warn!(error = %err, "oauth inventory delete loop tick failed");
                 }
             }
         });
