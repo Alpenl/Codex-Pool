@@ -200,13 +200,14 @@ struct WsLogicalResponseSeed {
 #[derive(Debug, Clone)]
 struct WsTrackedResponse {
     seed: WsLogicalResponseSeed,
+    continuation_cursor_key: Option<String>,
     billing_session: Option<BillingSession>,
     replay_request_texts: Vec<String>,
     response_started: bool,
 }
 
 #[derive(Debug, Clone)]
-enum WsPendingBillingAction {
+enum WsPendingAction {
     Capture {
         billing_session: BillingSession,
         usage: Option<UsageTokens>,
@@ -215,6 +216,11 @@ enum WsPendingBillingAction {
         billing_session: BillingSession,
         release_reason: &'static str,
     },
+    PersistContinuationCursor {
+        owner_key: String,
+        continuation_cursor_key: String,
+        response_id: String,
+    },
 }
 
 #[derive(Debug, Default)]
@@ -222,7 +228,7 @@ struct WsLogicalResponseTracker {
     pending_requests: VecDeque<WsTrackedResponse>,
     active_by_response_id: std::collections::HashMap<String, WsTrackedResponse>,
     completed_response_ids: HashSet<String>,
-    pending_billing_actions: VecDeque<WsPendingBillingAction>,
+    pending_actions: VecDeque<WsPendingAction>,
 }
 
 impl WsLogicalResponseTracker {
@@ -240,11 +246,13 @@ impl WsLogicalResponseTracker {
     fn register_logical_request(
         &mut self,
         seed: WsLogicalResponseSeed,
+        continuation_cursor_key: Option<String>,
         billing_session: Option<BillingSession>,
         replay_request_texts: Vec<String>,
     ) {
         let tracked = WsTrackedResponse {
             seed,
+            continuation_cursor_key,
             billing_session,
             replay_request_texts,
             response_started: false,
@@ -260,7 +268,7 @@ impl WsLogicalResponseTracker {
         let Some(seed) = extract_ws_logical_request_seed(&value) else {
             return;
         };
-        self.register_logical_request(seed, None, vec![text.to_string()]);
+        self.register_logical_request(seed, None, None, vec![text.to_string()]);
     }
 
     fn observe_upstream_message(
@@ -331,6 +339,7 @@ impl WsLogicalResponseTracker {
                     requested_service_tier: None,
                     started_at: Instant::now(),
                 },
+                continuation_cursor_key: None,
                 billing_session: None,
                 replay_request_texts: Vec::new(),
                 response_started: false,
@@ -375,6 +384,7 @@ impl WsLogicalResponseTracker {
                     requested_service_tier: None,
                     started_at: Instant::now(),
                 },
+                continuation_cursor_key: None,
                 billing_session: None,
                 replay_request_texts: Vec::new(),
                 response_started: false,
@@ -405,15 +415,31 @@ impl WsLogicalResponseTracker {
             self.completed_response_ids.insert(response_id.clone());
         }
 
+        let had_billing_session = tracked.billing_session.is_some();
         if let Some(mut billing_session) = tracked.billing_session {
             if billing_session.effective_service_tier.is_none() {
                 billing_session.effective_service_tier = effective_service_tier.clone();
             }
-            self.pending_billing_actions
-                .push_back(WsPendingBillingAction::Capture {
+            self.pending_actions
+                .push_back(WsPendingAction::Capture {
                     billing_session,
                     usage,
                 });
+        }
+
+        if let (Some(continuation_cursor_key), Some(response_id)) = (
+            tracked.continuation_cursor_key.clone(),
+            tracked.seed.response_id.clone(),
+        ) {
+            self.pending_actions
+                .push_back(WsPendingAction::PersistContinuationCursor {
+                    owner_key: response_owner_key(context.principal.as_ref()),
+                    continuation_cursor_key,
+                    response_id,
+                });
+        }
+
+        if had_billing_session {
             return None;
         }
 
@@ -464,6 +490,7 @@ impl WsLogicalResponseTracker {
                     requested_service_tier: None,
                     started_at: Instant::now(),
                 },
+                continuation_cursor_key: None,
                 billing_session: None,
                 replay_request_texts: Vec::new(),
                 response_started: false,
@@ -484,8 +511,8 @@ impl WsLogicalResponseTracker {
         }
 
         if let Some(billing_session) = tracked.billing_session {
-            self.pending_billing_actions
-                .push_back(WsPendingBillingAction::Release {
+            self.pending_actions
+                .push_back(WsPendingAction::Release {
                     billing_session,
                     release_reason,
                 });
@@ -605,8 +632,8 @@ impl WsLogicalResponseTracker {
         self.register_tracked_request(tracked);
     }
 
-    fn drain_pending_billing_actions(&mut self) -> Vec<WsPendingBillingAction> {
-        self.pending_billing_actions.drain(..).collect()
+    fn drain_pending_actions(&mut self) -> Vec<WsPendingAction> {
+        self.pending_actions.drain(..).collect()
     }
 
     fn take_unfinished_billing_sessions(&mut self) -> Vec<BillingSession> {
@@ -621,7 +648,7 @@ impl WsLogicalResponseTracker {
                 sessions.push(billing_session);
             }
         }
-        self.pending_billing_actions.clear();
+        self.pending_actions.clear();
         sessions
     }
 
@@ -760,6 +787,10 @@ async fn proxy_websocket_streams(
                             replay_request_texts.push(text.to_string());
                             tracker.register_logical_request(
                                 seed,
+                                parsed_policy_context
+                                    .continuation_cursor_key
+                                    .clone()
+                                    .or(parsed_policy_context.session_key_hint.clone()),
                                 billing_session,
                                 replay_request_texts,
                             );
@@ -961,11 +992,11 @@ async fn proxy_websocket_streams(
                         rate_limits,
                     );
                 }
-                let pending_billing_actions = tracker.drain_pending_billing_actions();
+                let pending_actions = tracker.drain_pending_actions();
                 for event in pending_events {
                     state.event_sink.emit_request_log(event).await;
                 }
-                process_ws_pending_billing_actions(state.clone(), pending_billing_actions).await;
+                process_ws_pending_actions(state.clone(), pending_actions).await;
 
                 let upstream_close = if let TungsteniteMessage::Close(frame) = &message {
                     Some(frame
@@ -1677,13 +1708,13 @@ async fn ws_error_message_from_response(error_response: Response) -> AxumWsMessa
     )
 }
 
-async fn process_ws_pending_billing_actions(
+async fn process_ws_pending_actions(
     state: Arc<AppState>,
-    actions: Vec<WsPendingBillingAction>,
+    actions: Vec<WsPendingAction>,
 ) {
     for action in actions {
         match action {
-            WsPendingBillingAction::Capture {
+            WsPendingAction::Capture {
                 billing_session,
                 usage,
             } => match usage {
@@ -1741,7 +1772,7 @@ async fn process_ws_pending_billing_actions(
                     .await;
                 }
             },
-            WsPendingBillingAction::Release {
+            WsPendingAction::Release {
                 billing_session,
                 release_reason,
             } => {
@@ -1752,6 +1783,20 @@ async fn process_ws_pending_billing_actions(
                     ws_billing_phase_for_release_reason(release_reason),
                 )
                 .await;
+            }
+            WsPendingAction::PersistContinuationCursor {
+                owner_key,
+                continuation_cursor_key,
+                response_id,
+            } => {
+                state
+                    .background_responses
+                    .store_continuation_cursor(
+                        owner_key,
+                        continuation_cursor_key,
+                        response_id,
+                    )
+                    .await;
             }
         }
     }
@@ -1935,6 +1980,7 @@ mod tests {
     use serde_json::Value;
     use std::time::Duration;
     use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
+    use std::time::Instant;
 
     use super::{
         build_upstream_url, build_upstream_ws_url, compose_upstream_path, ejection_ttl_for_status,
@@ -1944,7 +1990,8 @@ mod tests {
         maybe_rewrite_upstream_ws_rate_limit_message, parse_request_policy_context,
         recovery_action_for_upstream_error_code, rewrite_ws_retry_request_text,
         sticky_session_key_from_headers, AxumWsMessage, ProxyRecoveryAction,
-        WsLogicalResponseTracker, WsLogicalUsageConnectionContext,
+        WsLogicalResponseSeed, WsLogicalResponseTracker, WsLogicalUsageConnectionContext,
+        WsPendingAction,
     };
     use uuid::Uuid;
 
@@ -2322,6 +2369,51 @@ mod tests {
         assert_eq!(events[0].model.as_deref(), Some("gpt-5.4"));
         assert_eq!(events[0].input_tokens, None);
         assert_eq!(events[0].output_tokens, None);
+    }
+
+    #[test]
+    fn ws_logical_usage_persists_continuation_cursor_on_completed_response() {
+        let mut tracker = WsLogicalResponseTracker::default();
+        tracker.register_logical_request(
+            WsLogicalResponseSeed {
+                request_id: Some("req-1".to_string()),
+                response_id: None,
+                model: Some("gpt-5.4".to_string()),
+                requested_service_tier: None,
+                started_at: Instant::now(),
+            },
+            Some("conv-1".to_string()),
+            None,
+            Vec::new(),
+        );
+
+        assert!(tracker
+            .observe_upstream_text(
+                r#"{"type":"response.created","response":{"id":"resp-1","model":"gpt-5.4"}}"#,
+                &ws_usage_test_context(),
+            )
+            .is_empty());
+
+        let events = tracker.observe_upstream_text(
+            r#"{"type":"response.completed","response":{"id":"resp-1","usage":{"input_tokens":5,"output_tokens":3}}}"#,
+            &ws_usage_test_context(),
+        );
+        assert_eq!(events.len(), 1);
+
+        let actions = tracker.drain_pending_actions();
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            WsPendingAction::PersistContinuationCursor {
+                owner_key,
+                continuation_cursor_key,
+                response_id,
+            } => {
+                assert_eq!(owner_key, "anonymous");
+                assert_eq!(continuation_cursor_key, "conv-1");
+                assert_eq!(response_id, "resp-1");
+            }
+            other => panic!("unexpected pending action: {other:?}"),
+        }
     }
 
     #[test]
