@@ -323,24 +323,24 @@ fn normalize_proxy_url(raw: &str) -> Result<String, (StatusCode, Json<ErrorEnvel
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err(invalid_proxy_url_error(
-            "proxy_url must use http/https/socks5 and include host:port",
+            "proxy_url must use http/https/socks5/socks5h and include host:port",
         ));
     }
 
     let parsed = reqwest::Url::parse(trimmed).map_err(|_| {
-        invalid_proxy_url_error("proxy_url must use http/https/socks5 and include host:port")
+        invalid_proxy_url_error("proxy_url must use http/https/socks5/socks5h and include host:port")
     })?;
     match parsed.scheme() {
-        "http" | "https" | "socks5" => {}
+        "http" | "https" | "socks5" | "socks5h" => {}
         _ => {
             return Err(invalid_proxy_url_error(
-                "proxy_url must use http/https/socks5 and include host:port",
+                "proxy_url must use http/https/socks5/socks5h and include host:port",
             ));
         }
     }
     if parsed.host_str().is_none() || parsed.port().is_none() {
         return Err(invalid_proxy_url_error(
-            "proxy_url must use http/https/socks5 and include host:port",
+            "proxy_url must use http/https/socks5/socks5h and include host:port",
         ));
     }
 

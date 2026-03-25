@@ -402,7 +402,7 @@ async fn connect_websocket_via_proxy(
             .map_err(TungsteniteError::Io)?;
             Box::new(tls_stream) as BoxedAsyncIo
         }
-        "socks5" => {
+        "socks5" | "socks5h" => {
             let mut socket = TcpStream::connect((proxy.host.as_str(), proxy.port))
                 .await
                 .map_err(TungsteniteError::Io)?;
