@@ -12,14 +12,16 @@ use codex_pool_core::model::{OutboundProxyNode, OutboundProxyPoolSettings, Proxy
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
-use tokio_rustls::rustls::pki_types::ServerName;
+use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName};
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 use tokio_rustls::{client::TlsStream, TlsConnector};
 use tokio_tungstenite::tungstenite::handshake::client::{
     Request as TungsteniteRequest, Response as TungsteniteResponse,
 };
 use tokio_tungstenite::tungstenite::Error as TungsteniteError;
-use tokio_tungstenite::{client_async_tls_with_config, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{
+    client_async_tls_with_config, Connector, MaybeTlsStream, WebSocketStream,
+};
 use url::Url;
 use uuid::Uuid;
 
@@ -361,7 +363,7 @@ async fn connect_websocket_direct(
         .await
         .map_err(TungsteniteError::Io)?;
     let boxed: BoxedAsyncIo = Box::new(socket);
-    client_async_tls_with_config(request, boxed, None, None).await
+    client_async_tls_with_config(request, boxed, None, Some(websocket_tls_connector())).await
 }
 
 async fn connect_websocket_via_proxy(
@@ -425,7 +427,13 @@ async fn connect_websocket_via_proxy(
         }
     };
 
-    client_async_tls_with_config(request, tunnel, None, None).await
+    client_async_tls_with_config(request, tunnel, None, Some(websocket_tls_connector())).await
+}
+
+fn websocket_tls_connector() -> Connector {
+    Connector::Rustls(build_rustls_client_config_with_fallback_roots(
+        "upstream websocket",
+    ))
 }
 
 struct ParsedProxyUrl {
@@ -656,18 +664,7 @@ async fn connect_tls_proxy(
     socket: TcpStream,
     proxy_host: &str,
 ) -> io::Result<TlsStream<TcpStream>> {
-    let mut roots = RootCertStore::empty();
-    let rustls_native_certs::CertificateResult { certs, errors, .. } =
-        rustls_native_certs::load_native_certs();
-    if !errors.is_empty() {
-        tracing::warn!(errors = ?errors, "encountered native cert load errors for https proxy");
-    }
-    let _ = roots.add_parsable_certificates(certs);
-    let config = Arc::new(
-        ClientConfig::builder()
-            .with_root_certificates(roots)
-            .with_no_client_auth(),
-    );
+    let config = build_rustls_client_config_with_fallback_roots("https proxy");
     let server_name = ServerName::try_from(proxy_host.to_string())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid proxy tls host"))?;
     TlsConnector::from(config)
@@ -676,12 +673,58 @@ async fn connect_tls_proxy(
         .map_err(io::Error::other)
 }
 
+fn build_rustls_client_config_with_fallback_roots(context: &'static str) -> Arc<ClientConfig> {
+    Arc::new(
+        ClientConfig::builder()
+            .with_root_certificates(build_root_store_with_fallback(context))
+            .with_no_client_auth(),
+    )
+}
+
+fn build_root_store_with_fallback(context: &'static str) -> RootCertStore {
+    let rustls_native_certs::CertificateResult { certs, errors, .. } =
+        rustls_native_certs::load_native_certs();
+    if !errors.is_empty() {
+        tracing::warn!(
+            errors = ?errors,
+            %context,
+            "encountered native cert load errors; continuing with webpki fallback roots"
+        );
+    }
+    build_root_store_from_native_certs(certs)
+}
+
+fn build_root_store_from_native_certs(
+    certs: Vec<CertificateDer<'static>>,
+) -> RootCertStore {
+    let mut roots = RootCertStore::empty();
+    let (native_added, native_ignored) = roots.add_parsable_certificates(certs);
+    let webpki_added = webpki_roots::TLS_SERVER_ROOTS.len();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    tracing::debug!(
+        native_added,
+        native_ignored,
+        webpki_added,
+        total_roots = roots.len(),
+        "built rustls root store with native certificates and webpki fallback"
+    );
+    roots
+}
+
 #[cfg(test)]
 mod tests {
+    use super::build_root_store_from_native_certs;
+
     #[test]
     fn rustls_client_config_builder_works_without_manual_provider_installation() {
         let _config = tokio_rustls::rustls::ClientConfig::builder()
             .with_root_certificates(tokio_rustls::rustls::RootCertStore::empty())
             .with_no_client_auth();
+    }
+
+    #[test]
+    fn websocket_root_store_falls_back_to_webpki_when_native_certs_are_missing() {
+        let roots = build_root_store_from_native_certs(Vec::new());
+        assert_eq!(roots.len(), webpki_roots::TLS_SERVER_ROOTS.len());
     }
 }
