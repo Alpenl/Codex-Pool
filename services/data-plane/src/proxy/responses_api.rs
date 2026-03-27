@@ -1097,7 +1097,7 @@ async fn store_completed_response_from_proxy(
         )
         .await;
     if let Some(continuation_cursor_key) =
-        parsed_policy_context.continuation_cursor_key.as_deref()
+        parsed_policy_context.continuation_key_hint.as_deref()
     {
         emit_continuation_cursor_system_event(
             state,

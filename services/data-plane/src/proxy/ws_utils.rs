@@ -405,6 +405,7 @@ impl WsLogicalResponseTracker {
             self.completed_response_ids.insert(response_id.clone());
         }
 
+        let had_billing_session = tracked.billing_session.is_some();
         if let Some(mut billing_session) = tracked.billing_session {
             if billing_session.effective_service_tier.is_none() {
                 billing_session.effective_service_tier = effective_service_tier.clone();

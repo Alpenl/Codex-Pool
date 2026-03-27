@@ -1052,72 +1052,6 @@ export default {
             unknownError: "Unexpected error. Please try again."
         }
     },
-    oauthProbe: {
-        title: "OAuth Payload Probe",
-        subtitle: "Run a standalone Codex OAuth login and capture the returned payload without importing any account into the pool.",
-        start: {
-            title: "Start Probe Session",
-            description: "Create a temporary probe session, complete OAuth authorization, then inspect and download the captured payload."
-        },
-        form: {
-            baseUrl: "Base URL"
-        },
-        actions: {
-            startProbe: "Start OAuth Probe",
-            reopenAuth: "Open OAuth Window Again",
-            downloadJson: "Download JSON",
-            submitCallback: "Submit Callback URL"
-        },
-        status: {
-            label: "Probe Status",
-            idle: "Not started",
-            waiting_callback: "Waiting for callback",
-            exchanging: "Exchanging token",
-            importing: "Processing payload",
-            completed: "Completed",
-            failed: "Failed",
-            expired: "Expired",
-            sessionId: "Session ID: {{id}}",
-            callbackUrl: "Callback URL: {{url}}",
-            expiresAt: "Expires at: {{time}}",
-            memoryOnly: "Probe data is kept in memory only and will disappear after session expiry or service restart."
-        },
-        error: {
-            failed: "OAuth probe failed."
-        },
-        result: {
-            success: "Probe captured successfully.",
-            email: "Email: {{email}}",
-            accountId: "ChatGPT Account ID: {{id}}",
-            plan: "Plan: {{plan}}",
-            expiresAt: "Token expires at: {{time}}",
-            accessTokenPreview: "Access token preview: {{value}}",
-            refreshTokenPreview: "Refresh token preview: {{value}}"
-        },
-        payload: {
-            title: "Captured JSON",
-            description: "This is the in-memory probe result returned after OAuth code exchange.",
-            empty: "No probe payload captured yet."
-        },
-        manual: {
-            title: "Manual Callback Fallback",
-            description: "If the automatic callback is unreachable, paste the full redirect URL here.",
-            placeholder: "Paste full callback URL containing code/state…",
-            hint: "Use this only when automatic callback fails."
-        },
-        notifications: {
-            popupBlockedTitle: "Popup blocked",
-            popupBlockedDescription: "Allow popups and reopen the OAuth window.",
-            sessionCreatedTitle: "Probe session created",
-            sessionCreatedDescription: "OAuth window opened. Complete sign-in to capture the payload.",
-            sessionCreateFailedTitle: "Failed to create probe session",
-            manualSubmitTitle: "Callback submitted",
-            manualSubmitSuccess: "Manual callback completed and probe payload captured.",
-            manualSubmitAccepted: "Manual callback accepted. Probe session is processing.",
-            manualSubmitFailedTitle: "Manual callback failed",
-            unknownError: "Unexpected error. Please try again."
-        }
-    },
     login: {
         brand: {
             badge: "Admin Workspace Access",
@@ -1758,7 +1692,6 @@ export default {
         },
         importJobs: "Import Jobs",
         oauthImport: "OAuth Login Import",
-        oauthProbe: "OAuth Payload Probe",
         logs: "System Logs",
         mainNavigation: "Main navigation",
         models: "Models",

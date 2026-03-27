@@ -518,7 +518,7 @@ pub async fn proxy_handler(
         Some(serde_json::json!({
             "stream": parsed_policy_context.stream,
             "sticky_key_present": sticky_key.is_some(),
-            "continuation_cursor_key": parsed_policy_context.continuation_cursor_key,
+            "continuation_cursor_key": parsed_policy_context.continuation_key_hint,
             "client_version": client_version_header,
         })),
     )

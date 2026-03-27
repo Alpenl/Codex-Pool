@@ -1052,72 +1052,6 @@ export default {
             unknownError: "发生未知错误，请稍后重试。"
         }
     },
-    oauthProbe: {
-        title: "OAuth 载荷探测",
-        subtitle: "走一条独立的 Codex OAuth 登录链路，只捕获返回载荷，不把账号导入账号池。",
-        start: {
-            title: "开始探测会话",
-            description: "创建临时探测会话，完成 OAuth 授权后，直接查看并下载捕获到的 JSON。"
-        },
-        form: {
-            baseUrl: "基础 URL"
-        },
-        actions: {
-            startProbe: "开始 OAuth 探测",
-            reopenAuth: "重新打开 OAuth 窗口",
-            downloadJson: "下载 JSON",
-            submitCallback: "提交回调 URL"
-        },
-        status: {
-            label: "探测状态",
-            idle: "未开始",
-            waiting_callback: "等待回调",
-            exchanging: "正在换取令牌",
-            importing: "正在处理载荷",
-            completed: "已完成",
-            failed: "失败",
-            expired: "已过期",
-            sessionId: "会话 ID：{{id}}",
-            callbackUrl: "回调地址：{{url}}",
-            expiresAt: "过期时间：{{time}}",
-            memoryOnly: "探测结果只保存在内存中，会话过期或服务重启后会消失。"
-        },
-        error: {
-            failed: "OAuth 探测失败。"
-        },
-        result: {
-            success: "探测结果已成功捕获。",
-            email: "邮箱：{{email}}",
-            accountId: "ChatGPT Account ID：{{id}}",
-            plan: "套餐：{{plan}}",
-            expiresAt: "令牌过期时间：{{time}}",
-            accessTokenPreview: "Access Token 预览：{{value}}",
-            refreshTokenPreview: "Refresh Token 预览：{{value}}"
-        },
-        payload: {
-            title: "捕获到的 JSON",
-            description: "这里展示的是 OAuth code exchange 完成后保存在内存中的探测结果。",
-            empty: "还没有捕获到探测载荷。"
-        },
-        manual: {
-            title: "手动回调兜底",
-            description: "当自动回调不可达时，可将完整回调 URL 粘贴到这里提交。",
-            placeholder: "粘贴包含 code/state 的完整回调 URL…",
-            hint: "仅在自动回调失败时使用。"
-        },
-        notifications: {
-            popupBlockedTitle: "弹窗被拦截",
-            popupBlockedDescription: "请允许弹窗后重新打开 OAuth 窗口。",
-            sessionCreatedTitle: "探测会话已创建",
-            sessionCreatedDescription: "OAuth 窗口已打开，请完成登录以捕获返回载荷。",
-            sessionCreateFailedTitle: "创建探测会话失败",
-            manualSubmitTitle: "回调已提交",
-            manualSubmitSuccess: "手动回调已完成，探测载荷已捕获。",
-            manualSubmitAccepted: "手动回调已接收，正在处理中。",
-            manualSubmitFailedTitle: "手动回调失败",
-            unknownError: "发生未知错误，请稍后重试。"
-        }
-    },
     login: {
         brand: {
             badge: "管理员工作区入口",
@@ -1758,7 +1692,6 @@ export default {
         },
         importJobs: "批量上传",
         oauthImport: "登录导入",
-        oauthProbe: "载荷探测",
         logs: "系统日志",
         mainNavigation: "主导航",
         models: "模型池",

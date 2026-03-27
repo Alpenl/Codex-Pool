@@ -1052,72 +1052,6 @@ export default {
             unknownError: "Неизвестная ошибка. Повторите позже."
         }
     },
-    oauthProbe: {
-        title: "Проба OAuth payload",
-        subtitle: "Запустите отдельный вход через Codex OAuth, сохраните возвращенный payload и не импортируйте аккаунт в пул.",
-        start: {
-            title: "Запустить probe-сессию",
-            description: "Создайте временную probe-сессию, завершите OAuth-авторизацию и просмотрите или скачайте полученный JSON."
-        },
-        form: {
-            baseUrl: "Базовый URL"
-        },
-        actions: {
-            startProbe: "Запустить OAuth Probe",
-            reopenAuth: "Открыть OAuth-окно снова",
-            downloadJson: "Скачать JSON",
-            submitCallback: "Отправить callback URL"
-        },
-        status: {
-            label: "Статус probe-сессии",
-            idle: "Не запущено",
-            waiting_callback: "Ожидание callback",
-            exchanging: "Обмен токена",
-            importing: "Обработка payload",
-            completed: "Завершено",
-            failed: "Ошибка",
-            expired: "Истекло",
-            sessionId: "ID сессии: {{id}}",
-            callbackUrl: "Callback URL: {{url}}",
-            expiresAt: "Истекает: {{time}}",
-            memoryOnly: "Результат probe хранится только в памяти и исчезнет после истечения сессии или перезапуска сервиса."
-        },
-        error: {
-            failed: "OAuth probe завершился ошибкой."
-        },
-        result: {
-            success: "Probe payload успешно получен.",
-            email: "Email: {{email}}",
-            accountId: "ChatGPT Account ID: {{id}}",
-            plan: "План: {{plan}}",
-            expiresAt: "Токен истекает: {{time}}",
-            accessTokenPreview: "Предпросмотр access token: {{value}}",
-            refreshTokenPreview: "Предпросмотр refresh token: {{value}}"
-        },
-        payload: {
-            title: "Полученный JSON",
-            description: "Здесь показан результат probe, сохраненный в памяти после OAuth code exchange.",
-            empty: "Probe payload пока не получен."
-        },
-        manual: {
-            title: "Резервный ручной callback",
-            description: "Если автоматический callback недоступен, вставьте сюда полный redirect URL.",
-            placeholder: "Вставьте полный callback URL с code/state…",
-            hint: "Используйте только если автоматический callback не сработал."
-        },
-        notifications: {
-            popupBlockedTitle: "Всплывающее окно заблокировано",
-            popupBlockedDescription: "Разрешите всплывающие окна и снова откройте OAuth-окно.",
-            sessionCreatedTitle: "Probe-сессия создана",
-            sessionCreatedDescription: "OAuth-окно открыто. Завершите вход, чтобы захватить payload.",
-            sessionCreateFailedTitle: "Не удалось создать probe-сессию",
-            manualSubmitTitle: "Callback отправлен",
-            manualSubmitSuccess: "Ручной callback завершен, payload захвачен.",
-            manualSubmitAccepted: "Ручной callback принят в обработку.",
-            manualSubmitFailedTitle: "Ошибка ручного callback",
-            unknownError: "Неизвестная ошибка. Повторите позже."
-        }
-    },
     login: {
         brand: {
             badge: "Доступ к рабочему месту администратора",
@@ -1758,7 +1692,6 @@ export default {
         },
         importJobs: "Импорт",
         oauthImport: "Импорт через OAuth",
-        oauthProbe: "Проба OAuth payload",
         logs: "Журнал",
         mainNavigation: "Основная навигация",
         models: "Модели",

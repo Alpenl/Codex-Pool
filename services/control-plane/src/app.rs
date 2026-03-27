@@ -28,7 +28,7 @@ use codex_pool_core::model::{
 };
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::admin_auth::{AdminAuthService, AdminPrincipal};
@@ -379,33 +379,6 @@ struct CodexOAuthLoginSessionResult {
     chatgpt_plan_type: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct CodexOAuthProbeSessionResult {
-    base_url: String,
-    access_token_present: bool,
-    refresh_token_present: bool,
-    id_token_present: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    access_token_preview: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    refresh_token_preview: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    token_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    scope: Option<String>,
-    expires_at: DateTime<Utc>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    chatgpt_account_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    chatgpt_plan_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    raw_exchange_payload: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    id_token_claims_raw: Option<Value>,
-}
-
 #[derive(Debug, Clone)]
 struct CodexOAuthLoginSessionRecord {
     session_id: String,
@@ -420,22 +393,6 @@ struct CodexOAuthLoginSessionRecord {
     status: CodexOAuthLoginSessionStatus,
     error: Option<CodexOAuthLoginSessionError>,
     result: Option<CodexOAuthLoginSessionResult>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-    expires_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone)]
-struct CodexOAuthProbeSessionRecord {
-    session_id: String,
-    state: String,
-    code_verifier: String,
-    authorize_url: String,
-    callback_url: String,
-    base_url: String,
-    status: CodexOAuthLoginSessionStatus,
-    error: Option<CodexOAuthLoginSessionError>,
-    result: Option<CodexOAuthProbeSessionResult>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     expires_at: DateTime<Utc>,
@@ -509,16 +466,8 @@ async fn ensure_codex_oauth_callback_listener_started(state: &AppState) -> anyho
     let callback_app = Router::new()
         .route("/auth/callback", get(handle_codex_oauth_callback))
         .route(
-            "/auth/probe-callback",
-            get(handle_codex_oauth_probe_callback),
-        )
-        .route(
             "/api/v1/upstream-accounts/oauth/codex/callback",
             get(handle_codex_oauth_callback),
-        )
-        .route(
-            "/api/v1/upstream-accounts/oauth/codex/probe/callback",
-            get(handle_codex_oauth_probe_callback),
         )
         .with_state(state.clone());
 
@@ -568,22 +517,7 @@ async fn stop_codex_oauth_callback_listener_if_idle(state: &AppState) {
             )
         })
     };
-    let has_pending_probe_sessions = {
-        let mut sessions = state
-            .oauth_probe_sessions
-            .write()
-            .expect("oauth probe session lock poisoned");
-        cleanup_codex_oauth_probe_sessions(&mut sessions);
-        sessions.values().any(|session| {
-            matches!(
-                session.status,
-                CodexOAuthLoginSessionStatus::WaitingCallback
-                    | CodexOAuthLoginSessionStatus::Exchanging
-                    | CodexOAuthLoginSessionStatus::Importing
-            )
-        })
-    };
-    if has_pending_sessions || has_pending_probe_sessions {
+    if has_pending_sessions {
         return;
     }
 
@@ -618,7 +552,6 @@ pub struct AppState {
     model_catalog_last_error: Arc<std::sync::RwLock<Option<String>>>,
     model_probe_cache: Arc<std::sync::RwLock<ModelProbeCache>>,
     oauth_login_sessions: Arc<std::sync::RwLock<HashMap<String, CodexOAuthLoginSessionRecord>>>,
-    oauth_probe_sessions: Arc<std::sync::RwLock<HashMap<String, CodexOAuthProbeSessionRecord>>>,
     codex_oauth_callback_listen_mode: CodexOAuthCallbackListenMode,
     codex_oauth_callback_listen_addr: Option<SocketAddr>,
     codex_oauth_callback_listener:
@@ -2097,7 +2030,6 @@ pub fn build_app_with_store_and_services(
         model_catalog_last_error: Arc::new(std::sync::RwLock::new(None)),
         model_probe_cache: Arc::new(std::sync::RwLock::new(ModelProbeCache::default())),
         oauth_login_sessions: Arc::new(std::sync::RwLock::new(HashMap::new())),
-        oauth_probe_sessions: Arc::new(std::sync::RwLock::new(HashMap::new())),
         codex_oauth_callback_listen_mode,
         codex_oauth_callback_listen_addr,
         codex_oauth_callback_listener: Arc::new(tokio::sync::Mutex::new(None)),
@@ -2154,30 +2086,10 @@ pub fn build_app_with_store_and_services(
             post(submit_codex_oauth_login_session_callback),
         )
         .route(
-            "/api/v1/upstream-accounts/oauth/codex/probe-sessions",
-            post(create_codex_oauth_probe_session),
-        )
-        .route(
-            "/api/v1/upstream-accounts/oauth/codex/probe-sessions/{session_id}",
-            get(get_codex_oauth_probe_session),
-        )
-        .route(
-            "/api/v1/upstream-accounts/oauth/codex/probe-sessions/{session_id}/callback",
-            post(submit_codex_oauth_probe_session_callback),
-        )
-        .route(
             "/api/v1/upstream-accounts/oauth/codex/callback",
             get(handle_codex_oauth_callback),
         )
-        .route(
-            "/api/v1/upstream-accounts/oauth/codex/probe/callback",
-            get(handle_codex_oauth_probe_callback),
-        )
         .route("/auth/callback", get(handle_codex_oauth_callback))
-        .route(
-            "/auth/probe-callback",
-            get(handle_codex_oauth_probe_callback),
-        )
         .route(
             "/api/v1/upstream-accounts/{account_id}/oauth/refresh",
             post(refresh_oauth_account),
