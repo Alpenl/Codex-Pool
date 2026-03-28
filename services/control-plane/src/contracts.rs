@@ -468,6 +468,8 @@ pub struct AccountSignalHeatmapSummary {
     pub window_minutes: u16,
     pub window_start: DateTime<Utc>,
     pub intensity_levels: Vec<u8>,
+    pub success_counts: Vec<u32>,
+    pub error_counts: Vec<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_signal_at: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -481,6 +483,8 @@ pub struct AccountSignalHeatmapBucket {
     pub intensity: u8,
     pub active_count: u32,
     pub passive_count: u32,
+    pub success_count: u32,
+    pub error_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

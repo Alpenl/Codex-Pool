@@ -61,6 +61,9 @@ struct ParsedCursor {
 struct AccountSignalEventRow {
     ts_epoch_ms: i64,
     category: SystemEventCategory,
+    event_type: String,
+    severity: SystemEventSeverity,
+    status_code: Option<u16>,
     account_id: Option<Uuid>,
     selected_account_id: Option<Uuid>,
 }
@@ -164,8 +167,29 @@ fn signal_intensity_level(signal_count: u32) -> u8 {
 
 fn classify_signal_category(category: SystemEventCategory) -> Option<bool> {
     match category {
-        SystemEventCategory::Request => Some(false),
-        SystemEventCategory::AccountPool | SystemEventCategory::Patrol => Some(true),
+        SystemEventCategory::Request => Some(true),
+        SystemEventCategory::AccountPool | SystemEventCategory::Patrol => Some(false),
+        SystemEventCategory::Import
+        | SystemEventCategory::Infra
+        | SystemEventCategory::AdminAction => None,
+    }
+}
+
+fn classify_signal_outcome(row: &AccountSignalEventRow) -> Option<bool> {
+    match row.category {
+        SystemEventCategory::Request => {
+            if row.event_type == "request_failed" {
+                Some(false)
+            } else if row.status_code.is_some_and(|status| status >= 400) {
+                Some(false)
+            } else {
+                Some(true)
+            }
+        }
+        SystemEventCategory::AccountPool | SystemEventCategory::Patrol => match row.severity {
+            SystemEventSeverity::Debug | SystemEventSeverity::Info => Some(true),
+            SystemEventSeverity::Warn | SystemEventSeverity::Error => Some(false),
+        },
         SystemEventCategory::Import
         | SystemEventCategory::Infra
         | SystemEventCategory::AdminAction => None,
@@ -188,7 +212,12 @@ fn build_account_signal_heatmap_details(
     let mut bucket_map = account_ids
         .iter()
         .copied()
-        .map(|account_id| (account_id, vec![(0_u32, 0_u32, 0_u32); bucket_count]))
+        .map(|account_id| {
+            (
+                account_id,
+                vec![(0_u32, 0_u32, 0_u32, 0_u32, 0_u32); bucket_count],
+            )
+        })
         .collect::<HashMap<_, _>>();
 
     for row in rows {
@@ -200,6 +229,9 @@ fn build_account_signal_heatmap_details(
             continue;
         }
         let Some(is_active_signal) = classify_signal_category(row.category) else {
+            continue;
+        };
+        let Some(is_success_signal) = classify_signal_outcome(row) else {
             continue;
         };
 
@@ -226,6 +258,11 @@ fn build_account_signal_heatmap_details(
             } else {
                 bucket.2 += 1;
             }
+            if is_success_signal {
+                bucket.3 += 1;
+            } else {
+                bucket.4 += 1;
+            }
         }
     }
 
@@ -235,7 +272,8 @@ fn build_account_signal_heatmap_details(
             let buckets = buckets
                 .into_iter()
                 .enumerate()
-                .map(|(index, (signal_count, active_count, passive_count))| {
+                .map(
+                    |(index, (signal_count, active_count, passive_count, success_count, error_count))| {
                     let start_at = DateTime::<Utc>::from_timestamp_millis(
                         start_epoch_ms + (index as i64 * bucket_ms),
                     )
@@ -246,8 +284,11 @@ fn build_account_signal_heatmap_details(
                         intensity: signal_intensity_level(signal_count),
                         active_count,
                         passive_count,
+                        success_count,
+                        error_count,
                     }
-                })
+                },
+                )
                 .collect::<Vec<_>>();
             (
                 account_id,
@@ -278,6 +319,16 @@ fn summarize_account_signal_heatmap_details(
                     window_minutes: detail.window_minutes,
                     window_start: detail.window_start,
                     intensity_levels: detail.buckets.iter().map(|bucket| bucket.intensity).collect(),
+                    success_counts: detail
+                        .buckets
+                        .iter()
+                        .map(|bucket| bucket.success_count)
+                        .collect(),
+                    error_counts: detail
+                        .buckets
+                        .iter()
+                        .map(|bucket| bucket.error_count)
+                        .collect(),
                     latest_signal_at: detail.latest_signal_at,
                     latest_signal_source: detail.latest_signal_source,
                 },
@@ -557,7 +608,7 @@ pub mod sqlite_repo {
                 .map(Uuid::to_string)
                 .collect::<Vec<_>>();
             let mut builder = QueryBuilder::<Sqlite>::new(
-                "SELECT ts_epoch_ms, category, account_id, selected_account_id \
+                "SELECT ts_epoch_ms, category, event_type, severity, status_code, account_id, selected_account_id \
                  FROM system_event_logs WHERE ts_epoch_ms >= ",
             );
             builder.push_bind(start_epoch_ms);
@@ -602,6 +653,11 @@ pub mod sqlite_repo {
                     Ok(AccountSignalEventRow {
                         ts_epoch_ms: row.try_get::<i64, _>("ts_epoch_ms")?,
                         category: parse_category(row.try_get::<String, _>("category")?.as_str())?,
+                        event_type: row.try_get::<String, _>("event_type")?,
+                        severity: parse_severity(row.try_get::<String, _>("severity")?.as_str())?,
+                        status_code: row
+                            .try_get::<Option<i64>, _>("status_code")?
+                            .map(|value| u16::try_from(value).unwrap_or_default()),
                         account_id: parse_optional_uuid(
                             row.try_get::<Option<String>, _>("account_id")?,
                             "account_id",
@@ -1066,7 +1122,7 @@ pub mod postgres_repo {
                 .map(Uuid::to_string)
                 .collect::<Vec<_>>();
             let mut builder = QueryBuilder::<Postgres>::new(
-                "SELECT ts_epoch_ms, category, account_id, selected_account_id \
+                "SELECT ts_epoch_ms, category, event_type, severity, status_code, account_id, selected_account_id \
                  FROM system_event_logs WHERE ts_epoch_ms >= ",
             );
             builder.push_bind(start_epoch_ms);
@@ -1111,6 +1167,11 @@ pub mod postgres_repo {
                     Ok(AccountSignalEventRow {
                         ts_epoch_ms: row.try_get::<i64, _>("ts_epoch_ms")?,
                         category: parse_category(row.try_get::<String, _>("category")?.as_str())?,
+                        event_type: row.try_get::<String, _>("event_type")?,
+                        severity: parse_severity(row.try_get::<String, _>("severity")?.as_str())?,
+                        status_code: row
+                            .try_get::<Option<i64>, _>("status_code")?
+                            .map(|value| u16::try_from(value).unwrap_or_default()),
                         account_id: parse_optional_uuid(
                             row.try_get::<Option<String>, _>("account_id")?,
                             "account_id",
@@ -1668,13 +1729,16 @@ mod tests {
         category: SystemEventCategory,
         account_id: Option<Uuid>,
         selected_account_id: Option<Uuid>,
+        event_type: &str,
+        severity: SystemEventSeverity,
+        status_code: Option<u16>,
     ) -> SystemEventWrite {
         SystemEventWrite {
             event_id: Some(Uuid::new_v4()),
             ts: Some(ts),
             category,
-            event_type: "signal_test".to_string(),
-            severity: SystemEventSeverity::Info,
+            event_type: event_type.to_string(),
+            severity,
             source: "account-signal-test".to_string(),
             tenant_id: None,
             account_id,
@@ -1695,8 +1759,8 @@ mod tests {
             selected_proxy_id: None,
             routing_decision: None,
             failover_scope: None,
-            status_code: None,
-            upstream_status_code: None,
+            status_code,
+            upstream_status_code: status_code,
             latency_ms: None,
             message: None,
             preview_text: None,
@@ -1718,6 +1782,9 @@ mod tests {
             SystemEventCategory::Request,
             None,
             Some(tracked_account_id),
+            "request_completed",
+            SystemEventSeverity::Info,
+            Some(200),
         ))
         .await
         .unwrap();
@@ -1725,6 +1792,9 @@ mod tests {
             DateTime::<Utc>::from_timestamp(1_774_702_960, 0).unwrap(),
             SystemEventCategory::Patrol,
             Some(tracked_account_id),
+            None,
+            "patrol_succeeded",
+            SystemEventSeverity::Info,
             None,
         ))
         .await
@@ -1734,6 +1804,9 @@ mod tests {
             SystemEventCategory::AccountPool,
             Some(tracked_account_id),
             None,
+            "account_pool_succeeded",
+            SystemEventSeverity::Info,
+            None,
         ))
         .await
         .unwrap();
@@ -1742,6 +1815,9 @@ mod tests {
             SystemEventCategory::Request,
             Some(other_account_id),
             None,
+            "request_completed",
+            SystemEventSeverity::Info,
+            Some(200),
         ))
         .await
         .unwrap();
@@ -1753,9 +1829,15 @@ mod tests {
         let summary = summaries.get(&tracked_account_id).expect("summary should exist");
 
         assert_eq!(summary.intensity_levels.len(), 12);
+        assert_eq!(summary.success_counts.len(), 12);
+        assert_eq!(summary.error_counts.len(), 12);
         assert_eq!(summary.intensity_levels[6], 1);
         assert_eq!(summary.intensity_levels[10], 2);
         assert_eq!(summary.intensity_levels[11], 0);
+        assert_eq!(summary.success_counts[6], 1);
+        assert_eq!(summary.error_counts[6], 0);
+        assert_eq!(summary.success_counts[10], 2);
+        assert_eq!(summary.error_counts[10], 0);
     }
 
     #[tokio::test]
@@ -1770,6 +1852,9 @@ mod tests {
             SystemEventCategory::Request,
             Some(tracked_account_id),
             None,
+            "request_completed",
+            SystemEventSeverity::Info,
+            Some(200),
         ))
         .await
         .unwrap();
@@ -1778,6 +1863,9 @@ mod tests {
             SystemEventCategory::Patrol,
             None,
             Some(tracked_account_id),
+            "patrol_succeeded",
+            SystemEventSeverity::Info,
+            None,
         ))
         .await
         .unwrap();
@@ -1796,6 +1884,102 @@ mod tests {
         assert_eq!(bucket.signal_count, 2);
         assert_eq!(bucket.active_count, 1);
         assert_eq!(bucket.passive_count, 1);
+        assert_eq!(bucket.success_count, 2);
+        assert_eq!(bucket.error_count, 0);
         assert_eq!(bucket.intensity, 2);
+    }
+
+    #[tokio::test]
+    async fn sqlite_repo_tracks_request_success_and_error_counts_per_bucket() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let repo = sqlite_repo::SqliteSystemEventRepo::new(pool).await.unwrap();
+        let tracked_account_id = Uuid::new_v4();
+        let now = DateTime::<Utc>::from_timestamp(1_774_703_640, 0).unwrap();
+
+        repo.insert_event(system_event_write(
+            DateTime::<Utc>::from_timestamp(1_774_703_140, 0).unwrap(),
+            SystemEventCategory::Request,
+            Some(tracked_account_id),
+            None,
+            "request_completed",
+            SystemEventSeverity::Info,
+            Some(200),
+        ))
+        .await
+        .unwrap();
+        repo.insert_event(system_event_write(
+            DateTime::<Utc>::from_timestamp(1_774_703_120, 0).unwrap(),
+            SystemEventCategory::Request,
+            Some(tracked_account_id),
+            None,
+            "request_failed",
+            SystemEventSeverity::Warn,
+            Some(429),
+        ))
+        .await
+        .unwrap();
+
+        let detail = repo
+            .account_signal_heatmap_detail(tracked_account_id, now, 60, 10)
+            .await
+            .unwrap()
+            .expect("detail should exist");
+        let bucket = detail
+            .buckets
+            .iter()
+            .find(|bucket| bucket.signal_count == 2)
+            .expect("signal bucket should exist");
+
+        assert_eq!(bucket.active_count, 2);
+        assert_eq!(bucket.passive_count, 0);
+        assert_eq!(bucket.success_count, 1);
+        assert_eq!(bucket.error_count, 1);
+    }
+
+    #[tokio::test]
+    async fn sqlite_repo_uses_severity_for_non_request_signal_outcomes() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let repo = sqlite_repo::SqliteSystemEventRepo::new(pool).await.unwrap();
+        let tracked_account_id = Uuid::new_v4();
+        let now = DateTime::<Utc>::from_timestamp(1_774_703_640, 0).unwrap();
+
+        repo.insert_event(system_event_write(
+            DateTime::<Utc>::from_timestamp(1_774_703_140, 0).unwrap(),
+            SystemEventCategory::Patrol,
+            Some(tracked_account_id),
+            None,
+            "patrol_completed",
+            SystemEventSeverity::Info,
+            None,
+        ))
+        .await
+        .unwrap();
+        repo.insert_event(system_event_write(
+            DateTime::<Utc>::from_timestamp(1_774_703_120, 0).unwrap(),
+            SystemEventCategory::AccountPool,
+            None,
+            Some(tracked_account_id),
+            "account_pool_failed",
+            SystemEventSeverity::Error,
+            None,
+        ))
+        .await
+        .unwrap();
+
+        let detail = repo
+            .account_signal_heatmap_detail(tracked_account_id, now, 60, 10)
+            .await
+            .unwrap()
+            .expect("detail should exist");
+        let bucket = detail
+            .buckets
+            .iter()
+            .find(|bucket| bucket.signal_count == 2)
+            .expect("signal bucket should exist");
+
+        assert_eq!(bucket.active_count, 0);
+        assert_eq!(bucket.passive_count, 2);
+        assert_eq!(bucket.success_count, 1);
+        assert_eq!(bucket.error_count, 1);
     }
 }
