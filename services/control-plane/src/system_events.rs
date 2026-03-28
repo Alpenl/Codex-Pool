@@ -8,13 +8,15 @@ use sqlx_core::query_builder::QueryBuilder;
 #[cfg(feature = "postgres-backend")]
 use sqlx_postgres::{PgPool, PgRow, Postgres};
 use sqlx_sqlite::{Sqlite, SqlitePool, SqliteRow};
+use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::contracts::{
-    SystemEventCorrelationResponse, SystemEventListResponse,
-    SystemEventRecord, SystemEventSummaryCategoryCount, SystemEventSummaryReasonCount,
-    SystemEventSummaryResponse, SystemEventSummarySeverityCount, SystemEventSummaryTypeCount,
+    AccountSignalHeatmapBucket, AccountSignalHeatmapDetail, AccountSignalHeatmapSummary,
+    SystemEventCorrelationResponse, SystemEventListResponse, SystemEventRecord,
+    SystemEventSummaryCategoryCount, SystemEventSummaryReasonCount, SystemEventSummaryResponse,
+    SystemEventSummarySeverityCount, SystemEventSummaryTypeCount,
 };
 use crate::Row;
 
@@ -55,6 +57,14 @@ struct ParsedCursor {
     id: Uuid,
 }
 
+#[derive(Debug, Clone)]
+struct AccountSignalEventRow {
+    ts_epoch_ms: i64,
+    category: SystemEventCategory,
+    account_id: Option<Uuid>,
+    selected_account_id: Option<Uuid>,
+}
+
 #[async_trait]
 pub trait SystemEventRepository: Send + Sync {
     async fn insert_event(&self, event: SystemEventWrite) -> Result<SystemEventRecord>;
@@ -66,6 +76,20 @@ pub trait SystemEventRepository: Send + Sync {
         request_id: &str,
         query: SystemEventQuery,
     ) -> Result<SystemEventCorrelationResponse>;
+    async fn summarize_account_signal_heatmaps(
+        &self,
+        account_ids: &[Uuid],
+        now: DateTime<Utc>,
+        window_minutes: u16,
+        bucket_minutes: u16,
+    ) -> Result<HashMap<Uuid, AccountSignalHeatmapSummary>>;
+    async fn account_signal_heatmap_detail(
+        &self,
+        account_id: Uuid,
+        now: DateTime<Utc>,
+        window_minutes: u16,
+        bucket_minutes: u16,
+    ) -> Result<Option<AccountSignalHeatmapDetail>>;
 }
 
 #[derive(Clone)]
@@ -100,6 +124,166 @@ impl SystemEventLogRuntime {
             }
         }
     }
+}
+
+fn signal_heatmap_window_bounds(
+    now: DateTime<Utc>,
+    window_minutes: u16,
+    bucket_minutes: u16,
+) -> Result<(DateTime<Utc>, i64, i64, i64, usize)> {
+    if bucket_minutes == 0 {
+        return Err(anyhow!("bucket_minutes must be greater than zero"));
+    }
+    if window_minutes == 0 {
+        return Err(anyhow!("window_minutes must be greater than zero"));
+    }
+
+    let bucket_ms = i64::from(bucket_minutes) * 60_000;
+    let window_ms = i64::from(window_minutes) * 60_000;
+    if window_ms % bucket_ms != 0 {
+        return Err(anyhow!("window_minutes must align with bucket_minutes"));
+    }
+
+    let aligned_start_ms = now.timestamp_millis().div_euclid(bucket_ms) * bucket_ms;
+    let end_epoch_ms = aligned_start_ms + bucket_ms;
+    let start_epoch_ms = end_epoch_ms - window_ms;
+    let bucket_count = (window_ms / bucket_ms) as usize;
+    let window_start = DateTime::<Utc>::from_timestamp_millis(start_epoch_ms)
+        .ok_or_else(|| anyhow!("failed to build signal heatmap window start"))?;
+    Ok((window_start, start_epoch_ms, end_epoch_ms, bucket_ms, bucket_count))
+}
+
+fn signal_intensity_level(signal_count: u32) -> u8 {
+    match signal_count {
+        0 => 0,
+        1 => 1,
+        2 | 3 => 2,
+        _ => 3,
+    }
+}
+
+fn classify_signal_category(category: SystemEventCategory) -> Option<bool> {
+    match category {
+        SystemEventCategory::Request => Some(false),
+        SystemEventCategory::AccountPool | SystemEventCategory::Patrol => Some(true),
+        SystemEventCategory::Import
+        | SystemEventCategory::Infra
+        | SystemEventCategory::AdminAction => None,
+    }
+}
+
+fn build_account_signal_heatmap_details(
+    account_ids: &[Uuid],
+    rows: &[AccountSignalEventRow],
+    now: DateTime<Utc>,
+    window_minutes: u16,
+    bucket_minutes: u16,
+) -> Result<HashMap<Uuid, AccountSignalHeatmapDetail>> {
+    let (window_start, start_epoch_ms, _end_epoch_ms, bucket_ms, bucket_count) =
+        signal_heatmap_window_bounds(now, window_minutes, bucket_minutes)?;
+    let tracked_ids = account_ids
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    let mut bucket_map = account_ids
+        .iter()
+        .copied()
+        .map(|account_id| (account_id, vec![(0_u32, 0_u32, 0_u32); bucket_count]))
+        .collect::<HashMap<_, _>>();
+
+    for row in rows {
+        if row.ts_epoch_ms < start_epoch_ms {
+            continue;
+        }
+        let bucket_index = ((row.ts_epoch_ms - start_epoch_ms) / bucket_ms) as usize;
+        if bucket_index >= bucket_count {
+            continue;
+        }
+        let Some(is_active_signal) = classify_signal_category(row.category) else {
+            continue;
+        };
+
+        let mut matched_ids = Vec::with_capacity(2);
+        if let Some(account_id) = row.account_id.filter(|value| tracked_ids.contains(value)) {
+            matched_ids.push(account_id);
+        }
+        if let Some(selected_account_id) = row
+            .selected_account_id
+            .filter(|value| tracked_ids.contains(value))
+        {
+            if !matched_ids.contains(&selected_account_id) {
+                matched_ids.push(selected_account_id);
+            }
+        }
+
+        for account_id in matched_ids {
+            let bucket = &mut bucket_map
+                .get_mut(&account_id)
+                .expect("tracked account should have preallocated buckets")[bucket_index];
+            bucket.0 += 1;
+            if is_active_signal {
+                bucket.1 += 1;
+            } else {
+                bucket.2 += 1;
+            }
+        }
+    }
+
+    Ok(bucket_map
+        .into_iter()
+        .map(|(account_id, buckets)| {
+            let buckets = buckets
+                .into_iter()
+                .enumerate()
+                .map(|(index, (signal_count, active_count, passive_count))| {
+                    let start_at = DateTime::<Utc>::from_timestamp_millis(
+                        start_epoch_ms + (index as i64 * bucket_ms),
+                    )
+                    .expect("bucket start should be representable");
+                    AccountSignalHeatmapBucket {
+                        start_at,
+                        signal_count,
+                        intensity: signal_intensity_level(signal_count),
+                        active_count,
+                        passive_count,
+                    }
+                })
+                .collect::<Vec<_>>();
+            (
+                account_id,
+                AccountSignalHeatmapDetail {
+                    record_id: account_id,
+                    bucket_minutes,
+                    window_minutes,
+                    window_start,
+                    buckets,
+                    latest_signal_at: None,
+                    latest_signal_source: None,
+                },
+            )
+        })
+        .collect())
+}
+
+fn summarize_account_signal_heatmap_details(
+    details: HashMap<Uuid, AccountSignalHeatmapDetail>,
+) -> HashMap<Uuid, AccountSignalHeatmapSummary> {
+    details
+        .into_iter()
+        .map(|(account_id, detail)| {
+            (
+                account_id,
+                AccountSignalHeatmapSummary {
+                    bucket_minutes: detail.bucket_minutes,
+                    window_minutes: detail.window_minutes,
+                    window_start: detail.window_start,
+                    intensity_levels: detail.buckets.iter().map(|bucket| bucket.intensity).collect(),
+                    latest_signal_at: detail.latest_signal_at,
+                    latest_signal_source: detail.latest_signal_source,
+                },
+            )
+        })
+        .collect()
 }
 
 pub mod sqlite_repo {
@@ -164,6 +348,7 @@ pub mod sqlite_repo {
                 "CREATE INDEX IF NOT EXISTS idx_system_event_logs_ts ON system_event_logs (ts_epoch_ms DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_system_event_logs_request_id ON system_event_logs (request_id)",
                 "CREATE INDEX IF NOT EXISTS idx_system_event_logs_account_id ON system_event_logs (account_id)",
+                "CREATE INDEX IF NOT EXISTS idx_system_event_logs_selected_account_id ON system_event_logs (selected_account_id)",
                 "CREATE INDEX IF NOT EXISTS idx_system_event_logs_job_id ON system_event_logs (job_id)",
                 "CREATE INDEX IF NOT EXISTS idx_system_event_logs_category ON system_event_logs (category, ts_epoch_ms DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_system_event_logs_reason_code ON system_event_logs (reason_code, ts_epoch_ms DESC)",
@@ -356,6 +541,79 @@ pub mod sqlite_repo {
                 })
                 .collect()
         }
+
+        async fn account_signal_rows(
+            &self,
+            account_ids: &[Uuid],
+            start_epoch_ms: i64,
+            end_epoch_ms: i64,
+        ) -> Result<Vec<AccountSignalEventRow>> {
+            if account_ids.is_empty() {
+                return Ok(Vec::new());
+            }
+
+            let account_ids = account_ids
+                .iter()
+                .map(Uuid::to_string)
+                .collect::<Vec<_>>();
+            let mut builder = QueryBuilder::<Sqlite>::new(
+                "SELECT ts_epoch_ms, category, account_id, selected_account_id \
+                 FROM system_event_logs WHERE ts_epoch_ms >= ",
+            );
+            builder.push_bind(start_epoch_ms);
+            builder.push(" AND ts_epoch_ms < ");
+            builder.push_bind(end_epoch_ms);
+            builder.push(" AND category IN (");
+            {
+                let mut categories = builder.separated(", ");
+                for category in [
+                    SystemEventCategory::Request,
+                    SystemEventCategory::AccountPool,
+                    SystemEventCategory::Patrol,
+                ] {
+                    categories.push_bind(category_to_db(category));
+                }
+                categories.push_unseparated(")");
+            }
+            builder.push(" AND (account_id IN (");
+            {
+                let mut ids = builder.separated(", ");
+                for account_id in &account_ids {
+                    ids.push_bind(account_id.clone());
+                }
+                ids.push_unseparated(")");
+            }
+            builder.push(" OR selected_account_id IN (");
+            {
+                let mut ids = builder.separated(", ");
+                for account_id in &account_ids {
+                    ids.push_bind(account_id.clone());
+                }
+                ids.push_unseparated(")");
+            }
+            builder.push(") ORDER BY ts_epoch_ms ASC");
+            let rows = builder
+                .build()
+                .fetch_all(&self.pool)
+                .await
+                .context("failed to query sqlite account signal rows")?;
+            rows.into_iter()
+                .map(|row| {
+                    Ok(AccountSignalEventRow {
+                        ts_epoch_ms: row.try_get::<i64, _>("ts_epoch_ms")?,
+                        category: parse_category(row.try_get::<String, _>("category")?.as_str())?,
+                        account_id: parse_optional_uuid(
+                            row.try_get::<Option<String>, _>("account_id")?,
+                            "account_id",
+                        )?,
+                        selected_account_id: parse_optional_uuid(
+                            row.try_get::<Option<String>, _>("selected_account_id")?,
+                            "selected_account_id",
+                        )?,
+                    })
+                })
+                .collect()
+        }
     }
 
     #[async_trait]
@@ -484,6 +742,53 @@ pub mod sqlite_repo {
                 items,
             })
         }
+
+        async fn summarize_account_signal_heatmaps(
+            &self,
+            account_ids: &[Uuid],
+            now: DateTime<Utc>,
+            window_minutes: u16,
+            bucket_minutes: u16,
+        ) -> Result<HashMap<Uuid, AccountSignalHeatmapSummary>> {
+            if account_ids.is_empty() {
+                return Ok(HashMap::new());
+            }
+            let (_, start_epoch_ms, end_epoch_ms, _, _) =
+                signal_heatmap_window_bounds(now, window_minutes, bucket_minutes)?;
+            let rows = self
+                .account_signal_rows(account_ids, start_epoch_ms, end_epoch_ms)
+                .await?;
+            let details = build_account_signal_heatmap_details(
+                account_ids,
+                &rows,
+                now,
+                window_minutes,
+                bucket_minutes,
+            )?;
+            Ok(summarize_account_signal_heatmap_details(details))
+        }
+
+        async fn account_signal_heatmap_detail(
+            &self,
+            account_id: Uuid,
+            now: DateTime<Utc>,
+            window_minutes: u16,
+            bucket_minutes: u16,
+        ) -> Result<Option<AccountSignalHeatmapDetail>> {
+            let (_, start_epoch_ms, end_epoch_ms, _, _) =
+                signal_heatmap_window_bounds(now, window_minutes, bucket_minutes)?;
+            let rows = self
+                .account_signal_rows(&[account_id], start_epoch_ms, end_epoch_ms)
+                .await?;
+            let mut details = build_account_signal_heatmap_details(
+                &[account_id],
+                &rows,
+                now,
+                window_minutes,
+                bucket_minutes,
+            )?;
+            Ok(details.remove(&account_id))
+        }
     }
 }
 
@@ -550,6 +855,7 @@ pub mod postgres_repo {
                 "CREATE INDEX IF NOT EXISTS idx_system_event_logs_ts ON system_event_logs (ts_epoch_ms DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_system_event_logs_request_id ON system_event_logs (request_id)",
                 "CREATE INDEX IF NOT EXISTS idx_system_event_logs_account_id ON system_event_logs (account_id)",
+                "CREATE INDEX IF NOT EXISTS idx_system_event_logs_selected_account_id ON system_event_logs (selected_account_id)",
                 "CREATE INDEX IF NOT EXISTS idx_system_event_logs_job_id ON system_event_logs (job_id)",
                 "CREATE INDEX IF NOT EXISTS idx_system_event_logs_category ON system_event_logs (category, ts_epoch_ms DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_system_event_logs_reason_code ON system_event_logs (reason_code, ts_epoch_ms DESC)",
@@ -744,6 +1050,79 @@ pub mod postgres_repo {
                 })
                 .collect()
         }
+
+        async fn account_signal_rows(
+            &self,
+            account_ids: &[Uuid],
+            start_epoch_ms: i64,
+            end_epoch_ms: i64,
+        ) -> Result<Vec<AccountSignalEventRow>> {
+            if account_ids.is_empty() {
+                return Ok(Vec::new());
+            }
+
+            let account_ids = account_ids
+                .iter()
+                .map(Uuid::to_string)
+                .collect::<Vec<_>>();
+            let mut builder = QueryBuilder::<Postgres>::new(
+                "SELECT ts_epoch_ms, category, account_id, selected_account_id \
+                 FROM system_event_logs WHERE ts_epoch_ms >= ",
+            );
+            builder.push_bind(start_epoch_ms);
+            builder.push(" AND ts_epoch_ms < ");
+            builder.push_bind(end_epoch_ms);
+            builder.push(" AND category IN (");
+            {
+                let mut categories = builder.separated(", ");
+                for category in [
+                    SystemEventCategory::Request,
+                    SystemEventCategory::AccountPool,
+                    SystemEventCategory::Patrol,
+                ] {
+                    categories.push_bind(category_to_db(category));
+                }
+                categories.push_unseparated(")");
+            }
+            builder.push(" AND (account_id IN (");
+            {
+                let mut ids = builder.separated(", ");
+                for account_id in &account_ids {
+                    ids.push_bind(account_id.clone());
+                }
+                ids.push_unseparated(")");
+            }
+            builder.push(" OR selected_account_id IN (");
+            {
+                let mut ids = builder.separated(", ");
+                for account_id in &account_ids {
+                    ids.push_bind(account_id.clone());
+                }
+                ids.push_unseparated(")");
+            }
+            builder.push(") ORDER BY ts_epoch_ms ASC");
+            let rows = builder
+                .build()
+                .fetch_all(&self.pool)
+                .await
+                .context("failed to query postgres account signal rows")?;
+            rows.into_iter()
+                .map(|row| {
+                    Ok(AccountSignalEventRow {
+                        ts_epoch_ms: row.try_get::<i64, _>("ts_epoch_ms")?,
+                        category: parse_category(row.try_get::<String, _>("category")?.as_str())?,
+                        account_id: parse_optional_uuid(
+                            row.try_get::<Option<String>, _>("account_id")?,
+                            "account_id",
+                        )?,
+                        selected_account_id: parse_optional_uuid(
+                            row.try_get::<Option<String>, _>("selected_account_id")?,
+                            "selected_account_id",
+                        )?,
+                    })
+                })
+                .collect()
+        }
     }
 
     #[async_trait]
@@ -876,6 +1255,53 @@ pub mod postgres_repo {
                 items,
             })
         }
+
+        async fn summarize_account_signal_heatmaps(
+            &self,
+            account_ids: &[Uuid],
+            now: DateTime<Utc>,
+            window_minutes: u16,
+            bucket_minutes: u16,
+        ) -> Result<HashMap<Uuid, AccountSignalHeatmapSummary>> {
+            if account_ids.is_empty() {
+                return Ok(HashMap::new());
+            }
+            let (_, start_epoch_ms, end_epoch_ms, _, _) =
+                signal_heatmap_window_bounds(now, window_minutes, bucket_minutes)?;
+            let rows = self
+                .account_signal_rows(account_ids, start_epoch_ms, end_epoch_ms)
+                .await?;
+            let details = build_account_signal_heatmap_details(
+                account_ids,
+                &rows,
+                now,
+                window_minutes,
+                bucket_minutes,
+            )?;
+            Ok(summarize_account_signal_heatmap_details(details))
+        }
+
+        async fn account_signal_heatmap_detail(
+            &self,
+            account_id: Uuid,
+            now: DateTime<Utc>,
+            window_minutes: u16,
+            bucket_minutes: u16,
+        ) -> Result<Option<AccountSignalHeatmapDetail>> {
+            let (_, start_epoch_ms, end_epoch_ms, _, _) =
+                signal_heatmap_window_bounds(now, window_minutes, bucket_minutes)?;
+            let rows = self
+                .account_signal_rows(&[account_id], start_epoch_ms, end_epoch_ms)
+                .await?;
+            let mut details = build_account_signal_heatmap_details(
+                &[account_id],
+                &rows,
+                now,
+                window_minutes,
+                bucket_minutes,
+            )?;
+            Ok(details.remove(&account_id))
+        }
     }
 }
 
@@ -888,11 +1314,11 @@ fn map_sqlite_system_event_row(row: SqliteRow) -> Result<SystemEventRecord> {
         event_type: row.try_get("event_type")?,
         severity: parse_severity(row.try_get::<String, _>("severity")?.as_str())?,
         source: row.try_get("source")?,
-        tenant_id: parse_optional_uuid(row.try_get("tenant_id")?)?,
-        account_id: parse_optional_uuid(row.try_get("account_id")?)?,
+        tenant_id: parse_optional_uuid(row.try_get("tenant_id")?, "tenant_id")?,
+        account_id: parse_optional_uuid(row.try_get("account_id")?, "account_id")?,
         request_id: row.try_get("request_id")?,
         trace_request_id: row.try_get("trace_request_id")?,
-        job_id: parse_optional_uuid(row.try_get("job_id")?)?,
+        job_id: parse_optional_uuid(row.try_get("job_id")?, "job_id")?,
         account_label: row.try_get("account_label")?,
         auth_provider: row.try_get("auth_provider")?,
         operator_state_from: row.try_get("operator_state_from")?,
@@ -903,8 +1329,14 @@ fn map_sqlite_system_event_row(row: SqliteRow) -> Result<SystemEventRecord> {
         path: row.try_get("path")?,
         method: row.try_get("method")?,
         model: row.try_get("model")?,
-        selected_account_id: parse_optional_uuid(row.try_get("selected_account_id")?)?,
-        selected_proxy_id: parse_optional_uuid(row.try_get("selected_proxy_id")?)?,
+        selected_account_id: parse_optional_uuid(
+            row.try_get("selected_account_id")?,
+            "selected_account_id",
+        )?,
+        selected_proxy_id: parse_optional_uuid(
+            row.try_get("selected_proxy_id")?,
+            "selected_proxy_id",
+        )?,
         routing_decision: row.try_get("routing_decision")?,
         failover_scope: row.try_get("failover_scope")?,
         status_code: row
@@ -939,11 +1371,11 @@ fn map_postgres_system_event_row(row: PgRow) -> Result<SystemEventRecord> {
         event_type: row.try_get("event_type")?,
         severity: parse_severity(row.try_get::<String, _>("severity")?.as_str())?,
         source: row.try_get("source")?,
-        tenant_id: parse_optional_uuid(row.try_get("tenant_id")?)?,
-        account_id: parse_optional_uuid(row.try_get("account_id")?)?,
+        tenant_id: parse_optional_uuid(row.try_get("tenant_id")?, "tenant_id")?,
+        account_id: parse_optional_uuid(row.try_get("account_id")?, "account_id")?,
         request_id: row.try_get("request_id")?,
         trace_request_id: row.try_get("trace_request_id")?,
-        job_id: parse_optional_uuid(row.try_get("job_id")?)?,
+        job_id: parse_optional_uuid(row.try_get("job_id")?, "job_id")?,
         account_label: row.try_get("account_label")?,
         auth_provider: row.try_get("auth_provider")?,
         operator_state_from: row.try_get("operator_state_from")?,
@@ -954,8 +1386,14 @@ fn map_postgres_system_event_row(row: PgRow) -> Result<SystemEventRecord> {
         path: row.try_get("path")?,
         method: row.try_get("method")?,
         model: row.try_get("model")?,
-        selected_account_id: parse_optional_uuid(row.try_get("selected_account_id")?)?,
-        selected_proxy_id: parse_optional_uuid(row.try_get("selected_proxy_id")?)?,
+        selected_account_id: parse_optional_uuid(
+            row.try_get("selected_account_id")?,
+            "selected_account_id",
+        )?,
+        selected_proxy_id: parse_optional_uuid(
+            row.try_get("selected_proxy_id")?,
+            "selected_proxy_id",
+        )?,
         routing_decision: row.try_get("routing_decision")?,
         failover_scope: row.try_get("failover_scope")?,
         status_code: row
@@ -977,8 +1415,11 @@ fn map_postgres_system_event_row(row: PgRow) -> Result<SystemEventRecord> {
     })
 }
 
-fn parse_optional_uuid(raw: Option<String>) -> Result<Option<Uuid>> {
-    raw.map(|value| Uuid::parse_str(&value).context("invalid uuid in system event row"))
+fn parse_optional_uuid(raw: Option<String>, field: &'static str) -> Result<Option<Uuid>> {
+    raw.map(|value| {
+        Uuid::parse_str(&value)
+            .with_context(|| format!("invalid uuid stored in system_event_logs.{field}"))
+    })
         .transpose()
 }
 
@@ -1215,4 +1656,146 @@ fn summarize_upstream_event_payload(raw: &str) -> Option<String> {
     let value = serde_json::from_str::<Value>(trimmed).ok()?;
     let event_type = value.get("type")?.as_str()?;
     Some(format!("upstream_event:{event_type}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use codex_pool_core::events::{SystemEventCategory, SystemEventSeverity, SystemEventWrite};
+
+    fn system_event_write(
+        ts: DateTime<Utc>,
+        category: SystemEventCategory,
+        account_id: Option<Uuid>,
+        selected_account_id: Option<Uuid>,
+    ) -> SystemEventWrite {
+        SystemEventWrite {
+            event_id: Some(Uuid::new_v4()),
+            ts: Some(ts),
+            category,
+            event_type: "signal_test".to_string(),
+            severity: SystemEventSeverity::Info,
+            source: "account-signal-test".to_string(),
+            tenant_id: None,
+            account_id,
+            request_id: None,
+            trace_request_id: None,
+            job_id: None,
+            account_label: None,
+            auth_provider: None,
+            operator_state_from: None,
+            operator_state_to: None,
+            reason_class: None,
+            reason_code: None,
+            next_action_at: None,
+            path: None,
+            method: None,
+            model: None,
+            selected_account_id,
+            selected_proxy_id: None,
+            routing_decision: None,
+            failover_scope: None,
+            status_code: None,
+            upstream_status_code: None,
+            latency_ms: None,
+            message: None,
+            preview_text: None,
+            payload_json: None,
+            secret_preview: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn sqlite_repo_summarizes_account_signal_heatmaps_with_selected_account_ids() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let repo = sqlite_repo::SqliteSystemEventRepo::new(pool).await.unwrap();
+        let tracked_account_id = Uuid::new_v4();
+        let other_account_id = Uuid::new_v4();
+        let now = DateTime::<Utc>::from_timestamp(1_774_703_640, 0).unwrap();
+
+        repo.insert_event(system_event_write(
+            DateTime::<Utc>::from_timestamp(1_774_703_140, 0).unwrap(),
+            SystemEventCategory::Request,
+            None,
+            Some(tracked_account_id),
+        ))
+        .await
+        .unwrap();
+        repo.insert_event(system_event_write(
+            DateTime::<Utc>::from_timestamp(1_774_702_960, 0).unwrap(),
+            SystemEventCategory::Patrol,
+            Some(tracked_account_id),
+            None,
+        ))
+        .await
+        .unwrap();
+        repo.insert_event(system_event_write(
+            DateTime::<Utc>::from_timestamp(1_774_700_920, 0).unwrap(),
+            SystemEventCategory::AccountPool,
+            Some(tracked_account_id),
+            None,
+        ))
+        .await
+        .unwrap();
+        repo.insert_event(system_event_write(
+            DateTime::<Utc>::from_timestamp(1_774_703_020, 0).unwrap(),
+            SystemEventCategory::Request,
+            Some(other_account_id),
+            None,
+        ))
+        .await
+        .unwrap();
+
+        let summaries = repo
+            .summarize_account_signal_heatmaps(&[tracked_account_id], now, 120, 10)
+            .await
+            .unwrap();
+        let summary = summaries.get(&tracked_account_id).expect("summary should exist");
+
+        assert_eq!(summary.intensity_levels.len(), 12);
+        assert_eq!(summary.intensity_levels[6], 1);
+        assert_eq!(summary.intensity_levels[10], 2);
+        assert_eq!(summary.intensity_levels[11], 0);
+    }
+
+    #[tokio::test]
+    async fn sqlite_repo_builds_account_signal_heatmap_detail_counts() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let repo = sqlite_repo::SqliteSystemEventRepo::new(pool).await.unwrap();
+        let tracked_account_id = Uuid::new_v4();
+        let now = DateTime::<Utc>::from_timestamp(1_774_703_640, 0).unwrap();
+
+        repo.insert_event(system_event_write(
+            DateTime::<Utc>::from_timestamp(1_774_703_140, 0).unwrap(),
+            SystemEventCategory::Request,
+            Some(tracked_account_id),
+            None,
+        ))
+        .await
+        .unwrap();
+        repo.insert_event(system_event_write(
+            DateTime::<Utc>::from_timestamp(1_774_703_080, 0).unwrap(),
+            SystemEventCategory::Patrol,
+            None,
+            Some(tracked_account_id),
+        ))
+        .await
+        .unwrap();
+
+        let detail = repo
+            .account_signal_heatmap_detail(tracked_account_id, now, 60, 10)
+            .await
+            .unwrap()
+            .expect("detail should exist");
+        let bucket = detail
+            .buckets
+            .iter()
+            .find(|bucket| bucket.signal_count > 0)
+            .expect("signal bucket should exist");
+
+        assert_eq!(bucket.signal_count, 2);
+        assert_eq!(bucket.active_count, 1);
+        assert_eq!(bucket.passive_count, 1);
+        assert_eq!(bucket.intensity, 2);
+    }
 }

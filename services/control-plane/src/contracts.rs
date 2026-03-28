@@ -412,6 +412,8 @@ pub struct AccountPoolRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_signal_source: Option<OAuthLiveResultSource>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub recent_signal_heatmap: Option<AccountSignalHeatmapSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_probe_at: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_probe_outcome: Option<AccountProbeOutcome>,
@@ -458,6 +460,40 @@ pub struct AccountPoolSummaryResponse {
     pub fatal: u64,
     pub transient: u64,
     pub admin: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AccountSignalHeatmapSummary {
+    pub bucket_minutes: u16,
+    pub window_minutes: u16,
+    pub window_start: DateTime<Utc>,
+    pub intensity_levels: Vec<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_signal_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_signal_source: Option<OAuthLiveResultSource>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AccountSignalHeatmapBucket {
+    pub start_at: DateTime<Utc>,
+    pub signal_count: u32,
+    pub intensity: u8,
+    pub active_count: u32,
+    pub passive_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AccountSignalHeatmapDetail {
+    pub record_id: Uuid,
+    pub bucket_minutes: u16,
+    pub window_minutes: u16,
+    pub window_start: DateTime<Utc>,
+    pub buckets: Vec<AccountSignalHeatmapBucket>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_signal_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_signal_source: Option<OAuthLiveResultSource>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -3,6 +3,9 @@ const DEFAULT_CODEX_IMPORT_PRIORITY: i32 = 100;
 const DEFAULT_CODEX_IMPORT_ENABLED: bool = true;
 const DEFAULT_CODEX_OAUTH_SCOPE: &str = "openid email profile offline_access";
 const DEFAULT_CODEX_OAUTH_REDIRECT_URL: &str = "http://localhost:1455/auth/callback";
+const ACCOUNT_SIGNAL_BUCKET_MINUTES: u16 = 10;
+const ACCOUNT_SIGNAL_SUMMARY_WINDOW_MINUTES: u16 = 12 * 60;
+const ACCOUNT_SIGNAL_DETAIL_WINDOW_MINUTES: u16 = 24 * 60;
 
 #[derive(Debug, Clone, Deserialize)]
 struct CreateCodexOAuthLoginSessionRequest {
@@ -1178,17 +1181,71 @@ async fn get_account_pool_summary(
         .map_err(internal_error)
 }
 
+fn account_pool_signal_repo_unavailable_error() -> (StatusCode, Json<ErrorEnvelope>) {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(ErrorEnvelope::new(
+            "system_event_repo_unavailable",
+            "system event repository is not available",
+        )),
+    )
+}
+
+async fn enrich_account_pool_signal_summaries(
+    state: &AppState,
+    records: &mut [AccountPoolRecord],
+) -> anyhow::Result<()> {
+    let Some(repo) = state.system_event_repo.as_ref() else {
+        return Ok(());
+    };
+
+    let runtime_record_ids = records
+        .iter()
+        .filter(|record| matches!(record.record_scope, AccountPoolRecordScope::Runtime))
+        .map(|record| record.id)
+        .collect::<Vec<_>>();
+    if runtime_record_ids.is_empty() {
+        return Ok(());
+    }
+
+    let summaries = repo
+        .summarize_account_signal_heatmaps(
+            &runtime_record_ids,
+            Utc::now(),
+            ACCOUNT_SIGNAL_SUMMARY_WINDOW_MINUTES,
+            ACCOUNT_SIGNAL_BUCKET_MINUTES,
+        )
+        .await?;
+
+    for record in records.iter_mut() {
+        if !matches!(record.record_scope, AccountPoolRecordScope::Runtime) {
+            record.recent_signal_heatmap = None;
+            continue;
+        }
+        if let Some(mut summary) = summaries.get(&record.id).cloned() {
+            summary.latest_signal_at = record.last_signal_at;
+            summary.latest_signal_source = record.last_signal_source.clone();
+            record.recent_signal_heatmap = Some(summary);
+        }
+    }
+
+    Ok(())
+}
+
 async fn list_account_pool_records(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<AccountPoolRecord>>, (StatusCode, Json<ErrorEnvelope>)> {
     let _principal = require_admin_principal(&state, &headers)?;
-    state
+    let mut records = state
         .store
         .account_pool_records()
         .await
-        .map(Json)
-        .map_err(internal_error)
+        .map_err(internal_error)?;
+    enrich_account_pool_signal_summaries(&state, &mut records)
+        .await
+        .map_err(internal_error)?;
+    Ok(Json(records))
 }
 
 async fn get_account_pool_record(
@@ -1197,12 +1254,50 @@ async fn get_account_pool_record(
     headers: HeaderMap,
 ) -> Result<Json<AccountPoolRecord>, (StatusCode, Json<ErrorEnvelope>)> {
     let _principal = require_admin_principal(&state, &headers)?;
-    state
+    let mut record = state
         .store
         .account_pool_record(record_id)
         .await
-        .map(Json)
-        .map_err(internal_error)
+        .map_err(internal_error)?;
+    enrich_account_pool_signal_summaries(&state, std::slice::from_mut(&mut record))
+        .await
+        .map_err(internal_error)?;
+    Ok(Json(record))
+}
+
+async fn get_account_pool_signal_heatmap(
+    Path(record_id): Path<Uuid>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Option<AccountSignalHeatmapDetail>>, (StatusCode, Json<ErrorEnvelope>)> {
+    let _principal = require_admin_principal(&state, &headers)?;
+    let record = state
+        .store
+        .account_pool_record(record_id)
+        .await
+        .map_err(internal_error)?;
+    if !matches!(record.record_scope, AccountPoolRecordScope::Runtime) {
+        return Ok(Json(None));
+    }
+
+    let repo = state
+        .system_event_repo
+        .as_ref()
+        .ok_or_else(account_pool_signal_repo_unavailable_error)?;
+    let mut detail = repo
+        .account_signal_heatmap_detail(
+            record.id,
+            Utc::now(),
+            ACCOUNT_SIGNAL_DETAIL_WINDOW_MINUTES,
+            ACCOUNT_SIGNAL_BUCKET_MINUTES,
+        )
+        .await
+        .map_err(internal_error)?;
+    if let Some(item) = detail.as_mut() {
+        item.latest_signal_at = record.last_signal_at;
+        item.latest_signal_source = record.last_signal_source.clone();
+    }
+    Ok(Json(detail))
 }
 
 async fn operate_account_pool_records(
