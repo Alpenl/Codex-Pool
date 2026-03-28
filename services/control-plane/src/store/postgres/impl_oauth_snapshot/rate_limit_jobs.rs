@@ -883,9 +883,10 @@ impl PostgresStore {
     async fn persist_rate_limit_cache_failure(
         &self,
         account_id: Uuid,
+        auth_provider: Option<&UpstreamAuthProvider>,
         error_code: &str,
         error_message: &str,
-    ) -> Result<()> {
+    ) -> Result<String> {
         let now = Utc::now();
         let backoff_sec = rate_limit_failure_backoff_seconds(error_code, error_message);
         let next_retry_at = now + Duration::seconds(backoff_sec);
@@ -894,6 +895,15 @@ impl PostgresStore {
         let quota_signal = is_quota_error_signal(error_code, error_message);
         let auth_signal = is_auth_error_signal(error_code, error_message);
         let rate_limited_signal = is_rate_limited_signal(error_code, error_message);
+        let normalized_error_code = if auth_signal {
+            auth_provider
+                .map(|provider| {
+                    normalized_auth_failure_reason_code(provider, error_code, error_message)
+                })
+                .unwrap_or_else(|| error_code.to_string())
+        } else {
+            error_code.to_string()
+        };
         let mut tx = self
             .pool
             .begin()
@@ -922,7 +932,7 @@ impl PostgresStore {
         )
         .bind(account_id)
         .bind(next_retry_at)
-        .bind(error_code)
+        .bind(normalized_error_code.as_str())
         .bind(truncated_message.as_str())
         .bind(now)
         .execute(tx.as_mut())
@@ -949,6 +959,7 @@ impl PostgresStore {
         tracing::warn!(
             account_id = %account_id,
             error_code,
+            normalized_error_code = %normalized_error_code,
             error_message = %truncated_message,
             backoff_sec,
             next_retry_at = %next_retry_at,
@@ -959,7 +970,7 @@ impl PostgresStore {
             "oauth rate-limit refresh failed; applied health-policy backoff window"
         );
 
-        Ok(())
+        Ok(normalized_error_code)
     }
 
     async fn persist_rate_limit_success_outcome(
@@ -976,7 +987,7 @@ impl PostgresStore {
             Err(err) => {
                 let code = "cache_persist_failed".to_string();
                 let _ = self
-                    .persist_rate_limit_cache_failure(account_id, &code, &err.to_string())
+                    .persist_rate_limit_cache_failure(account_id, None, &code, &err.to_string())
                     .await;
                 (false, Some(code))
             }
@@ -1285,6 +1296,7 @@ impl PostgresStore {
                                             let _ = self
                                                 .persist_rate_limit_cache_failure(
                                                     account_id,
+                                                    None,
                                                     &code,
                                                     &err.to_string(),
                                                 )
@@ -1312,14 +1324,18 @@ impl PostgresStore {
                                             .await
                                         }
                                         Err((refetch_error_code, refetch_error_message)) => {
-                                            let _ = self
+                                            let stored_error_code = self
                                                 .persist_rate_limit_cache_failure(
                                                     account_id,
+                                                    Some(&refreshed_target.auth_provider),
                                                     &refetch_error_code,
                                                     &refetch_error_message,
                                                 )
                                                 .await;
-                                            (false, Some(refetch_error_code))
+                                            (
+                                                false,
+                                                stored_error_code.ok().map(|code| code).or(Some(refetch_error_code)),
+                                            )
                                         }
                                     };
                                 }
@@ -1329,14 +1345,15 @@ impl PostgresStore {
                                     "forced oauth refresh did not recover account after rate-limit auth failure"
                                 );
                             }
-                            let _ = self
+                            let stored_error_code = self
                                 .persist_rate_limit_cache_failure(
                                     account_id,
+                                    Some(&target.auth_provider),
                                     &error_code,
                                     &error_message,
                                 )
                                 .await;
-                            (false, Some(error_code))
+                            (false, stored_error_code.ok().or(Some(error_code)))
                         }
                     }
                 }

@@ -301,6 +301,7 @@ impl InMemoryStore {
 
     fn classify_runtime_probe_failure(
         &self,
+        auth_provider: &UpstreamAuthProvider,
         checked_at: DateTime<Utc>,
         error_code: &str,
         error_message: &str,
@@ -348,11 +349,7 @@ impl InMemoryStore {
         if is_fatal_refresh_error_code(Some(error_code)) || is_auth_error_signal(error_code, error_message) {
             return (
                 AccountProbeOutcome::Fatal,
-                if normalized_code.is_empty() {
-                    "invalid_refresh_token".to_string()
-                } else {
-                    normalized_code
-                },
+                normalized_auth_failure_reason_code(auth_provider, error_code, error_message),
                 None,
             );
         }
@@ -1652,21 +1649,31 @@ impl InMemoryStore {
         account_id: Uuid,
         error_code: &str,
         error_message: &str,
-    ) {
+    ) -> String {
         let now = Utc::now();
         let backoff_sec = rate_limit_failure_backoff_seconds(error_code, error_message);
         let truncated_message = truncate_error_message(error_message.to_string());
+        let normalized_error_code = if is_auth_error_signal(error_code, error_message) {
+            normalized_auth_failure_reason_code(
+                &self.account_auth_provider(account_id),
+                error_code,
+                error_message,
+            )
+        } else {
+            error_code.to_string()
+        };
         let mut caches = self.oauth_rate_limit_caches.write().unwrap();
         let cache = caches.entry(account_id).or_default();
         if cache.rate_limits.is_empty() {
             cache.fetched_at = None;
         }
         cache.expires_at = Some(now + Duration::seconds(backoff_sec));
-        cache.last_error_code = Some(error_code.to_string());
+        cache.last_error_code = Some(normalized_error_code.clone());
         cache.last_error = Some(truncated_message);
         drop(caches);
 
         self.revision.fetch_add(1, Ordering::Relaxed);
+        normalized_error_code
     }
 
     fn append_rate_limit_refresh_job_progress(
@@ -1776,12 +1783,12 @@ impl InMemoryStore {
                         (true, None)
                     }
                     Err((error_code, error_message)) => {
-                        self.persist_rate_limit_cache_failure_inner(
+                        let stored_error_code = self.persist_rate_limit_cache_failure_inner(
                             target.account_id,
                             &error_code,
                             &error_message,
                         );
-                        (false, Some(error_code))
+                        (false, Some(stored_error_code))
                     }
                 }
             })
@@ -2065,7 +2072,7 @@ impl InMemoryStore {
                                 account_id,
                                 Some("credential_decrypt_failed".to_string()),
                             )?;
-                            self.persist_rate_limit_cache_failure_inner(
+                            let _ = self.persist_rate_limit_cache_failure_inner(
                                 account_id,
                                 "credential_decrypt_failed",
                                 &truncate_error_message(err.to_string()),
@@ -2138,12 +2145,13 @@ impl InMemoryStore {
                 Err(err) => {
                     let error_code = err.code().as_str().to_string();
                     let error_message = truncate_error_message(err.to_string());
-                    self.persist_rate_limit_cache_failure_inner(
+                    let _ = self.persist_rate_limit_cache_failure_inner(
                         account_id,
                         &error_code,
                         &error_message,
                     );
                     let (outcome, reason_code, retry_after) = self.classify_runtime_probe_failure(
+                        provider,
                         checked_at,
                         &error_code,
                         &error_message,

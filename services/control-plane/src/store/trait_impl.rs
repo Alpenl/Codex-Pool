@@ -1212,6 +1212,32 @@ mod tests {
     }
 
     #[derive(Clone)]
+    struct LegacyBearerAuthFailureOAuthTokenClient;
+
+    #[async_trait]
+    impl OAuthTokenClient for LegacyBearerAuthFailureOAuthTokenClient {
+        async fn refresh_token(
+            &self,
+            _refresh_token: &str,
+            _base_url: Option<&str>,
+        ) -> Result<OAuthTokenInfo, crate::oauth::OAuthTokenClientError> {
+            StaticOAuthTokenClient.refresh_token("rt", None).await
+        }
+
+        async fn fetch_rate_limits(
+            &self,
+            _access_token: &str,
+            _base_url: Option<&str>,
+            _chatgpt_account_id: Option<&str>,
+        ) -> Result<Vec<OAuthRateLimitSnapshot>, crate::oauth::OAuthTokenClientError> {
+            Err(crate::oauth::OAuthTokenClientError::InvalidRefreshToken {
+                code: crate::oauth::OAuthRefreshErrorCode::InvalidRefreshToken,
+                message: "access token is invalid".to_string(),
+            })
+        }
+    }
+
+    #[derive(Clone)]
     struct AdmissionProbeOAuthTokenClient {
         refresh_calls: Arc<AtomicUsize>,
         rate_limits: Vec<OAuthRateLimitSnapshot>,
@@ -3361,5 +3387,51 @@ mod tests {
             crate::contracts::AccountHealthFreshness::Fresh
         );
         assert!(pool_record.last_probe_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn in_memory_active_patrol_labels_legacy_bearer_auth_failure_as_token_invalidated() {
+        let store = InMemoryStore::new_with_oauth(
+            Arc::new(LegacyBearerAuthFailureOAuthTokenClient),
+            None,
+        );
+
+        let account = store
+            .upsert_one_time_session_account(UpsertOneTimeSessionAccountRequest {
+                label: "legacy-bearer-auth-failure".to_string(),
+                mode: UpstreamMode::CodexOauth,
+                base_url: "https://chatgpt.com/backend-api/codex".to_string(),
+                access_token: "legacy-bearer-invalid-token".to_string(),
+                chatgpt_account_id: Some("acct_legacy_invalid".to_string()),
+                enabled: Some(true),
+                priority: Some(100),
+                token_expires_at: Some(Utc::now() + Duration::hours(2)),
+                chatgpt_plan_type: Some("pro".to_string()),
+                source_type: Some("codex".to_string()),
+            })
+            .await
+            .unwrap()
+            .account;
+
+        {
+            let mut states = store.account_health_states.write().unwrap();
+            let state = states.entry(account.id).or_default();
+            state.last_probe_at = Some(Utc::now() - Duration::minutes(30));
+            state.last_probe_outcome = Some(crate::contracts::AccountProbeOutcome::Ok);
+        }
+
+        let patrolled = store.patrol_active_oauth_accounts().await.unwrap();
+        assert_eq!(patrolled, 1);
+
+        let status = store.oauth_account_status(account.id).await.unwrap();
+        assert_eq!(status.rate_limits_last_error_code.as_deref(), Some("token_invalidated"));
+        assert_eq!(status.pending_purge_reason.as_deref(), Some("token_invalidated"));
+
+        let pool_record = store.account_pool_record(account.id).await.unwrap();
+        assert_eq!(
+            pool_record.operator_state,
+            crate::contracts::AccountPoolOperatorState::PendingDelete
+        );
+        assert_eq!(pool_record.reason_code.as_deref(), Some("token_invalidated"));
     }
 }

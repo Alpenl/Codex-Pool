@@ -185,6 +185,7 @@ fn is_auth_error_signal(error_code: &str, error_message: &str) -> bool {
     if matches!(
         code.as_str(),
         "auth_expired"
+            | "token_invalidated"
             | "invalid_refresh_token"
             | "refresh_token_reused"
             | "refresh_token_revoked"
@@ -199,6 +200,29 @@ fn is_auth_error_signal(error_code: &str, error_message: &str) -> bool {
         || message.contains("logged out")
         || message.contains("signed in to another account")
         || message.contains("invalid refresh token")
+}
+
+fn normalized_auth_failure_reason_code(
+    auth_provider: &UpstreamAuthProvider,
+    error_code: &str,
+    error_message: &str,
+) -> String {
+    let normalized = normalize_error_code_for_health(error_code);
+    if normalized == "token_invalidated" {
+        return normalized;
+    }
+
+    if matches!(auth_provider, UpstreamAuthProvider::LegacyBearer)
+        && is_auth_error_signal(error_code, error_message)
+    {
+        return "token_invalidated".to_string();
+    }
+
+    if normalized.is_empty() {
+        return "invalid_refresh_token".to_string();
+    }
+
+    normalized
 }
 
 fn is_rate_limited_signal(error_code: &str, error_message: &str) -> bool {

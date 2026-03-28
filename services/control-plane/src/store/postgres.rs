@@ -390,6 +390,10 @@ mod postgres_env_tests {
             Some("upstream_unavailable"),
             Some("gateway timeout")
         ));
+        assert!(is_blocking_rate_limit_error(
+            Some("token_invalidated"),
+            Some("token invalidated")
+        ));
     }
 
     #[test]
@@ -405,6 +409,30 @@ mod postgres_env_tests {
         assert_eq!(
             rate_limit_failure_backoff_seconds("rate_limited", "too many requests"),
             120
+        );
+        assert_eq!(
+            rate_limit_failure_backoff_seconds("token_invalidated", "token invalidated"),
+            30 * 60
+        );
+    }
+
+    #[test]
+    fn normalized_auth_failure_reason_code_matches_provider_semantics() {
+        assert_eq!(
+            normalized_auth_failure_reason_code(
+                &UpstreamAuthProvider::LegacyBearer,
+                "invalid_refresh_token",
+                "access token is invalid",
+            ),
+            "token_invalidated"
+        );
+        assert_eq!(
+            normalized_auth_failure_reason_code(
+                &UpstreamAuthProvider::OAuthRefreshToken,
+                "invalid_refresh_token",
+                "refresh token is invalid",
+            ),
+            "invalid_refresh_token"
         );
     }
 
