@@ -2,6 +2,8 @@ import { apiClient } from './client'
 
 export type ModelAvailabilityStatus = 'unknown' | 'available' | 'unavailable'
 
+const OPENAI_CATALOG_SYNC_TIMEOUT_MS = 300_000
+
 export interface ModelPricingItem {
   id: string
   model: string
@@ -129,7 +131,13 @@ export const modelsApi = {
     return response.data
   },
   syncOpenAiCatalog: async (): Promise<OpenAiModelsSyncResponse> => {
-    const response = await apiClient.post<OpenAiModelsSyncResponse>('/admin/models/sync-openai', {})
+    const response = await apiClient.post<OpenAiModelsSyncResponse>(
+      '/admin/models/sync-openai',
+      {},
+      {
+        timeout: OPENAI_CATALOG_SYNC_TIMEOUT_MS,
+      },
+    )
     return response.data
   },
   probeModels: async (payload: ProbeModelsRequest = {}): Promise<ListModelsResponse> => {

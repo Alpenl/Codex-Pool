@@ -44,6 +44,20 @@ test('app adds inventory compatibility route', async () => {
   assert.match(source, /path="\/inventory"/, 'App should register /inventory route')
 })
 
+test('models api gives openai catalog sync a dedicated long timeout', async () => {
+  const source = await readSource('./api/models.ts')
+  assert.match(
+    source,
+    /const OPENAI_CATALOG_SYNC_TIMEOUT_MS = 300_000/,
+    'models api should define a dedicated timeout budget for catalog sync',
+  )
+  assert.match(
+    source,
+    /syncOpenAiCatalog:[\s\S]*timeout:\s*OPENAI_CATALOG_SYNC_TIMEOUT_MS/,
+    'models api should not let catalog sync fall back to the 10s shared client timeout',
+  )
+})
+
 test('oauth probe remnants are removed from zh-CN and en locales', async () => {
   const zhSource = await readSource('./locales/zh-CN.ts')
   const enSource = await readSource('./locales/en.ts')
