@@ -17,7 +17,8 @@ listen = "0.0.0.0:8090"
 # /internal/v1/auth/validate 返回给 data-plane 的建议缓存 TTL（秒）
 auth_validate_cache_ttl_sec = 30
 
-# 管理台登录账号（可选，不填则使用默认 admin/admin123456）
+# 管理台登录账号；用户名可选，密码与 JWT secret 建议显式配置
+# 若未设置用户名，通常使用默认用户名 admin
 # admin_username = "admin"
 # admin_password = "please-change-me"
 # admin_jwt_secret = "please-change-me-too"

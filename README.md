@@ -1,385 +1,324 @@
 # Codex-Pool
 
 <p align="center">
-  <img src="./assets/logo.png" alt="Codex-Pool Logo" width="200" />
+  <img src="./frontend/public/favicon.svg" alt="Codex-Pool Logo" width="160" />
 </p>
 
 <p align="center">
-  <strong>面向多租户与可观测场景的 Codex/OpenAI 兼容代理系统</strong><br/>
-  Rust 双平面架构（Data Plane + Control Plane）+ React 管理台 + Docker 生产编排
+  <strong>面向自托管场景的 Codex / OpenAI 兼容代理与管理台</strong><br/>
+  当前公开稳定支持 <code>personal</code> 版：单二进制、SQLite、内嵌前端。
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Rust-1.93%2B-000000?logo=rust" alt="Rust" />
+  <img src="https://img.shields.io/badge/Rust-stable-000000?logo=rust" alt="Rust" />
   <img src="https://img.shields.io/badge/Frontend-React%20%2B%20Vite-61dafb?logo=react" alt="Frontend" />
   <img src="https://img.shields.io/badge/License-Apache--2.0-blue" alt="License" />
-  <img src="https://img.shields.io/badge/CI-GitHub%20Actions-2088ff?logo=githubactions" alt="CI" />
 </p>
 
----
+## 当前状态
 
-## 为什么是 Codex-Pool
+- 当前仓库对外主推的是 `personal`：单实例、单管理员入口、SQLite 存储、内嵌管理台。
+- `team` 和 `business` 仍在开发中，仓库里已有部分代码、文档和编排文件，但**暂不作为公开稳定使用路径承诺**。
+- 推荐的公开使用方式是：本地构建 `personal` 二进制，配置环境变量后直接运行。
 
-Codex-Pool 用于把多个上游账号池化成一个统一入口，对外提供 **OpenAI/Codex 兼容接口**，并同时具备：
+## 它能做什么
 
-- 多租户隔离与 API Key 管理
-- 账号路由、故障切换、快照热更新
-- 请求日志事件流 + 用量聚合（Redis Stream + ClickHouse）
-- 管理台（Admin Portal）与租户门户（Tenant Portal）
-- 可生产部署的 Docker Compose 拆分
+Codex-Pool 用于把多个上游账号统一纳入一个管理面和一个兼容入口，对外提供：
 
-当前仓库同时维护三档交付形态：
+- OpenAI / Codex 兼容请求入口
+- 管理台中的账号池、日志、导入、模型、代理、计费与系统配置能力
+- 针对 OAuth / Session 账号的批量导入、健康循环和状态可视化
+- `personal` 形态下的一体化运行：admin UI + control-plane API + `/v1/*` 代理
 
-- `personal`：单二进制/单容器、SQLite、无 Redis/ClickHouse/独立 frontend
-- `team`：`app + postgres`，适合 2-10 人小团队
-- `business`：全功能多服务栈，默认使用 PostgreSQL + PgBouncer + Redis + ClickHouse
+## 当前公开支持范围
 
----
+### 稳定公开
 
-## 目录
+- `personal`
+  - 单二进制
+  - SQLite
+  - 无需 PostgreSQL / Redis / ClickHouse / 独立 frontend 容器
 
-- [架构总览](#架构总览)
-- [5 分钟快速开始](#5-分钟快速开始)
-- [生产部署](#生产部署)
-- [版本与迁移](#版本与迁移)
-- [Docker 常见问题](#docker-常见问题)
-- [安全基线](#安全基线)
-- [CI/CD](#cicd)
-- [API 兼容面](#api-兼容面)
-- [开发者指南（后置）](#开发者指南后置)
-- [项目结构](#项目结构)
+### 开发中
 
----
+- `team`
+- `business`
 
-## 架构总览
+如果你要公开部署或对外文档化，建议默认只写 `personal`，不要把 `team` / `business` 当作已稳定发布能力。
 
-```mermaid
-flowchart LR
-    User[API Client / SDK] --> DP[Data Plane]
-    Admin[Admin/Tenant UI] --> CP[Control Plane]
-    UI[Frontend SPA] --> CP
+## Personal 快速开始
 
-    CP --> PG[(PostgreSQL)]
-    CP --> CH[(ClickHouse)]
-    DP --> CP
-    DP --> Redis[(Redis Streams)]
-    Worker[Usage Worker] --> Redis
-    Worker --> CH
-```
+### 1. 准备依赖
 
-### 组件职责
+- Rust 工具链
+- Node.js 与 npm
 
-| 组件 | 职责 |
-| --- | --- |
-| `data-plane` | 兼容 `/v1/responses`、`/v1/chat/completions` 等接口；路由到上游账号；请求级 failover；可选内部调试路由 |
-| `control-plane` | 管理 API、租户与 API Key、上游账号管理、策略管理、快照发布、报表查询 |
-| `usage-worker` | 消费 Redis Stream 请求日志，按小时聚合写入 ClickHouse |
-| `frontend` | Admin + Tenant 双门户，统一通过 `/api/v1` 访问 control-plane |
+### 2. 构建前端静态资源
 
-补充约定：
-
-- `x-request-id` 用于请求链路追踪与日志关联，不作为计费幂等键。
-- data-plane 会为每个可计费 logical request 生成内部 billing key；control-plane 只对该内部键做授权/捕获/释放幂等。
-- `previous_response_id`、`session_id`、`x-codex-turn-state` 只参与 continuation / sticky routing，不直接承担账务幂等语义。
-- `Responses API` 在 Codex profile 下的兼容范围与已知限制，见 [docs/responses-api-compatibility-matrix.md](docs/responses-api-compatibility-matrix.md)。
-
----
-
-## 5 分钟快速开始
-
-### 1) 启动开发环境
+`personal` 二进制会把 `frontend/dist` 内嵌进去，所以要先构建前端：
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d --build
-```
-
-### 2) 检查服务健康
-
-```bash
-curl -fsS http://127.0.0.1:8090/health
-curl -fsS http://127.0.0.1:8091/health
-```
-
-### 3) 打开前端
-
-- 管理台：`http://127.0.0.1:5173`
-- 默认管理员（仅开发）：`admin / admin123456`
-
-### 4) 运行一键冒烟（可选）
-
-```bash
-./scripts/smoke_dashboard_logs_billing.sh
-```
-
----
-
-## 生产部署
-
-### 方案 A：`personal` 单容器部署（SQLite）
-
-`personal` 版会把 admin UI、control-plane API、`/v1/*` 代理统一收进一个容器，并把状态保存在 SQLite。
-
-1. 复制示例环境变量：
-
-```bash
-cp docker/.env.personal.example docker/.env.personal
-```
-
-2. 启动：
-
-```bash
-docker compose --env-file docker/.env.personal -f docker-compose.personal.yml up -d --build
-```
-
-3. 访问：
-
-- 统一入口：`http://127.0.0.1:${PERSONAL_APP_PORT:-8090}`
-- 运行模式：`CODEX_POOL_EDITION=personal`
-- 默认不启动 PostgreSQL、Redis、ClickHouse、独立 frontend 容器
-
-### 方案 B：`business` 全功能部署（多服务）
-
-`business` 版对应当前仓库里的完整生产编排，使用：
-
-- `docker-compose.yml`：全功能运行栈
-- `docker-compose.build.yml`：本机构建镜像 overlay
-
-1. 先准备业务版变量：
-
-```bash
-cp docker/.env.business.example docker/.env.business
-```
-
-必须替换的关键变量：
-
-- `POSTGRES_PASSWORD`
-- `CONTROL_PLANE_INTERNAL_AUTH_TOKEN`
-- `CONTROL_PLANE_API_KEY_HMAC_KEYS`
-- `CREDENTIALS_ENCRYPTION_KEY`
-- `ADMIN_PASSWORD`
-- `ADMIN_JWT_SECRET`
-
-> 建议用 `openssl rand -base64 32` 生成高强度密钥。
-
-#### 单机构建并部署（不依赖镜像仓库）
-
-```bash
-docker compose \
-  --env-file docker/.env.business \
-  -f docker-compose.yml \
-  -f docker-compose.build.yml \
-  up -d --build
-```
-
-这个方案**不需要**先把镜像上传到 Docker Hub/GHCR。
-
-#### 多机/集群部署（镜像先推仓库）
-
-1. 在 CI 通过 tag 自动发布镜像（已提供 `docker-publish.yml`，默认发布到 GHCR）。
-2. 在部署机设置镜像地址：
-   - `CONTROL_PLANE_IMAGE`
-   - `DATA_PLANE_IMAGE`
-   - `USAGE_WORKER_IMAGE`
-   - `FRONTEND_IMAGE`
-3. 启动：
-
-```bash
-docker compose --env-file docker/.env.business -f docker-compose.yml up -d
-```
-
-### 方案 C：`team` 版最小 Docker 部署（`app + postgres`）
-
-`team` 版现在支持单容器承载 admin UI、tenant UI、control-plane API 与 `/v1/*` 代理，只需要再配一个 PostgreSQL。
-
-1. 复制示例环境变量：
-
-```bash
-cp docker/.env.team.example docker/.env.team
-```
-
-2. 启动：
-
-```bash
-docker compose --env-file docker/.env.team -f docker-compose.team.yml up -d --build
-```
-
-3. 访问：
-
-- 管理端与租户端统一入口：`http://127.0.0.1:${TEAM_APP_PORT:-8090}`
-- 运行模式：`CODEX_POOL_EDITION=team`
-- 默认不启动 Redis、ClickHouse、独立 frontend 容器
-
-### 版本交付矩阵
-
-| 版本 | 启动文件 | 默认依赖 |
-| --- | --- | --- |
-| `personal` | `docker-compose.personal.yml` | 单个 `app` 容器 + SQLite volume |
-| `team` | `docker-compose.team.yml` | `app + postgres` |
-| `business` | `docker-compose.yml` | `control-plane + data-plane + usage-worker + frontend + postgres + pgbouncer + redis + clickhouse` |
-
-### Cargo 后端家族构建矩阵
-
-Cargo feature 现在只表达 backend family，不表达 edition。本仓库的推荐构建命令如下：
-
-| 交付形态 | control-plane / worker 构建命令 |
-| --- | --- |
-| `personal` | `cargo build -p control-plane --no-default-features --features sqlite-backend --bin codex-pool-personal` |
-| `team` | `cargo build -p control-plane --no-default-features --features postgres-backend --bin codex-pool-team` |
-| `business` | `cargo build -p control-plane --no-default-features --features postgres-backend,redis-backend,clickhouse-backend,smtp-backend --bin codex-pool-business --bin usage-worker --bin edition-migrate` |
-
-补充说明：
-
-- `data-plane` 的默认轻依赖路径使用 `cargo check -p data-plane --no-default-features`。
-- 只有 `business` 路径才需要 `cargo check -p data-plane --no-default-features --features redis-backend`。
-- `edition-migrate` 依赖 PostgreSQL family，因此至少需要 `postgres-backend`。
-
-## 版本与迁移
-
-- 运维指南：[`docs/editions-and-migration.md`](./docs/editions-and-migration.md)
-- 覆盖内容：
-  - `personal / team / business` 部署矩阵
-  - 产品名二进制：`codex-pool-personal / codex-pool-team / codex-pool-business`
-  - `edition-migrate export / preflight / import / archive inspect / shrink` 命令
-  - 升级路径：`personal -> team/business`、`team -> business`
-  - 降级路径：`business -> team`、`team/business -> personal`
-  - `business` 的横向扩容建议
-
----
-
-## Docker 常见问题
-
-### 我必须上传 Docker Hub 吗？
-
-不是必须。
-
-- 单机部署：用 `docker-compose.build.yml` 本机构建，直接起服务。
-- 多机部署：需要把镜像推到“某个可访问仓库”，可以是 Docker Hub、GHCR、私有 Harbor/ECR/GCR。
-
-### 生产编排现在有什么修复？
-
-当前仓库已补齐以下关键点：
-
-- `docker-compose.yml` 为 `control-plane/data-plane/usage-worker` 显式设置 `command`
-- control-plane 补齐关键必填环境变量（API Key HMAC key ring、凭据加密密钥等）
-- 新增 `docker/frontend.runtime.Dockerfile`（构建静态资源 + Nginx）
-- 新增 `docker/nginx.frontend.conf`，前端容器内反向代理 `/api` 到 control-plane
-- 新增 `docker-compose.build.yml`，支持“本机构建生产镜像”
-
----
-
-## 安全基线
-
-### 已落实的仓库安全策略
-
-- `config.toml` 已加入 `.gitignore`，防止本地配置误提交
-- `.env.*`（除明确示例文件）默认忽略
-- CI 集成 `gitleaks` 做 secrets 扫描
-
-### 发布前强烈建议
-
-1. 轮换所有历史暴露过的 token/refresh token/JWT secret。
-2. 在首次公开仓库前，执行一次完整 secret 扫描（含 git history）。
-3. 生产环境关闭 `ENABLE_INTERNAL_DEBUG_ROUTES`。
-4. 生产环境显式开启 `ADMIN_SESSION_COOKIE_SECURE=true`；启用租户门户时再同时开启 `TENANT_SESSION_COOKIE_SECURE=true`。
-5. 将配置统一放到 `docker/.env.personal` / `docker/.env.team` / `docker/.env.business` 或密钥管理系统，不在仓库存明文。
-
----
-
-## CI/CD
-
-### 已新增工作流
-
-- `CI`（`.github/workflows/ci.yml`）
-  - `gitleaks` secrets 扫描
-  - Rust `check`：`cargo check --workspace --all-targets --locked`
-  - Rust `edition/backend matrix check`：
-    - `cargo check -p control-plane --no-default-features --features sqlite-backend --bin codex-pool-personal --locked`
-    - `cargo check -p control-plane --no-default-features --features postgres-backend --bin codex-pool-team --locked`
-    - `cargo check -p control-plane --no-default-features --features postgres-backend,redis-backend,clickhouse-backend,smtp-backend --bin codex-pool-business --bin usage-worker --bin edition-migrate --locked`
-  - Rust `fast tests`：`cargo test --workspace --lib --bins --locked`
-  - Rust `integration tests`：`cargo test -p <control-plane|data-plane> --test integration --locked`
-  - Rust `full clippy`：`cargo clippy --workspace --all-targets --locked`
-  - Rust `audit`：`cargo audit`
-  - Frontend：`i18n:check` + `i18n:hardcode -- --no-baseline` + `i18n:runtime-check` + `lint` + `build`
-  - Docker：构建 Rust runtime 与 Frontend runtime 镜像
-
-- `Docker Publish`（`.github/workflows/docker-publish.yml`）
-  - tag（`v*`）或手动触发后发布到 GHCR
-  - 发布两个镜像：
-    - `ghcr.io/<owner>/codex-pool-rust`
-    - `ghcr.io/<owner>/codex-pool-frontend`
-
----
-
-## API 兼容面
-
-### Data Plane（对外）
-
-- `POST /v1/responses`
-- `GET /v1/responses`（WebSocket Upgrade）
-- `POST /backend-api/codex/responses`
-- `GET /backend-api/codex/responses`（WebSocket Upgrade）
-- `POST /v1/chat/completions`
-- `GET /v1/models`
-- `GET /api/codex/usage`
-
-> WebSocket 兼容约定：  
-> - 支持透传 `OpenAI-Beta: responses_websockets=2026-02-04/2026-02-06`。  
-> - 当上游握手明确返回 `426 Upgrade Required` 时，Data Plane 会保持 `426` 返回，便于客户端快速回退到 HTTPS 传输。  
-
-### Control Plane（管理）
-
-- 管理员认证、租户管理、API Key 管理、上游账号管理
-- 路由/重试策略管理
-- 数据平面快照发布
-- Usage / Billing / Logs / Dashboard 查询接口
-
----
-
-## 开发者指南（后置）
-
-### 本地运行（不使用 Docker）
-
-```bash
-# control-plane
-set -a && source .env.runtime && set +a
-cargo run -p control-plane --bin codex-pool-business
-
-# data-plane
-set -a && source .env.runtime && set +a
-cargo run -p data-plane --bin data-plane
-
-# usage-worker
-set -a && source .env.runtime && set +a
-cargo run -p control-plane --bin usage-worker
-```
-
-```bash
-# frontend
 cd frontend
-npm ci --legacy-peer-deps
-npm run dev
-```
-
-
-### 常用质量命令
-
-```bash
-# Rust
-cargo fmt --all --check
-cargo check --workspace --all-targets
-cargo test --workspace --lib --bins
-cargo test -p control-plane --test integration
-cargo test -p data-plane --test integration
-cargo clippy --workspace --all-targets --locked
-
-# Frontend
-cd frontend
-npm run lint
+npm ci
 npm run build
 ```
 
----
+### 3. 构建 `personal` 二进制
+
+```bash
+cargo build --release -p control-plane --no-default-features --features sqlite-backend --bin codex-pool-personal
+```
+
+产物路径：
+
+```text
+target/release/codex-pool-personal
+```
+
+### 4. 配置环境变量
+
+可以把 [`docker/.env.personal.example`](./docker/.env.personal.example) 当作参考模板，但推荐你自己创建一份本地环境文件，例如 `.env.runtime`，不要把真实值提交进仓库。
+
+`personal` 至少需要这些变量：
+
+| 变量 | 说明 |
+| --- | --- |
+| `PERSONAL_SQLITE_PATH` | SQLite 文件路径 |
+| `CONTROL_PLANE_INTERNAL_AUTH_TOKEN` | control-plane / data-plane 内部鉴权 token |
+| `CONTROL_PLANE_API_KEY_HMAC_KEYS` | API Key HMAC key ring，格式 `kid:base64_secret` |
+| `CREDENTIALS_ENCRYPTION_KEY` | 凭据加密密钥，Base64 编码的 32 字节密钥 |
+| `ADMIN_PASSWORD` | 管理台管理员密码 |
+| `ADMIN_JWT_SECRET` | 管理台 JWT secret |
+
+常用可选变量：
+
+| 变量 | 说明 |
+| --- | --- |
+| `ADMIN_USERNAME` | 管理台用户名，未显式设置时通常使用 `admin` |
+| `PERSONAL_APP_PORT` | 监听端口，常见为 `8090` |
+| `RUST_LOG` | 日志级别 |
+
+示例：
+
+```bash
+export PERSONAL_SQLITE_PATH="$PWD/codex-pool-personal.sqlite"
+export CONTROL_PLANE_INTERNAL_AUTH_TOKEN="$(openssl rand -hex 32)"
+export CONTROL_PLANE_API_KEY_HMAC_KEYS="k1:$(openssl rand -base64 32)"
+export CREDENTIALS_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+export ADMIN_USERNAME="admin"
+export ADMIN_PASSWORD="replace-with-your-own-password"
+export ADMIN_JWT_SECRET="$(openssl rand -base64 32)"
+export PERSONAL_APP_PORT="8090"
+export RUST_LOG="info"
+```
+
+### 5. 运行
+
+```bash
+target/release/codex-pool-personal
+```
+
+启动后访问：
+
+- 管理台：`http://127.0.0.1:${PERSONAL_APP_PORT:-8090}`
+- 健康检查：`http://127.0.0.1:${PERSONAL_APP_PORT:-8090}/health`
+
+## 管理员鉴权
+
+管理员登录接口：
+
+```text
+POST /api/v1/admin/auth/login
+```
+
+请求示例：
+
+```bash
+ADMIN_TOKEN="$(
+  curl -fsS http://127.0.0.1:8090/api/v1/admin/auth/login \
+    -H 'Content-Type: application/json' \
+    -d '{
+      "username": "admin",
+      "password": "replace-with-your-own-password"
+    }' | jq -r '.access_token'
+)"
+```
+
+后续调用管理接口时带上：
+
+```text
+Authorization: Bearer <ADMIN_TOKEN>
+```
+
+注意：批量上传账号接口虽然路径不在 `/api/v1/admin/*` 下，但它同样要求管理员鉴权。
+
+## 批量上传账号
+
+接口：
+
+```text
+POST /api/v1/upstream-accounts/oauth/import-jobs
+```
+
+请求格式：
+
+- `multipart/form-data`
+- 支持上传 `.json` 或 `.jsonl`
+- 文件字段可用 `file`、`files` 或 `files[]`
+
+常用表单字段：
+
+| 字段 | 说明 | 默认值 |
+| --- | --- | --- |
+| `credential_mode` | `refresh_token` / `access_token` / `auto` | 后端默认 `auto`，前端默认 `refresh_token` |
+| `mode` | 上游模式，例如 `chat_gpt_session` / `codex_oauth` | `chat_gpt_session` |
+| `base_url` | 上游基地址 | `https://chatgpt.com/backend-api/codex` |
+| `default_priority` | 默认优先级 | `100` |
+| `default_enabled` | 默认启用状态 | `true` |
+
+### 最小字段要求
+
+#### RT 模式
+
+当 `credential_mode=refresh_token` 时，每条记录最少只需要：
+
+```json
+{
+  "refresh_token": "rt_xxx"
+}
+```
+
+建议同时提供这些字段，便于后续运营和去重：
+
+- `chatgpt_account_id`
+- `email`
+- `label`
+- `access_token` 或 `bearer_token` 作为 fallback access token
+- `mode`
+- `base_url`
+
+说明：
+
+- 如果缺少 `label`，后端会自动派生一个标签。
+- 如果缺少 `base_url`、`priority`、`enabled`，后端会使用默认值。
+- `refresh_token` 也支持一批常见别名，例如 `refreshToken`、`rt`。
+
+#### AK 模式
+
+当 `credential_mode=access_token` 时，每条记录最少只需要：
+
+```json
+{
+  "access_token": "eyJ..."
+}
+```
+
+也接受这些同义字段：
+
+- `bearer_token`
+- `token`
+- `accessToken`
+
+建议同时提供：
+
+- `chatgpt_account_id`
+- `label`
+- `exp` 或 `expired`
+- `mode`
+- `base_url`
+
+说明：
+
+- 如果 `access_token` 是 JWT，后端会尝试从 token 里推导过期时间。
+- 如果同时给了 `exp` 或 RFC3339 格式的 `expired`，会优先使用它们。
+
+### 上传示例
+
+#### 1. RT 模式 JSONL 示例
+
+`accounts-rt.jsonl`
+
+```json
+{"refresh_token":"rt_example_1","chatgpt_account_id":"acct_example_1","label":"rt-example-1"}
+{"refresh_token":"rt_example_2","access_token":"eyJ...","email":"user2@example.com"}
+```
+
+调用：
+
+```bash
+curl -fsS http://127.0.0.1:8090/api/v1/upstream-accounts/oauth/import-jobs \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -F "files[]=@accounts-rt.jsonl" \
+  -F "credential_mode=refresh_token" \
+  -F "mode=chat_gpt_session" \
+  -F "base_url=https://chatgpt.com/backend-api/codex"
+```
+
+#### 2. AK 模式 JSON 示例
+
+`accounts-ak.json`
+
+```json
+[
+  {
+    "access_token": "eyJ...",
+    "chatgpt_account_id": "acct_ak_1",
+    "label": "ak-example-1",
+    "exp": 1893456000
+  },
+  {
+    "bearer_token": "eyJ...",
+    "label": "ak-example-2"
+  }
+]
+```
+
+调用：
+
+```bash
+curl -fsS http://127.0.0.1:8090/api/v1/upstream-accounts/oauth/import-jobs \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -F "files[]=@accounts-ak.json" \
+  -F "credential_mode=access_token" \
+  -F "mode=chat_gpt_session" \
+  -F "base_url=https://chatgpt.com/backend-api/codex"
+```
+
+### 导入后查询任务状态
+
+```text
+GET /api/v1/upstream-accounts/oauth/import-jobs/{job_id}
+GET /api/v1/upstream-accounts/oauth/import-jobs/{job_id}/items
+POST /api/v1/upstream-accounts/oauth/import-jobs/{job_id}/retry-failed
+POST /api/v1/upstream-accounts/oauth/import-jobs/{job_id}/pause
+POST /api/v1/upstream-accounts/oauth/import-jobs/{job_id}/resume
+POST /api/v1/upstream-accounts/oauth/import-jobs/{job_id}/cancel
+```
+
+这些接口都需要同一个管理员 Bearer Token。
+
+## API 兼容面
+
+当前项目主要兼容这些入口：
+
+- `POST /v1/responses`
+- `GET /v1/responses`
+- `POST /backend-api/codex/responses`
+- `GET /backend-api/codex/responses`
+- `POST /v1/chat/completions`
+- `GET /v1/models`
+
+更细的兼容矩阵后续会单独补充到公开文档中；当前以仓库代码与实际接口行为为准。
+
+## 仓库内仍在演进的部分
+
+以下内容目前仍保留在仓库里，但不建议当作公开稳定承诺：
+
+- `team` / `business` 相关二进制与部署路径
+- 多服务 Docker Compose 编排
+- 部分内部规划文档与开发辅助脚本
+
+如果你只是想稳定自托管使用，优先看本 README 的 `personal` 路径即可。
 
 ## 项目结构
 
@@ -388,17 +327,12 @@ npm run build
 ├── crates/
 │   └── codex-pool-core/          # 共享模型与 DTO
 ├── services/
-│   ├── control-plane/            # 管理面 API / 策略 / 认证 / 快照
-│   └── data-plane/               # 代理面 / 路由 / failover / 鉴权
-├── frontend/                     # Admin + Tenant 前端
-├── docker/                       # Dockerfile 与 nginx 配置
-├── scripts/                      # 冒烟、回填、压测脚本
-├── docker-compose.dev.yml        # 开发编排
-├── docker-compose.yml            # 生产编排
-└── docker-compose.build.yml      # 生产本地构建覆盖
+│   ├── control-plane/            # 管理面 API / 导入 / 配置 / 模型 / 代理
+│   └── data-plane/               # 对外兼容代理入口
+├── frontend/                     # 内嵌管理台前端
+├── docker/                       # Dockerfile 与示例环境变量
+└── scripts/                      # 开发与运维辅助脚本
 ```
-
----
 
 ## License
 

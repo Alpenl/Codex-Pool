@@ -21,3 +21,6 @@ coverage/
 **/*.local.yml
 **/*.local.json
 AGENTS.md
+*.sqlite
+frontend/design/*.pen
+.impeccable.md
